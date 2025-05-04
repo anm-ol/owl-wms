@@ -97,13 +97,22 @@ class PatchProjOut(nn.Module):
         self.act = nn.SiLU()
         self.proj = nn.Linear(d_model, channels*patch_size*patch_size)
         self.sample_size = sample_size
+        self.patch_size = patch_size
+
+        self.n_patches = self.sample_size//self.patch_size
 
     def forward(self, x):
         x = self.norm(x)
         x = self.act(x)
         x = self.proj(x)
-        x = eo.rearrange(x, 'b (h w) c -> b c h w', h = self.sample_size)
+        x = eo.rearrange(x, 'b (h w) (ph pw c) -> b c (h ph) (w pw)', h = self.n_patches, ph = self.patch_size, pw = self.patch_size)
 
         return x
 
-        
+if __name__ == "__main__":
+    layer = PatchProjOut(64, 384, 3, 4).cuda().bfloat16()
+    x = torch.randn(1,256,384).cuda().bfloat16()
+
+    with torch.no_grad():
+        z = layer(x)
+        print(z.shape)

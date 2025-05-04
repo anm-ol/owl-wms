@@ -1,5 +1,5 @@
 """
-Trainer for reconstruction only
+Trainer for proxy models
 """
 
 import torch
@@ -12,12 +12,13 @@ import einops as eo
 
 from .base import BaseTrainer
 
-from ..utils import freeze, Timer
+from ..utils import freeze, Timer, versatile_load
 from ..schedulers import get_scheduler_cls
 from ..models import get_model_cls
 from ..nn.lpips import VGGLPIPS
 from ..data import get_loader
 from ..utils.logging import LogHelper, to_wandb
+from ..configs import Config
 
 def latent_reg_loss(z):
     # z is [b,c,h,w]
@@ -42,6 +43,11 @@ class RecTrainer(BaseTrainer):
 
         model_id = self.model_cfg.model_id
         self.model = get_model_cls(model_id)(self.model_cfg)
+        
+        teacher_cfg = Config.from_yaml(self.train_cfg.teacher_cfg)
+        teacher_ckpt = versatile_load(self.train_cfg.teacher_ckpt)
+        self.teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
+        self.teacher.load_state_dict(teacher_ckpt)
 
         self.ema = None
         self.opt = None
@@ -79,17 +85,11 @@ class RecTrainer(BaseTrainer):
 
         # Loss weights
         reg_weight =  self.train_cfg.loss_weights.get('latent_reg', 0.0)
-        lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
 
         # Prepare model, lpips, ema
         self.model = self.model.cuda().train()
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank])
-
-        lpips = None
-        if lpips_weight > 0.0:
-            lpips = VGGLPIPS().cuda().eval()
-            freeze(lpips)
 
         self.ema = EMA(
             self.model,
@@ -128,19 +128,17 @@ class RecTrainer(BaseTrainer):
                 with ctx:
                     batch_rec, z = self.model(batch)
 
+                with torch.no_grad(), ctx:
+                    z_teacher = self.teacher.encoder(batch)
+
                 if reg_weight > 0:
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight
                     metrics.log('reg_loss', reg_loss)
-
-                mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
+                
+                mse_loss = F.mse_loss(batch_rec, z_teacher) / accum_steps
                 total_loss += mse_loss
                 metrics.log('mse_loss', mse_loss)
-
-                if lpips_weight > 0.0:
-                    lpips_loss = lpips(batch_rec, batch) / accum_steps
-                    total_loss += lpips_loss
-                    metrics.log('lpips_loss', lpips_loss)
 
                 self.scaler.scale(total_loss).backward()
 
@@ -172,6 +170,8 @@ class RecTrainer(BaseTrainer):
                         timer.reset()
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
+                            with ctx:
+                                batch_rec = self.teacher.decoder(batch_rec)
                             wandb_dict['samples'] = to_wandb(
                                 batch.detach().contiguous().bfloat16(),
                                 batch_rec.detach().contiguous().bfloat16(),
@@ -186,21 +186,3 @@ class RecTrainer(BaseTrainer):
                             self.save()
                         
                     self.barrier()
-                    
-
-                    
-
-
-
-
-        
-
-
-
-
-        
-
-
-
-
-
