@@ -134,7 +134,7 @@ class RecTrainer(BaseTrainer):
                 total_loss += mse_loss
                 metrics.log('mse_loss', mse_loss)
 
-                if lpips_weigt > 0.0:
+                if lpips_weight > 0.0:
                     lpips_loss = lpips(batch_rec, batch) / accum_steps
                     total_loss += lpips_loss
                     metrics.log('lpips_loss', lpips_loss)
