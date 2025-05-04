@@ -74,13 +74,19 @@ class RecTrainer(BaseTrainer):
     def train(self):
         torch.cuda.set_device(self.local_rank)
 
+        # Loss weights
+        reg_weight =  self.train_cfg.loss_weights.get('latent_reg', 0.0)
+        lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
+
         # Prepare model, lpips, ema
         self.model = self.model.cuda().train()
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank])
 
-        lpips = VGGLPIPS().cuda().eval()
-        freeze(lpips)
+        lpips = None
+        if lpips_weight > 0.0:
+            lpips = VGGLPIPS().cuda().eval()
+            freeze(lpips)
 
         self.ema = EMA(
             self.model,
@@ -99,7 +105,6 @@ class RecTrainer(BaseTrainer):
         accum_steps = max(1, accum_steps)
         self.scaler = torch.amp.GradScaler()
         ctx = torch.amp.autocast('cuda',torch.bfloat16)
-        reg_weight =  self.train_cfg.loss_weights.get('latent_reg', 0.0)
 
         # Timer reset
         timer = Timer()
@@ -123,20 +128,24 @@ class RecTrainer(BaseTrainer):
                 if reg_weight > 0:
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight
+                    metrics.log('reg_loss', reg_loss)
                 
                 mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
                 total_loss += mse_loss
+                metrics.log('mse_loss', mse_loss)
 
-                lpips_loss = lpips(batch_rec, batch) / accum_steps
-                total_loss += lpips_loss
+                if lpips_weigt > 0.0:
+                    lpips_loss = lpips(batch_rec, batch) / accum_steps
+                    total_loss += lpips_loss
+                    metrics.log('lpips_loss', lpips_loss)
 
                 self.scaler.scale(total_loss).backward()
 
-                metrics.log_dict({
-                    'reg_loss' : reg_loss,
-                    'mse_loss' : mse_loss,
-                    'lpips_loss' : lpips_loss
-                })
+                with torch.no_grad():
+                    metrics.log_dict({
+                        'z_std' : z.std() / accum_steps,
+                        'z_shift' : z.mean() / accum_steps
+                    })
 
                 local_step += 1
                 if local_step % accum_steps == 0:
@@ -154,18 +163,19 @@ class RecTrainer(BaseTrainer):
                     self.ema.update()
 
                     # Do logging stuff with sampling stuff in the middle
-                    wandb_dict = metrics.pop()
-                    wandb_dict['time'] = timer.hit()
-                    timer.reset()
+                    with torch.no_grad():
+                        wandb_dict = metrics.pop()
+                        wandb_dict['time'] = timer.hit()
+                        timer.reset()
 
-                    if self.total_step_counter % self.train_cfg.sample_interval == 0:
-                        wandb_dict['samples'] = to_wandb(
-                            batch.detach().contiguous().bfloat16(),
-                            batch_rec.detach().contiguous().bfloat16(),
-                            gather = False
-                        )
-                    if self.rank == 0:
-                        wandb.log(wandb_dict)
+                        if self.total_step_counter % self.train_cfg.sample_interval == 0:
+                            wandb_dict['samples'] = to_wandb(
+                                batch.detach().contiguous().bfloat16(),
+                                batch_rec.detach().contiguous().bfloat16(),
+                                gather = False
+                            )
+                        if self.rank == 0:
+                            wandb.log(wandb_dict)
 
                     self.total_step_counter += 1
                     if self.total_step_counter % self.train_cfg.save_interval == 0:

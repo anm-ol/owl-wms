@@ -30,7 +30,7 @@ def get_loader(batch_size):
 
     def collate_fn(examples):
         imgs = [example['image'] for example in examples]
-        imgs = [img.resize((256, 256), Image.BILINEAR) for img in imgs]
+        imgs = [img.resize((64, 64), Image.BILINEAR) for img in imgs]
         tensors = [TF.to_tensor(img) * 2 - 1 for img in imgs]
         batch = torch.stack(tensors)
         batch = batch.repeat(1, 3, 1, 1)

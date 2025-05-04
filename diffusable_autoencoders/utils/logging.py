@@ -2,6 +2,8 @@ import torch.distributed as dist
 import wandb
 import torch
 
+import numpy as np
+
 class LogHelper:
     """
     Helps get stats across devices/grad accum steps
@@ -54,6 +56,7 @@ class LogHelper:
 def to_wandb(x1, x2, gather = False):
     # x1, x2 both is [b,c,h,w]
     x = torch.cat([x1,x2], dim = -1) # side to side
+    x = x.clamp(-1, 1)
 
     if dist.is_initialized() and gather:
         gathered = [None for _ in range(dist.get_world_size())]
