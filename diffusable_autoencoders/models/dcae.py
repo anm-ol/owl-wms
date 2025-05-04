@@ -103,10 +103,13 @@ class Decoder(nn.Module):
         x = self.norm_out(x)
         x = self.act_out(x)
         x = self.conv_out(x)
-        
+
         return x
 
 class DCAE(nn.Module):
+    """
+    DCAE based autoencoder that takes a ResNetConfig to configure.
+    """
     def __init__(self, config : 'ResNetConfig'):
         super().__init__()
 

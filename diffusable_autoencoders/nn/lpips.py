@@ -10,11 +10,10 @@ def vgg_patchify(x):
     _,_,h,_ = x.shape
     if h != 512: x = F.interpolate(x, (512, 512), mode='bicubic', align_corners=True)
     
-    patch_size = 224
-    tl = x[:,:,:patch_size,:patch_size]
-    tr = x[:,:,:patch_size,-patch_size:]
-    bl = x[:,:,-patch_size:,:patch_size] 
-    br = x[:,:,-patch_size:,-patch_size:]
+    tl = x[:,:,:224,:224]
+    tr = x[:,:,:224,-224:]
+    bl = x[:,:,-224:,:224] 
+    br = x[:,:,-224:,-224:]
     return torch.cat([tl, tr, bl, br], dim=0)
 
 class VGGLPIPS(nn.Module):
