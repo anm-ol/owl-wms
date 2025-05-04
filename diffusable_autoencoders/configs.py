@@ -1,5 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
+import yaml
+from omegaconf import OmegaConf
 
 @dataclass
 class VAEConfig:
@@ -17,8 +19,8 @@ class ResNetConfig(VAEConfig):
     ch_0 : int = 256
     ch_max : int = 2048
 
-    encoder_blocks_per_stage : List[int] = None
-    decoder_blocks_per_stage : List[int] = None
+    encoder_blocks_per_stage : list = None
+    decoder_blocks_per_stage : list = None
 
     attn_size : int = None  # When size is less than this, attention will be used
 
@@ -31,7 +33,7 @@ class TransformerConfig(VAEConfig):
     patch_size : int = 1
 
 @dataclass
-class TrainerConfig:
+class TrainingConfig:
     trainer_id : str = None
     data_id : str = None
 
@@ -41,17 +43,16 @@ class TrainerConfig:
     epochs : int = 200
 
     opt : str = "AdamW"
-    opt_kwargs : Dict = field(default_factory = lambda : {
-        "lr" : 5.0e-5,
-        "eps" : 1.0e-15,
-        "betas" : (0.9, 0.95)
-    })
+    opt_kwargs : dict = None
+
+    loss_weights : dict = None
 
     scheduler : str = None
     scheduler_kwargs : dict = None
 
     checkpoint_dir : str = "checkpoints/v0" # Where checkpoints saved
-    
+    resume_ckpt : str = None
+
     # Distillation related
     teacher_ckpt : str = None
     teacher_cfg : str = None
@@ -64,3 +65,17 @@ class WANDBConfig:
     name : str = None
     project : str = None
     run_name : str = None 
+
+@dataclass
+class Config:
+    model: VAEConfig
+    train: TrainingConfig
+    wandb: WANDBConfig
+
+    @classmethod
+    def from_yaml(cls, path):
+        with open(path) as f:
+            raw_cfg = yaml.safe_load(f)
+        
+        cfg = OmegaConf.create(raw_cfg)
+        return OmegaConf.structured(cls(**cfg))

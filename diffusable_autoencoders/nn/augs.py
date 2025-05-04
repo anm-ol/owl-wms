@@ -67,7 +67,7 @@ class PairedRandomAffine(nn.Module):
         orig_dtype = x_real.dtype
         
         # Get transform and apply to real image
-        affine_fn = self._get_affine_transform(x_real)
+        affine_fn = self._get_affine_transform(x_real.float())
         x_real_aug = self._transform_image(x_real, affine_fn)
         
         if x_fake is None:

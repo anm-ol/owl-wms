@@ -21,7 +21,7 @@ class BaseTrainer:
         self.logging_cfg = logging_cfg
         self.model_cfg = model_cfg
         
-        if self.logging_cfg is not None and self.global_rank == 0:
+        if self.logging_cfg is not None and self.rank == 0:
             log = self.logging_cfg
             wandb.init(
                 project = log.project,
@@ -36,6 +36,18 @@ class BaseTrainer:
     def barrier(self):
         if self.world_size > 1:
             dist.barrier()
+
+    def get_module(self, ema = False):
+        if self.world_size == 1:
+            if ema:
+                return self.ema.ema_model
+            else:
+                return self.model
+        else:
+            if ema:
+                return self.ema.ema_model.module
+            else:
+                return self.model.module
     
     def save(self, save_dict):
         os.makedirs(self.train_cfg.checkpoint_dir, exist_ok = True)

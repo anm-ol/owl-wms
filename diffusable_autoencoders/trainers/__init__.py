@@ -1,2 +1,5 @@
+from .rec import RecTrainer
+
 def get_trainer_cls(trainer_id):
-    pass
+    if trainer_id == "rec":
+        return RecTrainer

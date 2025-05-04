@@ -121,7 +121,7 @@ class DCAE(nn.Module):
     def forward(self, x):
         z = self.encoder(x)
         if self.config.noise_decoder_inputs > 0.0:
-            dec_input = z + torch.randn_like(z) * self.config.noise_decoder_input
+            dec_input = z + torch.randn_like(z) * self.config.noise_decoder_inputs
         else:
             dec_input = z.clone()
         rec = self.decoder(z)
