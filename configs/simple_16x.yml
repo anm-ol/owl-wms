@@ -1,0 +1,44 @@
+# Config for a simple 256 -> 16 autoencoder
+model:
+  model_id: dcae
+  sample_size: 256
+  channels: 3
+  latent_size: 16
+  latent_channels: 32
+  
+  noise_decoder_inputs: 0.05
+  ch_0: 64
+  ch_max: 512
+
+  encoder_blocks_per_stage: [2,3,3,2]
+  decoder_blocks_per_stage: [2,3,3,2]
+
+train:
+  trainer_id: rec
+  data_id: coco
+
+  target_batch_size: 128
+  batch_size: 8
+
+  epochs: 200
+
+  opt: AdamW
+  opt_kwargs:
+    lr: 1.0e-4
+    eps: 1.0e-15
+    betas: [0.9, 0.95]
+
+  scheduler: LinearWarmup
+  scheduler_kwargs:
+    warmup_steps: 3000
+    min_lr: 1.0e-5
+
+  checkpoint_dir: checkpoints/v0
+
+  sample_interval: 1000
+  save_interval: 10000
+
+wandb:
+  name: shahbuland
+  project: new_vaes
+  run_name: v0
