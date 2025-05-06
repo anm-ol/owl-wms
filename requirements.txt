@@ -1,4 +1,6 @@
-pip install git+https://github.com/shahbuland/PerceptualSimilarity
+git+https://github.com/shahbuland/PerceptualSimilarity
 torchmetrics
 einops
 ema-pytorch
+git+https://github.com/KellerJordan/Muon
+vector-quantize-pytorch

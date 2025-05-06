@@ -7,6 +7,7 @@ from .embeddings import ImageRoPE
 from .mlp import MLP
 
 import einops as eo
+from .mimetic import mimetic_init
 
 torch.backends.cuda.enable_flash_sdp(enabled = True)
 
@@ -20,6 +21,8 @@ class Attn(nn.Module):
         self.out = nn.Linear(config.d_model, config.d_model)
 
         self.qk_norm = QKNorm(config.d_model // config.n_heads)
+
+        mimetic_init(self.qkv, self.out, config)
 
     def forward(self, x):
 
@@ -42,20 +45,16 @@ class Transformer(nn.Module):
         self.attn = Attn(config)
         self.mlp = MLP(config)
 
-        # layer scale
-        self.alpha = nn.Parameter(torch.ones(1)*1.0e-6)
-        self.beta = nn.Parameter(torch.ones(1)*1.0e-6)
-
     def forward(self, x):
         res1 = x.clone()
         x = self.norm1(x)
         x = self.attn(x)
-        x = res1 + self.alpha * x
+        x = res1 + x
         
         res2 = x.clone()
         x = self.norm2(x)
         x = self.mlp(x)
-        x = res2 + self.beta * x
+        x = res2 + x
 
         return x
 
@@ -74,7 +73,6 @@ class StackedTransformer(nn.Module):
 
         return x
 
-        
 # === VIT Specific Layers ===
 
 class PatchProjIn(nn.Module):

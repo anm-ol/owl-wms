@@ -14,6 +14,10 @@ class VAEConfig:
     
     noise_decoder_inputs : float = 0.0
 
+    # For VQ
+    codebook_size : int = 1024
+    codebook_dim : int = 8
+
 @dataclass
 class ResNetConfig(VAEConfig):
     ch_0 : int = 256

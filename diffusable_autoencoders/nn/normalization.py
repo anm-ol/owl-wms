@@ -8,7 +8,7 @@ class GroupNorm(nn.Module):
     def __init__(self, dim, groups = 32):
         super().__init__()
         self.groups = groups
-        self.gain = nn.Parameter(torch.randn(dim) * 1.0e-6)
+        self.gain = nn.Parameter(torch.randn(dim) * 0.02)
 
     def forward(self, x):
         b, c, h, w = x.shape
@@ -26,7 +26,7 @@ class RMSNorm(nn.Module):
         super().__init__()
 
         # small init to default to no gain
-        self.gain = nn.Parameter(torch.randn(dim) * 1.0e-6)
+        self.gain = nn.Parameter(torch.randn(dim) * 0.02)
     
     def forward(self, x):
         b,h,n,d = x.shape

@@ -28,6 +28,7 @@ class Encoder(nn.Module):
         z = eo.repeat(self.latent_tokens, 'n d -> b n d', b = b)
         n_latents = z.shape[1]
         x = torch.cat([z,x], dim = 1)
+        x = self.pos_enc(x)
 
         x = self.transformer(x)
         z = x[:,:n_latents]
@@ -55,6 +56,7 @@ class Decoder(nn.Module):
         b,n_latents,d = z.shape
         x = eo.repeat(self.image_tokens, 'n d -> b n d', b = b)
         x = torch.cat([z,x], dim = 1)
+        x = self.pos_enc(x)
 
         x = self.transformer(x)
         x = x[:,n_latents:]

@@ -18,6 +18,7 @@ from ..models import get_model_cls
 from ..nn.lpips import VGGLPIPS
 from ..data import get_loader
 from ..utils.logging import LogHelper, to_wandb
+from ..muon import init_muon
 
 def latent_reg_loss(z):
     # z is [b,c,h,w]
@@ -99,7 +100,11 @@ class RecTrainer(BaseTrainer):
         )
 
         # Set up optimizer and scheduler
-        self.opt = getattr(torch.optim, self.train_cfg.opt)(self.model.parameters(), **self.train_cfg.opt_kwargs)
+        if self.train_cfg.opt.lower() == "muon":
+            self.opt = init_muon(self.model, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
+        else:
+            self.opt = getattr(torch.optim, self.train_cfg.opt)(self.model.parameters(), **self.train_cfg.opt_kwargs)
+
         if self.train_cfg.scheduler is not None:
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
 
@@ -169,6 +174,7 @@ class RecTrainer(BaseTrainer):
                     with torch.no_grad():
                         wandb_dict = metrics.pop()
                         wandb_dict['time'] = timer.hit()
+                        wandb_dict['lr'] = self.opt.param_groups[0]['lr']
                         timer.reset()
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
