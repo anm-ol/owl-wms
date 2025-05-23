@@ -4,3 +4,9 @@ einops
 ema-pytorch
 git+https://github.com/KellerJordan/Muon
 vector-quantize-pytorch
+ray
+omegaconf
+wandb
+kornia
+datasets
+huggingface-hub
