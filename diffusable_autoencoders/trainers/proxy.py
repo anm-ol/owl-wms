@@ -19,14 +19,20 @@ from ..nn.lpips import VGGLPIPS
 from ..data import get_loader
 from ..utils.logging import LogHelper, to_wandb
 from ..configs import Config
+from ..muon import init_muon
 
 def latent_reg_loss(z):
     # z is [b,c,h,w]
-    loss = z.pow(2)
-    loss = eo.reduce(loss, 'b ... -> b', reduction = 'sum').mean()
-    return 0.5 * loss
+    # KL divergence between N(z, 0.1) and N(0,1)
+    mu = z
+    logvar = 2 * torch.log(torch.tensor(0.1))  # log(0.1^2)
+    
+    # KL = -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
+    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+    kl = eo.reduce(kl, 'b ... -> b', reduction='sum').mean()
+    return kl
 
-class RecTrainer(BaseTrainer):
+class ProxyTrainer(BaseTrainer):
     """
     Trainer for reconstruction only objective.
     Only does L2 + LPIPS
@@ -44,10 +50,14 @@ class RecTrainer(BaseTrainer):
         model_id = self.model_cfg.model_id
         self.model = get_model_cls(model_id)(self.model_cfg)
         
-        teacher_cfg = Config.from_yaml(self.train_cfg.teacher_cfg)
+        teacher_cfg = Config.from_yaml(self.train_cfg.teacher_cfg).model
         teacher_ckpt = versatile_load(self.train_cfg.teacher_ckpt)
         self.teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
         self.teacher.load_state_dict(teacher_ckpt)
+
+        if self.global_rank == 0:
+            n_params = sum(p.numel() for p in self.model.parameters())
+            print(f"Model parameters: {n_params:,}")
 
         self.ema = None
         self.opt = None
@@ -91,6 +101,10 @@ class RecTrainer(BaseTrainer):
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank])
 
+        self.teacher = self.teacher.eval().cuda().bfloat16()
+        self.teacher.encoder = torch.compile(self.teacher.encoder)
+        self.teacher.decoder = torch.compile(self.teacher.decoder)
+
         self.ema = EMA(
             self.model,
             beta = 0.9999,
@@ -99,7 +113,11 @@ class RecTrainer(BaseTrainer):
         )
 
         # Set up optimizer and scheduler
-        self.opt = getattr(torch.optim, self.train_cfg.opt)(self.model.parameters(), **self.train_cfg.opt_kwargs)
+        if self.train_cfg.opt.lower() == "muon":
+            self.opt = init_muon(self.model, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
+        else:
+            self.opt = getattr(torch.optim, self.train_cfg.opt)(self.model.parameters(), **self.train_cfg.opt_kwargs)
+
         if self.train_cfg.scheduler is not None:
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
 
@@ -129,7 +147,7 @@ class RecTrainer(BaseTrainer):
                     batch_rec, z = self.model(batch)
 
                 with torch.no_grad(), ctx:
-                    z_teacher = self.teacher.encoder(batch)
+                    z_teacher = self.teacher.encoder(batch.bfloat16())
 
                 if reg_weight > 0:
                     reg_loss = latent_reg_loss(z) / accum_steps
@@ -171,7 +189,7 @@ class RecTrainer(BaseTrainer):
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
-                                batch_rec = self.teacher.decoder(batch_rec)
+                                batch_rec = self.teacher.decoder(batch_rec.bfloat16())
                             wandb_dict['samples'] = to_wandb(
                                 batch.detach().contiguous().bfloat16(),
                                 batch_rec.detach().contiguous().bfloat16(),

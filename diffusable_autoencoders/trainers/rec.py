@@ -44,6 +44,10 @@ class RecTrainer(BaseTrainer):
         model_id = self.model_cfg.model_id
         self.model = get_model_cls(model_id)(self.model_cfg)
 
+        if self.rank == 0:
+            param_count = sum(p.numel() for p in self.model.parameters())
+            print(f"Total parameters: {param_count:,}")
+
         self.ema = None
         self.opt = None
         self.scheduler = None
@@ -76,16 +80,15 @@ class RecTrainer(BaseTrainer):
         self.total_step_counter = save_dict['steps']
 
     def train(self):
-        torch.cuda.set_device(self.local_rank)
-
         # Loss weights
         reg_weight =  self.train_cfg.loss_weights.get('latent_reg', 0.0)
         lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
+        se_reg_weight = self.train_cfg.loss_weights.get('se_reg', 0.25)
 
         # Prepare model, lpips, ema
         self.model = self.model.cuda().train()
         if self.world_size > 1:
-            self.model = DDP(self.model, device_ids=[self.local_rank])
+            self.model = DDP(self.model)
 
         lpips = None
         if lpips_weight > 0.0:
@@ -109,7 +112,7 @@ class RecTrainer(BaseTrainer):
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
 
         # Grad accum setup and scaler
-        accum_steps = self.train_cfg.target_batch_size // self.train_cfg.batch_size
+        accum_steps = self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size
         accum_steps = max(1, accum_steps)
         self.scaler = torch.amp.GradScaler()
         ctx = torch.amp.autocast('cuda',torch.bfloat16)
@@ -131,19 +134,31 @@ class RecTrainer(BaseTrainer):
                 batch = batch.cuda().bfloat16()
 
                 with ctx:
-                    batch_rec, z = self.model(batch)
+                    batch_rec, z, down_rec = self.model(batch)
 
                 if reg_weight > 0:
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight
                     metrics.log('reg_loss', reg_loss)
+                
+                if se_reg_weight > 0:
+                    with torch.no_grad():
+                        down_batch = F.interpolate(batch, scale_factor=.5, mode = 'bilinear')
+                    se_loss = F.mse_loss(down_rec, down_batch) / accum_steps
+                    if lpips_weight > 0.0:
+                        se_loss += lpips_weight * lpips(down_rec, down_batch) / accum_steps
+                    
+                    total_loss += se_reg_weight * se_loss
+                    metrics.log('se_loss', se_loss)
+
 
                 mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
                 total_loss += mse_loss
                 metrics.log('mse_loss', mse_loss)
 
                 if lpips_weight > 0.0:
-                    lpips_loss = lpips(batch_rec, batch) / accum_steps
+                    with ctx:
+                        lpips_loss = lpips(batch_rec, batch) / accum_steps
                     total_loss += lpips_loss
                     metrics.log('lpips_loss', lpips_loss)
 
@@ -162,7 +177,7 @@ class RecTrainer(BaseTrainer):
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                     self.scaler.step(self.opt)
-                    self.opt.zero_grad()
+                    self.opt.zero_grad(set_to_none=True)
 
                     self.scaler.update()
 

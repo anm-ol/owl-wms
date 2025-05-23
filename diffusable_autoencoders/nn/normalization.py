@@ -37,6 +37,14 @@ class RMSNorm(nn.Module):
 
         return x * rms * gain
 
+class RMSNorm2d(RMSNorm):
+    def forward(self, x):
+        # x is [b,c,h,w]
+        x = x.permute(0,2,3,1) # -> [b,h,w,c]
+        x = super().forward(x)
+        x = x.permute(0,3,1,2)
+        return x
+
 class QKNorm(nn.Module):
     def __init__(self, dim):
         super().__init__()

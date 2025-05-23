@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from .normalization import GroupNorm
+from .normalization import GroupNorm, RMSNorm2d
 
 """
 Building blocks for any ResNet based model
@@ -23,9 +23,9 @@ class ResBlock(nn.Module):
 
         self.conv1 = nn.Conv2d(ch, 2*ch, 1, 1, 0)
 
-        self.norm1 = GroupNorm(2*ch,n_grps)
+        self.norm1 = RMSNorm2d(2*ch)
         self.conv2 = nn.Conv2d(2*ch, 2*ch, 3, 1, 1, groups = n_grps)
-        self.norm2 = GroupNorm(2*ch,n_grps)
+        self.norm2 = RMSNorm2d(2*ch)
 
         self.conv3 = nn.Conv2d(2*ch, ch, 1, 1, 0, bias=False)
 
@@ -123,4 +123,22 @@ class DownBlock(nn.Module):
         for block in self.blocks:
             x = block(x)
         x = self.down(x)
+        return x
+
+class SameBlock(nn.Module):
+    """
+    General block with no up/down
+    """
+    def __init__(self, ch_in, ch_out, num_res, total_blocks):
+        super().__init__()
+
+        blocks = []
+        num_total = num_res * total_blocks
+        for _ in range(num_res):
+            blocks.append(ResBlock(ch_in, num_total))
+        self.blocks = nn.ModuleList(blocks)
+
+    def forward(self, x):
+        for block in self.blocks:
+            x = block(x)
         return x

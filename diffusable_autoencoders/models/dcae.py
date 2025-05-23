@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 import einops as eo
 
-from ..nn.resnet import UpBlock, DownBlock
+from ..nn.resnet import UpBlock, DownBlock, SameBlock
 from ..nn.sana import SpaceToChannel, ChannelToSpace
 from ..nn.normalization import GroupNorm
 
@@ -26,7 +26,7 @@ class Encoder(nn.Module):
         blocks_per_stage = config.encoder_blocks_per_stage
         total_blocks = len(blocks_per_stage)
 
-        for block_count in blocks_per_stage:
+        for block_count in blocks_per_stage[:-1]:
             next_ch = min(ch*2, ch_max)
 
             blocks.append(DownBlock(ch, next_ch, block_count, total_blocks))
@@ -38,6 +38,8 @@ class Encoder(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         self.residuals = nn.ModuleList(residuals)
                 
+        self.final = SameBlock(ch_max, ch_max, blocks_per_stage[-1], total_blocks)
+
         self.avg_factor = ch // config.latent_channels
         self.conv_out = nn.Conv2d(ch, config.latent_channels, 1, 1, 0, bias=False)
 
@@ -48,6 +50,8 @@ class Encoder(nn.Module):
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
+
+        x = self.final(x) + x
 
         res = x.clone()
         res = eo.reduce(res, 'b (rep c) h w -> b c h w', rep = self.avg_factor, reduction = 'mean')
@@ -74,7 +78,9 @@ class Decoder(nn.Module):
         blocks_per_stage = config.decoder_blocks_per_stage
         total_blocks = len(blocks_per_stage)
 
-        for block_count in reversed(blocks_per_stage):
+        self.starter = SameBlock(ch_max, ch_max, blocks_per_stage[-1], total_blocks)
+
+        for block_count in reversed(blocks_per_stage[:-1]):
             next_ch = min(ch*2, ch_max)
 
             blocks.append(UpBlock(next_ch, ch, block_count, total_blocks))
@@ -95,6 +101,7 @@ class Decoder(nn.Module):
         res = eo.repeat(res, 'b c h w -> b (rep c) h w', rep = self.rep_factor)
 
         x = self.conv_in(x) + res
+        x = self.starter(x) + x
     
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
@@ -120,31 +127,27 @@ class DCAE(nn.Module):
 
     def forward(self, x):
         z = self.encoder(x)
+        down_z = F.interpolate(z, scale_factor=.5,mode='bilinear')
         if self.config.noise_decoder_inputs > 0.0:
             dec_input = z + torch.randn_like(z) * self.config.noise_decoder_inputs
+            down_dec_input = down_z + torch.randn_like(down_z) * self.config.noise_decoder_inputs
         else:
             dec_input = z.clone()
-        rec = self.decoder(z)
-        return rec, z
+            down_dec_input = down_z.clone()
+
+        rec = self.decoder(dec_input)
+        down_rec = self.decoder(down_dec_input)
+        return rec, z, down_rec
 
 if __name__ == "__main__":
-    from ..configs import ResNetConfig
+    from ..configs import Config
 
-    cfg = ResNetConfig(
-        sample_size = 512,
-        latent_size=16,
-        latent_channels=32,
-        ch_0=64,
-        ch_max=512,
-        encoder_blocks_per_stage=[2,3,3,3,2],
-        decoder_blocks_per_stage=[2,3,3,3,2]
-    )
-
+    cfg = Config.from_yaml("configs/1d_diff_exps/teacher_1.yml").model
     model = DCAE(cfg).float().cuda()
 
     with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-        x = torch.randn(1, 3, 512, 512, device='cuda', dtype=torch.bfloat16)
-        rec, z = model(x)
+        x = torch.randn(1, 3, 256, 256, device='cuda', dtype=torch.bfloat16)
+        rec, z, _ = model(x)
         
         print(f'Input shape: {x.shape}, dtype: {x.dtype}')
         print(f'Latent shape: {z.shape}, dtype: {z.dtype}') 

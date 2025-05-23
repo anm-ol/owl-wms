@@ -49,3 +49,5 @@ def versatile_load(path):
         return ckpt
     else:
         ckpt = {k[len(prefix):] : v for (k,v) in ckpt.items() if k.startswith(prefix)}
+
+    return ckpt
