@@ -11,7 +11,7 @@ from torch import nn
 
 import einops as eo
 
-class ResDiscriminator(nn.Module):
+class R3GANDiscriminator(nn.Module):
     def __init__(self, config):
         super().__init__()
 

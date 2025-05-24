@@ -35,6 +35,7 @@ class TransformerConfig(VAEConfig):
     d_model : int = 384
     
     patch_size : int = 1
+    causal: bool = False
 
 @dataclass
 class TrainingConfig:
@@ -63,6 +64,13 @@ class TrainingConfig:
 
     sample_interval : int = 1000
     save_interval : int = 1000
+
+    # Adversarial realted
+    delay_adv: int = 20000
+    warmup_adv:int = 5000
+
+    # Causal regularization
+    warmup_crt:int = 1000
 
 @dataclass
 class WANDBConfig:
