@@ -55,7 +55,7 @@ class ProxyTrainer(BaseTrainer):
         self.teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
         self.teacher.load_state_dict(teacher_ckpt)
 
-        if self.global_rank == 0:
+        if self.rank == 0:
             n_params = sum(p.numel() for p in self.model.parameters())
             print(f"Model parameters: {n_params:,}")
 
@@ -102,8 +102,6 @@ class ProxyTrainer(BaseTrainer):
             self.model = DDP(self.model, device_ids=[self.local_rank])
 
         self.teacher = self.teacher.eval().cuda().bfloat16()
-        self.teacher.encoder = torch.compile(self.teacher.encoder)
-        self.teacher.decoder = torch.compile(self.teacher.decoder)
 
         self.ema = EMA(
             self.model,
