@@ -11,9 +11,9 @@ model:
   
   noise_decoder_inputs: 0.0
   
-  n_layers: 28
-  n_heads: 24
-  d_model: 1536
+  n_layers: 24
+  n_heads: 16
+  d_model: 1024
 
   patch_size: 16
   proxy_patch_size: 1
