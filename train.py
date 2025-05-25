@@ -1,6 +1,6 @@
-from diffusable_autoencoders.configs import Config
-from diffusable_autoencoders.trainers import get_trainer_cls
-from diffusable_autoencoders.utils.ddp import setup, cleanup
+from owl_vaes.configs import Config
+from owl_vaes.trainers import get_trainer_cls
+from owl_vaes.utils.ddp import setup, cleanup
 
 import argparse
 

@@ -102,6 +102,7 @@ class ProxyTrainer(BaseTrainer):
             self.model = DDP(self.model, device_ids=[self.local_rank])
 
         self.teacher = self.teacher.eval().cuda().bfloat16()
+        self.teacher.encoder = torch.compile(self.teacher.encoder)
 
         self.ema = EMA(
             self.model,
