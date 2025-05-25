@@ -1,0 +1,35 @@
+[project]
+name = "owl-vae"
+version = "0.1.0"
+description = "VAEs for Open World Labs"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "jupyter>=1.1.1",
+    "ray>=2.46.0",
+    "torch>=2.7.0",
+    "torchmetrics",
+    "einops",
+    "ema-pytorch",
+    "vector-quantize-pytorch",
+    "omegaconf",
+    "wandb",
+    "kornia",
+    "datasets",
+    "huggingface-hub",
+    "muon",
+    "lpips",
+    "dotenv>=0.9.9",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.29.2",
+    "pdbpp>=0.11.6",
+    "ruff>=0.11.11",
+]
+
+[tool.uv.sources]
+muon = { git = "https://github.com/KellerJordan/Muon" }
+lpips = { git = "https://github.com/shahbuland/PerceptualSimilarity" }
+
