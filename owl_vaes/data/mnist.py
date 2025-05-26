@@ -1,10 +1,13 @@
-from datasets import load_dataset
-
 import torch
 import torch.distributed as dist
-from torch.utils.data import DataLoader
-from PIL import Image
 import torchvision.transforms.functional as TF
+from datasets import load_dataset
+from PIL import Image
+from torch.utils.data import DataLoader
+
+from owl_vaes.utils.get_device import DeviceManager
+
+device = DeviceManager.get_device()
 
 def get_loader(batch_size):
     
@@ -53,7 +56,8 @@ def get_loader(batch_size):
         shuffle=(train_sampler is None),
         sampler=train_sampler,
         drop_last=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        generator=torch.Generator(device)
     )
 
     return train_loader

@@ -2,23 +2,24 @@
 Trainer for reconstruction only
 """
 
-import torch
-from ema_pytorch import EMA
-import wandb
-import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.distributed as dist
 import einops as eo
+import torch
+import torch.nn.functional as F
+import wandb
+from ema_pytorch import EMA
+from torch.nn.parallel import DistributedDataParallel as DDP
 
+from ..data import get_loader
+from ..models import get_model_cls
+from ..muon import init_muon
+from ..nn.lpips import VGGLPIPS
+from ..schedulers import get_scheduler_cls
+from ..utils import Timer, freeze
+from ..utils.get_device import DeviceManager
+from ..utils.logging import LogHelper, to_wandb
 from .base import BaseTrainer
 
-from ..utils import freeze, Timer
-from ..schedulers import get_scheduler_cls
-from ..models import get_model_cls
-from ..nn.lpips import VGGLPIPS
-from ..data import get_loader
-from ..utils.logging import LogHelper, to_wandb
-from ..muon import init_muon
+device = DeviceManager.get_device()
 
 def latent_reg_loss(z):
     # z is [b,c,h,w]
@@ -86,13 +87,13 @@ class RecTrainer(BaseTrainer):
         se_reg_weight = self.train_cfg.loss_weights.get('se_reg', 0.25)
 
         # Prepare model, lpips, ema
-        self.model = self.model.cuda().train()
+        self.model = self.model.to(device).train()
         if self.world_size > 1:
             self.model = DDP(self.model)
 
         lpips = None
         if lpips_weight > 0.0:
-            lpips = VGGLPIPS().cuda().eval()
+            lpips = VGGLPIPS().to(device).eval()
             freeze(lpips)
 
         self.ema = EMA(
@@ -115,7 +116,7 @@ class RecTrainer(BaseTrainer):
         accum_steps = self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size
         accum_steps = max(1, accum_steps)
         self.scaler = torch.amp.GradScaler()
-        ctx = torch.amp.autocast('cuda',torch.bfloat16)
+        ctx = torch.amp.autocast(device, torch.bfloat16)
 
         # Timer reset
         timer = Timer()
@@ -131,7 +132,7 @@ class RecTrainer(BaseTrainer):
         for _ in range(self.train_cfg.epochs):
             for batch in loader:
                 total_loss = 0.
-                batch = batch.cuda().bfloat16()
+                batch = batch.to(device).bfloat16()
 
                 with ctx:
                     batch_rec, z, down_rec = self.model(batch)
@@ -207,21 +208,3 @@ class RecTrainer(BaseTrainer):
                             self.save()
                         
                     self.barrier()
-                    
-
-                    
-
-
-
-
-        
-
-
-
-
-        
-
-
-
-
-

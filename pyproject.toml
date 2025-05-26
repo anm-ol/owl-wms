@@ -20,6 +20,7 @@ dependencies = [
     "muon",
     "lpips",
     "dotenv>=0.9.9",
+    "torchtyping>=0.1.5",
 ]
 
 [dependency-groups]

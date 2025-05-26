@@ -1,11 +1,16 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
+from typing import Tuple
 
 import einops as eo
+import torch
+from torch import nn
+from torchtyping import TensorType
 
-from ..nn.attn import StackedTransformer, PatchProjIn, PatchProjOut
+from owl_vaes.utils.get_device import DeviceManager
+
+from ..nn.attn import PatchProjIn, PatchProjOut, StackedTransformer
 from ..nn.embeddings import LearnedPosEnc
+
+device = DeviceManager.get_device()
 
 class Encoder(nn.Module):
     def __init__(self, config : 'TransformerConfig'):
@@ -73,13 +78,16 @@ class TiToKVAE(nn.Module):
 
         self.config = config
 
-    def forward(self, x):
+    def forward(self, x: TensorType) -> Tuple[TensorType, ...]:
         z = self.encoder(x)
+        
         if self.config.noise_decoder_inputs > 0.0:
             dec_input = z + torch.randn_like(z) * self.config.noise_decoder_inputs
         else:
             dec_input = z.clone()
+            
         rec = self.decoder(dec_input)
+        
         return rec, z
 
 if __name__ == "__main__":
@@ -98,7 +106,7 @@ if __name__ == "__main__":
 
     model = TiToKVAE(cfg).float().cuda()
 
-    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+    with torch.autocast(device_type=device, dtype=torch.bfloat16):
         x = torch.randn(1, 32, 16, 16, device='cuda', dtype=torch.bfloat16)
         rec, z = model(x)
         
