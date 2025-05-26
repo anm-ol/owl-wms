@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 from torch import nn
 
 def posemb_sincos_2d(patches, temperature = 10000, dtype = torch.float32, s=1.0):
@@ -26,7 +25,7 @@ def get_ortho_like(dim, heads, alpha, beta, sign=1, dist='uniform'):
     L = U @ torch.diag(torch.sqrt(S))
     R = torch.diag(torch.sqrt(S)) @ V
     return L, R
-    
+
 def mimetic_init(qkv : nn.Linear, out : nn.Linear, config : 'TransformerConfig'):
     dim = config.d_model
     head_dim = config.d_model // config.n_heads
@@ -45,4 +44,3 @@ def mimetic_init(qkv : nn.Linear, out : nn.Linear, config : 'TransformerConfig')
     V, Proj = get_ortho_like(dim, config.n_heads, 0.4, 0.4, -1)
     qkv.weight.data[2*dim:] = V.float()
     out.weight.data = Proj
-

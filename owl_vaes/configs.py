@@ -14,7 +14,7 @@ class VAEConfig:
     channels : int = 3
     latent_size : int = 16 # for 1d this is tokens, for 2d it is h/w
     latent_channels : int = 32
-    
+
     noise_decoder_inputs : float = 0.0
 
     # For VQ
@@ -36,7 +36,7 @@ class TransformerConfig(VAEConfig):
     n_layers : int = 12
     n_heads : int = 12
     d_model : int = 384
-    
+
     patch_size : int = 1
     causal: bool = False
     mimetic_init: bool = True
@@ -80,7 +80,7 @@ class TrainingConfig:
 class WANDBConfig:
     name : str = None
     project : str = None
-    run_name : str = None 
+    run_name : str = None
 
 @dataclass
 class Config:
@@ -92,6 +92,6 @@ class Config:
     def from_yaml(cls, path):
         with open(path) as f:
             raw_cfg = yaml.safe_load(f)
-        
+
         cfg = OmegaConf.create(raw_cfg)
         return OmegaConf.structured(cls(**cfg))

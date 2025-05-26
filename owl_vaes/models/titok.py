@@ -22,13 +22,13 @@ class Encoder(nn.Module):
         self.proj_in = PatchProjIn(config.d_model, config.channels, config.patch_size)
         self.pos_enc = LearnedPosEnc(n_tokens+n_latents, config.d_model)
         self.latent_tokens = nn.Parameter(torch.randn(n_latents,config.d_model)*0.02)
-    
+
         self.transformer = StackedTransformer(config)
         self.proj_out = nn.Linear(config.d_model, config.latent_channels, bias=False)
-    
+
     def forward(self, x):
         x = self.proj_in(x)
-        
+
         b,n,d = x.shape
         z = eo.repeat(self.latent_tokens, 'n d -> b n d', b = b)
         n_latents = z.shape[1]
@@ -51,10 +51,10 @@ class Decoder(nn.Module):
         self.proj_out = PatchProjOut(config.sample_size, config.d_model, config.channels, config.patch_size)
         self.pos_enc = LearnedPosEnc(n_tokens+n_latents, config.d_model)
         self.image_tokens = nn.Parameter(torch.randn(n_tokens,config.d_model)*0.02)
-    
+
         self.transformer = StackedTransformer(config)
         self.proj_in = nn.Linear(config.latent_channels, config.d_model, bias=False)
-    
+
     def forward(self, z):
         z = self.proj_in(z) # [b,n,d]
 
@@ -66,7 +66,7 @@ class Decoder(nn.Module):
         x = self.transformer(x)
         x = x[:,n_latents:]
         x = self.proj_out(x)
-        
+
         return x
 
 class TiToKVAE(nn.Module):
@@ -80,14 +80,14 @@ class TiToKVAE(nn.Module):
 
     def forward(self, x: TensorType) -> Tuple[TensorType, ...]:
         z = self.encoder(x)
-        
+
         if self.config.noise_decoder_inputs > 0.0:
             dec_input = z + torch.randn_like(z) * self.config.noise_decoder_inputs
         else:
             dec_input = z.clone()
-            
+
         rec = self.decoder(dec_input)
-        
+
         return rec, z
 
 if __name__ == "__main__":
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     with torch.autocast(device_type=device, dtype=torch.bfloat16):
         x = torch.randn(1, 32, 16, 16, device=device, dtype=torch.bfloat16)
         rec, z = model(x)
-        
+
         print(f'Input shape: {x.shape}, dtype: {x.dtype}')
-        print(f'Latent shape: {z.shape}, dtype: {z.dtype}') 
+        print(f'Latent shape: {z.shape}, dtype: {z.dtype}')
         print(f'Output shape: {rec.shape}, dtype: {rec.dtype}')

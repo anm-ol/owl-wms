@@ -1,7 +1,5 @@
-import torch
-from torch import nn
 
-from .dcae import DCAE 
+from .dcae import DCAE
 from ..nn.lfq import LFQModule
 
 class DCVQVAE(DCAE):

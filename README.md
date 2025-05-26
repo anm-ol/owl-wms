@@ -1,5 +1,5 @@
 <div align="center">
-  
+
 # 🦉 OWL VAEs
 
 <p align="center">
@@ -10,13 +10,22 @@
 
 </div>
 
-## Basic Information   
+## Basic Information
+
 To get setup just run `pip install -r requirements.txt`.
+
 - Set an **environment variable** for the `WANDB_USER_NAME` to sync correctly w/ Wandb.
 - Set an envvar for the `DEVICE_TYPE` to use non-cuda device.
-To launch training run: setup a config yaml file, then run `python -m train /path/to/config.yaml` (or `torchrun`).
+  To launch training run: setup a config yaml file, then run `python -m train /path/to/config.yaml` (or `torchrun`).
 
-## How Do I Create A New Model?  
+Before commiting, we recommend running installing and running the `pre-commit` hooks:
+
+```bash
+pre-commit install # one-time command
+pre-commit run --all-files
+```
+
+## How Do I Create A New Model?
 
 - add your new model to `owl_vaes/models/{name}.py`
 - add any new building blocks you need under `owl_vaes/nn`

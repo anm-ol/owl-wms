@@ -39,7 +39,7 @@ class RecTrainer(BaseTrainer):
     :param local_rank: Rank for current device on this process.
     :param world_size: Overall number of devices
     """
-    def __init__(self,*args,**kwargs):  
+    def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
 
         model_id = self.model_cfg.model_id
@@ -66,13 +66,13 @@ class RecTrainer(BaseTrainer):
             'steps': self.total_step_counter
         }
         super().save(save_dict)
-    
+
     def load(self):
         if self.train_cfg.resume_ckpt is not None:
             save_dict = super().load(self.train_cfg.resume_ckpt)
         else:
             return
-        
+
         self.model.load_state_dict(save_dict['model'])
         self.ema.load_state_dict(save_dict['ema'])
         self.opt.load_state_dict(save_dict['opt'])
@@ -124,7 +124,7 @@ class RecTrainer(BaseTrainer):
         metrics = LogHelper()
         if self.rank == 0:
             wandb.watch(self.get_module(), log = 'all')
-        
+
         # Dataset setup
         loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size)
 
@@ -141,14 +141,14 @@ class RecTrainer(BaseTrainer):
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight
                     metrics.log('reg_loss', reg_loss)
-                
+
                 if se_reg_weight > 0:
                     with torch.no_grad():
                         down_batch = F.interpolate(batch, scale_factor=.5, mode = 'bilinear')
                     se_loss = F.mse_loss(down_rec, down_batch) / accum_steps
                     if lpips_weight > 0.0:
                         se_loss += lpips_weight * lpips(down_rec, down_batch) / accum_steps
-                    
+
                     total_loss += se_reg_weight * se_loss
                     metrics.log('se_loss', se_loss)
 
@@ -206,5 +206,5 @@ class RecTrainer(BaseTrainer):
                     if self.total_step_counter % self.train_cfg.save_interval == 0:
                         if self.rank == 0:
                             self.save()
-                        
+
                     self.barrier()

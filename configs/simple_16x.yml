@@ -5,13 +5,13 @@ model:
   channels: 3
   latent_size: 8
   latent_channels: 16
-  
+
   noise_decoder_inputs: 0.05
   ch_0: 32
   ch_max: 128
 
-  encoder_blocks_per_stage: [2,2,2]
-  decoder_blocks_per_stage: [2,2,2]
+  encoder_blocks_per_stage: [2, 2, 2]
+  decoder_blocks_per_stage: [2, 2, 2]
 
 train:
   trainer_id: rec

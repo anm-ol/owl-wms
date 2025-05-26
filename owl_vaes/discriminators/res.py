@@ -41,7 +41,7 @@ class R3GANDiscriminator(nn.Module):
         self.blocks = nn.Sequential(*blocks)
 
         self.final = nn.Conv2d(ch_max, 1, 4, 1, 0)
-    
+
     def _forward(self, x):
         # Forward on single sample
         x = self.conv_in(x)
@@ -56,10 +56,10 @@ class R3GANDiscriminator(nn.Module):
         else:
             fake_out = self._forward(x_fake)
             real_out = self._forward(x_real)
-            
+
             fake_loss = F.relu(1 + fake_out).mean()
             real_loss = F.relu(1 - real_out).mean()
-            
+
             return fake_loss + real_loss
 
 if __name__ == "__main__":
@@ -77,4 +77,3 @@ if __name__ == "__main__":
         x = torch.randn(1,3,256,256).bfloat16().to(device)
         y = model._forward(x)
         print(y.shape)
-

@@ -5,9 +5,9 @@ model:
   channels: 3
   latent_size: 16
   latent_channels: 128
-  
+
   noise_decoder_inputs: 0.05
-  
+
   n_layers: 12
   n_heads: 6
   d_model: 384

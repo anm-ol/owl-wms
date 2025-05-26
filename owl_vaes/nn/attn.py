@@ -57,7 +57,7 @@ class Transformer(nn.Module):
         x = self.norm1(x)
         x = self.attn(x)
         x = res1 + x
-        
+
         res2 = x.clone()
         x = self.norm2(x)
         x = self.mlp(x)
@@ -87,7 +87,7 @@ class PatchProjIn(nn.Module):
         super().__init__()
 
         self.proj_in = nn.Conv2d(channels, d_model, patch_size, patch_size, 0, bias=False)
-    
+
     def forward(self, x):
         b,c,h,w = x.shape
         x = self.proj_in(x)

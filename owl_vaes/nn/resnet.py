@@ -1,8 +1,7 @@
-import torch
 from torch import nn
 import torch.nn.functional as F
 
-from .normalization import GroupNorm, RMSNorm2d
+from .normalization import RMSNorm2d
 
 """
 Building blocks for any ResNet based model
@@ -10,7 +9,7 @@ Building blocks for any ResNet based model
 
 class ResBlock(nn.Module):
     """
-    Basic ResNet block from R3GAN paper using 
+    Basic ResNet block from R3GAN paper using
 
     :param ch: Channel count to use for the block
     :param total_res_blocks: How many res blocks are there in the entire model?
@@ -39,7 +38,7 @@ class ResBlock(nn.Module):
         nn.init.zeros_(self.conv1.bias)
         self.conv1.weight.data *= scaling_factor
 
-        nn.init.kaiming_uniform_(self.conv2.weight) 
+        nn.init.kaiming_uniform_(self.conv2.weight)
         nn.init.zeros_(self.conv2.bias)
         self.conv2.weight.data *= scaling_factor
 
@@ -51,7 +50,7 @@ class ResBlock(nn.Module):
         x = self.norm1(x)
         x = self.act1(x)
         x = self.conv2(x)
-        x = self.norm2(x)    
+        x = self.norm2(x)
         x = self.act2(x)
         x = self.conv3(x)
 
@@ -70,7 +69,7 @@ class Upsample(nn.Module):
         x = self.proj(x)
         x = F.interpolate(x, scale_factor = 2,  mode = 'bicubic')
         return x
-    
+
 class Downsample(nn.Module):
     """
     Bilinear downsample + project layer
@@ -79,7 +78,7 @@ class Downsample(nn.Module):
         super().__init__()
 
         self.proj = nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False)
-    
+
     def forward(self, x):
         x = F.interpolate(x, scale_factor = .5, mode = 'bicubic')
         x = self.proj(x)
@@ -104,7 +103,7 @@ class UpBlock(nn.Module):
         for block in self.blocks:
             x = block(x)
         return x
-    
+
 class DownBlock(nn.Module):
     """
     General downsampling stage block

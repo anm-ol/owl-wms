@@ -27,7 +27,7 @@ def latent_reg_loss(z):
     # KL divergence between N(z, 0.1) and N(0,1)
     mu = z
     logvar = 2 * torch.log(torch.tensor(0.1))  # log(0.1^2)
-    
+
     # KL = -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
     kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
     kl = eo.reduce(kl, 'b ... -> b', reduction='sum').mean()
@@ -45,12 +45,12 @@ class ProxyTrainer(BaseTrainer):
     :param local_rank: Rank for current device on this process.
     :param world_size: Overall number of devices
     """
-    def __init__(self,*args,**kwargs):  
+    def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
 
         model_id = self.model_cfg.model_id
         self.model = get_model_cls(model_id)(self.model_cfg)
-        
+
         teacher_cfg = Config.from_yaml(self.train_cfg.teacher_cfg).model
         teacher_ckpt = versatile_load(self.train_cfg.teacher_ckpt)
         self.teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
@@ -77,13 +77,13 @@ class ProxyTrainer(BaseTrainer):
             'steps': self.total_step_counter
         }
         super().save(save_dict)
-    
+
     def load(self):
         if self.train_cfg.resume_ckpt is not None:
             save_dict = super().load(self.train_cfg.resume_ckpt)
         else:
             return
-        
+
         self.model.load_state_dict(save_dict['model'])
         self.ema.load_state_dict(save_dict['ema'])
         self.opt.load_state_dict(save_dict['opt'])
@@ -131,7 +131,7 @@ class ProxyTrainer(BaseTrainer):
         metrics = LogHelper()
         if self.rank == 0:
             wandb.watch(self.get_module(), log = 'all')
-        
+
         # Dataset setup
         loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size)
 
@@ -151,7 +151,7 @@ class ProxyTrainer(BaseTrainer):
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight
                     metrics.log('reg_loss', reg_loss)
-                
+
                 mse_loss = F.mse_loss(batch_rec, z_teacher) / accum_steps
                 total_loss += mse_loss
                 metrics.log('mse_loss', mse_loss)
@@ -200,5 +200,5 @@ class ProxyTrainer(BaseTrainer):
                     if self.total_step_counter % self.train_cfg.save_interval == 0:
                         if self.rank == 0:
                             self.save()
-                        
+
                     self.barrier()

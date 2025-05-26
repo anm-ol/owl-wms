@@ -10,14 +10,14 @@ from owl_vaes.utils.get_device import DeviceManager
 device = DeviceManager.get_device()
 
 def get_loader(batch_size):
-    
+
     """Get MNIST data loader
-    
+
     Args:
         batch_size: Batch size per GPU
         world_size: Number of GPUs being used
         global_rank: Rank of current GPU
-    
+
     Returns:
         DataLoader for MNIST dataset
     """
@@ -27,7 +27,7 @@ def get_loader(batch_size):
     if dist.is_initialized():
         world_size = dist.get_world_size()
         global_rank = dist.get_rank()
-        
+
     dataset = load_dataset("mnist")
     train_dataset = dataset["train"]
 
@@ -37,7 +37,7 @@ def get_loader(batch_size):
         tensors = [TF.to_tensor(img) * 2 - 1 for img in imgs]
         batch = torch.stack(tensors)
         batch = batch.repeat(1, 3, 1, 1)
-        
+
         return batch
 
     if world_size > 1:

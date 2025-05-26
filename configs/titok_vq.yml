@@ -6,9 +6,9 @@ model:
   latent_size: 16
   latent_channels: 16
   codebook_size: 1024
-  
+
   noise_decoder_inputs: 0.0
-  
+
   n_layers: 12
   n_heads: 6
   d_model: 384
@@ -32,7 +32,8 @@ train:
     adamw_wd: 0.01
     adamw_eps: 1.0e-15
     adamw_betas: [0.9, 0.95]
-    adamw_keys: [encoder.proj_in, encoder.proj_out, decoder.proj_in, decoder.proj_out]
+    adamw_keys:
+      [encoder.proj_in, encoder.proj_out, decoder.proj_in, decoder.proj_out]
 
   loss_weights:
     latent_reg: 0.0
