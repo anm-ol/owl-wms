@@ -5,12 +5,15 @@ Hard-coded for Proxy TiToK + DCAE for now
 
 import torch
 from torch import nn
-import torch.nn.functional as F
 
-from ..models.proxy_titok import ProxyTiToKVAE
-from ..models.dcae import Decoder
+from owl_vaes.utils.get_device import DeviceManager
+
 from ..configs import Config
-from . import versatile_load, prefix_filter
+from ..models.dcae import Decoder
+from ..models.proxy_titok import ProxyTiToKVAE
+from . import prefix_filter, versatile_load
+
+device = DeviceManager.get_device()
 
 class CombinedModule(nn.Module):
     def __init__(self, transformer_cfg, resnet_cfg):
@@ -55,14 +58,14 @@ if __name__ == "__main__":
     r_cfg = Config.from_yaml(r_cfg_path).model
 
     t_cfg.mimetic_init = False
-    model = CombinedModule(t_cfg, r_cfg).cuda().bfloat16()
+    model = CombinedModule(t_cfg, r_cfg).to(device).bfloat16()
     #model.load_ckpt(t_ckpt_path, r_ckpt_path)
 
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {param_count:,}")
 
     with torch.no_grad():
-        x = torch.randn(1,3,256,256).cuda().bfloat16()
+        x = torch.randn(1,3,256,256).to(device).bfloat16()
         y = model(x)
         print(y.shape)
         

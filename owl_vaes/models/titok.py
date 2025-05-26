@@ -104,10 +104,10 @@ if __name__ == "__main__":
         patch_size = 1
     )
 
-    model = TiToKVAE(cfg).float().cuda()
+    model = TiToKVAE(cfg).float().to(device)
 
     with torch.autocast(device_type=device, dtype=torch.bfloat16):
-        x = torch.randn(1, 32, 16, 16, device='cuda', dtype=torch.bfloat16)
+        x = torch.randn(1, 32, 16, 16, device=device, dtype=torch.bfloat16)
         rec, z = model(x)
         
         print(f'Input shape: {x.shape}, dtype: {x.dtype}')

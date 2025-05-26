@@ -1,12 +1,15 @@
+from copy import deepcopy
+
+import einops as eo
 import torch
 from torch import nn
-import torch.nn.functional as F
 
-from copy import deepcopy
-import einops as eo
+from owl_vaes.utils.get_device import DeviceManager
 
-from ..nn.attn import StackedTransformer, PatchProjIn, PatchProjOut
+from ..nn.attn import PatchProjIn, PatchProjOut, StackedTransformer
 from ..nn.embeddings import LearnedPosEnc
+
+device = DeviceManager.get_device()
 
 class Encoder(nn.Module):
     def __init__(self, config : 'TransformerConfig'):
@@ -103,10 +106,10 @@ if __name__ == "__main__":
         patch_size = 1
     )
 
-    model = TiToKVAE(cfg).float().cuda()
+    model = TiToKVAE(cfg).float().to(device)
 
-    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-        x = torch.randn(1, 32, 16, 16, device='cuda', dtype=torch.bfloat16)
+    with torch.autocast(dtype=torch.bfloat16):
+        x = torch.randn(1, 32, 16, 16, device=device, dtype=torch.bfloat16)
         rec, z = model(x)
         
         print(f'Input shape: {x.shape}, dtype: {x.dtype}')

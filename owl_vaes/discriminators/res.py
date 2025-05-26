@@ -2,14 +2,15 @@
 R3Gan style resnet based VAE
 """
 
-from ..nn.resnet import DownBlock, SameBlock
-from ..nn.normalization import GroupNorm
-
-import torch.nn.functional as F
 import torch
+import torch.nn.functional as F
 from torch import nn
 
-import einops as eo
+from owl_vaes.utils.get_device import DeviceManager
+
+from ..nn.resnet import DownBlock, SameBlock
+
+device = DeviceManager.get_device()
 
 class R3GANDiscriminator(nn.Module):
     def __init__(self, config):
@@ -71,9 +72,9 @@ if __name__ == "__main__":
         ch_max:int= 256
         blocks_per_stage:int= 2
 
-    model = ResDiscriminator(DummyConfig()).bfloat16().cuda()
+    model = ResDiscriminator(DummyConfig()).bfloat16().to(device)
     with torch.no_grad():
-        x = torch.randn(1,3,256,256).bfloat16().cuda()
+        x = torch.randn(1,3,256,256).bfloat16().to(device)
         y = model._forward(x)
         print(y.shape)
 

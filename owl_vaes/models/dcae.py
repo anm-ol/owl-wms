@@ -1,12 +1,15 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-
 import einops as eo
+import torch
+import torch.nn.functional as F
+from torch import nn
 
-from ..nn.resnet import UpBlock, DownBlock, SameBlock
-from ..nn.sana import SpaceToChannel, ChannelToSpace
+from owl_vaes.utils.get_device import DeviceManager
+
 from ..nn.normalization import GroupNorm
+from ..nn.resnet import DownBlock, SameBlock, UpBlock
+from ..nn.sana import ChannelToSpace, SpaceToChannel
+
+device = DeviceManager.get_device()
 
 class Encoder(nn.Module):
     def __init__(self, config : 'ResNetConfig'):
@@ -143,10 +146,10 @@ if __name__ == "__main__":
     from ..configs import Config
 
     cfg = Config.from_yaml("configs/1d_diff_exps/teacher_1.yml").model
-    model = DCAE(cfg).float().cuda()
+    model = DCAE(cfg).float().to(device)
 
-    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-        x = torch.randn(1, 3, 256, 256, device='cuda', dtype=torch.bfloat16)
+    with torch.autocast(device, dtype=torch.bfloat16):
+        x = torch.randn(1, 3, 256, 256, device=device, dtype=torch.bfloat16)
         rec, z, _ = model(x)
         
         print(f'Input shape: {x.shape}, dtype: {x.dtype}')

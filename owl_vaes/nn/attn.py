@@ -1,18 +1,23 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-
-from .normalization import LayerNorm, RMSNorm, QKNorm
-from .embeddings import ImageRoPE
-from .mlp import MLP
-
 import einops as eo
-from .mimetic import mimetic_init
+import torch
+import torch.nn.functional as F
+from torch import nn
 
-torch.backends.cuda.enable_flash_sdp(enabled = True)
+from owl_vaes.configs import TransformerConfig
+
+from .mimetic import mimetic_init
+from .mlp import MLP
+from .normalization import LayerNorm, QKNorm
+from ..utils.get_device import DeviceManager
+
+device = DeviceManager.get_device()
+
+if device == "cuda":
+    torch.backends.cuda.enable_flash_sdp(enabled=True)
+
 
 class Attn(nn.Module):
-    def __init__(self, config : 'TransformerConfig'):
+    def __init__(self, config : TransformerConfig):
         super().__init__()
 
         self.n_heads = config.n_heads
@@ -110,8 +115,8 @@ class PatchProjOut(nn.Module):
         return x
 
 if __name__ == "__main__":
-    layer = PatchProjOut(64, 384, 3, 4).cuda().bfloat16()
-    x = torch.randn(1,256,384).cuda().bfloat16()
+    layer = PatchProjOut(64, 384, 3, 4).to(device).bfloat16()
+    x = torch.randn(1,256,384).to(device).bfloat16()
 
     with torch.no_grad():
         z = layer(x)
