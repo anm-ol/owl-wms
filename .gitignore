@@ -8,4 +8,6 @@ uv.lock
 *.wandb
 typings/
 *pyc
-CLAUDE.md
+*CLAUDE.md
+*cursorrules
+.vscode
