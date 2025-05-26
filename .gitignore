@@ -7,3 +7,5 @@ uv.lock
 **wandb
 *.wandb
 typings/
+*pyc
+CLAUDE.md
