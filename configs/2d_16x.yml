@@ -47,6 +47,6 @@ train:
   save_interval: 10000
 
 wandb:
-  name: shahbuland
+  name: ${env:WANDB_USER_NAME}
   project: new_vaes
   run_name: 16x_imagenet

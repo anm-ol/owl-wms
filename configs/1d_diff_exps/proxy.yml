@@ -55,6 +55,6 @@ train:
   teacher_cfg: configs/1d_diff_exps/teacher_1.yml
 
 wandb:
-  name: shahbuland
+  name: ${env:WANDB_USER_NAME}
   project: new_vaes
   run_name: 128x_proxy

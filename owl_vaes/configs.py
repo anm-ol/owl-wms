@@ -1,7 +1,10 @@
-from dataclasses import dataclass, field
-from typing import List, Optional
+import os
+from dataclasses import dataclass
+
 import yaml
 from omegaconf import OmegaConf
+
+OmegaConf.register_new_resolver("env", lambda k: os.environ.get(k))
 
 @dataclass
 class VAEConfig:

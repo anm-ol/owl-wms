@@ -51,6 +51,6 @@ train:
   teacher_cfg: configs/2d_16x.yml
 
 wandb:
-  name: shahbuland
+  name: ${env:WANDB_USER_NAME}
   project: new_vaes
   run_name: 64x_imagenet

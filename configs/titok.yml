@@ -13,6 +13,7 @@ model:
   d_model: 384
 
   patch_size: 4
+  causal: False
 
 train:
   trainer_id: rec
@@ -44,6 +45,6 @@ train:
   save_interval: 10000
 
 wandb:
-  name: shahbuland
-  project: new_vaes
-  run_name: v0
+  name: ${env:WANDB_USER_NAME}
+  project: OWL
+  run_name: titok_test

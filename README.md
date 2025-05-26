@@ -11,7 +11,8 @@
 </div>
 
 ## Basic Information   
-To get setup just run `pip install -r requirements.txt`  
+To get setup just run `pip install -r requirements.txt`.
+Set an **environment variable** for the `WANDB_USER_NAME` to sync correctly w/ Wandb.
 To launch training run: setup a config yaml file, then run `python -m train /path/to/config.yaml` (or `torchrun`).
 
 ## How Do I Create A New Model?  
