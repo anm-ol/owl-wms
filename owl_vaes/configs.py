@@ -39,6 +39,7 @@ class TransformerConfig(VAEConfig):
     
     patch_size : int = 1
     causal: bool = False
+    mimetic_init: bool = True
 
 @dataclass
 class TrainingConfig:

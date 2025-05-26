@@ -22,7 +22,8 @@ class Attn(nn.Module):
 
         self.qk_norm = QKNorm(config.d_model // config.n_heads)
 
-        mimetic_init(self.qkv, self.out, config)
+        if config.mimetic_init:
+            mimetic_init(self.qkv, self.out, config)
         self.causal = config.causal
 
     def forward(self, x):

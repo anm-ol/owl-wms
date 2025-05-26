@@ -51,3 +51,6 @@ def versatile_load(path):
         ckpt = {k[len(prefix):] : v for (k,v) in ckpt.items() if k.startswith(prefix)}
 
     return ckpt
+
+def prefix_filter(ckpt, prefix):
+    return {k[len(prefix):] : v for (k,v) in ckpt.items() if k.startswith(prefix)}
