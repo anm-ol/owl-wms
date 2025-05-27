@@ -53,6 +53,7 @@ class TrainingConfig:
 
     opt : str = "AdamW"
     opt_kwargs : dict = None
+    d_opt_kwargs : dict = None # Only for GAN
 
     loss_weights : dict = None
 
