@@ -18,6 +18,9 @@ model:
   patch_size: 16
   proxy_patch_size: 1
 
+  mimetic_init: false
+  causal: false
+
 train:
   trainer_id: proxy
   data_id: s3_imagenet

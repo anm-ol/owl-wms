@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     global_rank, local_rank, world_size = setup()
 
-    device = f"{os.getenv("DEVICE_TYPE")}:{local_rank}"
+    device = f"{os.getenv('DEVICE_TYPE', 'cuda')}:{local_rank}"
     DeviceManager.set_device(device)
 
     trainer = get_trainer_cls(cfg.train.trainer_id)(
