@@ -2,7 +2,7 @@ import math
 from typing import Literal
 
 import torch
-from alias_free_torch import Activation1d  # type: ignore[import-untyped]
+from alias_free_torch import Activation1d
 from torch import exp, nn, pow, sin
 from torch.types import Tensor
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
@@ -23,11 +23,11 @@ class SnakeBeta(nn.Module):
         self.alpha_logscale = alpha_logscale
 
         if self.alpha_logscale:  # log scale alphas initialized to zeros
-            self.alpha = nn.Parameter(torch.zeros(in_features) * alpha)  # type: ignore[call-overload]
-            self.beta = nn.Parameter(torch.zeros(in_features) * alpha)  # type: ignore[call-overload]
+            self.alpha = nn.Parameter(torch.zeros(in_features) * alpha)
+            self.beta = nn.Parameter(torch.zeros(in_features) * alpha)
         else:  # linear scale alphas initialized to ones
-            self.alpha = nn.Parameter(torch.ones(in_features) * alpha)  # type: ignore[call-overload]
-            self.beta = nn.Parameter(torch.ones(in_features) * alpha)  # type: ignore[call-overload]
+            self.alpha = nn.Parameter(torch.ones(in_features) * alpha)
+            self.beta = nn.Parameter(torch.ones(in_features) * alpha)
 
         self.alpha.requires_grad = alpha_trainable
         self.beta.requires_grad = alpha_trainable
@@ -75,11 +75,11 @@ def get_activation(
 
 
 def WNConv1d(*args, **kwargs):
-    return nn.utils.weight_norm(nn.Conv1d(*args, **kwargs))
+    return nn.utils.parametrizations.weight_norm(nn.Conv1d(*args, **kwargs))
 
 
 def WNConvTranspose1d(*args, **kwargs):
-    return nn.utils.weight_norm(nn.ConvTranspose1d(*args, **kwargs))
+    return nn.utils.parametrizations.weight_norm(nn.ConvTranspose1d(*args, **kwargs))
 
 
 def checkpoint(function, *args, **kwargs):

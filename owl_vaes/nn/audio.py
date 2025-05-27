@@ -1,6 +1,6 @@
-from torch import nn
 import torch
-from torchtyping import TensorType  # type: ignore[import-untyped]
+from torch import nn
+from torchtyping import TensorType
 
 from owl_vaes.data.audio_loader import get_loader
 from owl_vaes.nn.audio_blocks import (
@@ -133,6 +133,78 @@ class OobleckDecoder(nn.Module):
         return self.layers(x)
 
 
+class AudioAutoEncoder(nn.Module):
+    """
+    Complete Audio AutoEncoder combining OobleckEncoder and OobleckDecoder.
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 2,
+        out_channels: int = 2,
+        channels: int = 128,
+        latent_dim: int = 32,
+        c_mults: list[int] = [1, 2, 4, 8],
+        strides: list[int] = [2, 4, 8, 8],
+        use_snake: bool = False,
+        antialias_activation: bool = False,
+        use_nearest_upsample: bool = False,
+        final_tanh: bool = True,
+    ):
+        super().__init__()
+
+        self.encoder = OobleckEncoder(
+            in_channels=in_channels,
+            channels=channels,
+            latent_dim=latent_dim,
+            c_mults=c_mults,
+            strides=strides,
+            use_snake=use_snake,
+            antialias_activation=antialias_activation,
+        )
+
+        self.decoder = OobleckDecoder(
+            out_channels=out_channels,
+            channels=channels,
+            latent_dim=latent_dim,
+            c_mults=c_mults,
+            strides=strides,
+            use_snake=use_snake,
+            antialias_activation=antialias_activation,
+            use_nearest_upsample=use_nearest_upsample,
+            final_tanh=final_tanh,
+        )
+
+        # Calculate total stride for shape validation
+        self.total_stride = 1
+
+        for stride in strides:
+            self.total_stride *= stride
+
+    def encode(self, x: TensorType) -> TensorType:
+        return self.encoder(x)
+
+    def decode(self, z: TensorType) -> TensorType:
+        return self.decoder(z)
+
+    def forward(self, x: TensorType) -> tuple[TensorType, TensorType]:
+        """
+        Forward pass through encoder and decoder.
+
+        Args:
+            x: Input audio tensor of shape (batch, channels, time)
+
+        Returns:
+            Tuple: (reconstructed_audio, latent_representation)
+        """
+        z = self.encode(x)
+        x_rec = self.decode(z)
+        return x_rec, z
+
+    def get_compression_ratio(self) -> int:
+        return self.total_stride
+
+
 if __name__ == "__main__":
     loader = get_loader(1, "my_data/")
     sample = next(iter(loader))[0]
@@ -140,6 +212,10 @@ if __name__ == "__main__":
     myEncoder = OobleckEncoder(2, 128, use_snake=True, antialias_activation=True)
     myDecoder = OobleckDecoder(
         2, 128, antialias_activation=True, use_nearest_upsample=True
+    )
+
+    model = AudioAutoEncoder(
+        2, 2, use_snake=True, antialias_activation=True, use_nearest_upsample=True
     )
 
     latent = myEncoder(sample)
@@ -154,3 +230,7 @@ if __name__ == "__main__":
     print("Decoded: ", decoded.dtype)
 
     print("MSE:", torch.mean((decoded - sample).pow(2)))
+
+    full_fwd_pass = model(sample)
+
+    print("MSE for full pass:", torch.mean((full_fwd_pass[0] - sample).pow(2)))

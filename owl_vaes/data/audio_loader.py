@@ -10,14 +10,20 @@ import torch
 import torch.distributed as dist
 from torch.types import Tensor
 from torch.utils.data import DataLoader
-from torchaudio import load  # type: ignore[import-untyped]
+from torchaudio import load
 from torchaudio import transforms as T
 from torchtyping import TensorType
 
-from owl_vaes.utils.audio_utils import Mono, PadCrop_Normalized_T, PhaseFlipper, Stereo, get_audio_filenames, is_silence
+from owl_vaes.utils.audio_utils import (
+    Mono,
+    PadCrop_Normalized_T,
+    PhaseFlipper,
+    Stereo,
+    get_audio_filenames,
+    is_silence,
+)
 from owl_vaes.utils.get_device import DeviceManager
 
-batch = channels = n_samples = None  # typing workaround
 device = DeviceManager.get_device()
 
 
@@ -87,7 +93,7 @@ class SampleDataset(torch.utils.data.Dataset):
 
     def __getitem__(
         self, idx: int
-    ) -> tuple[TensorType["batch", "channels", "n_samples"], Dict[str, str | Any]]:
+    ) -> tuple[TensorType[" batch", " channels", " n_samples"], Dict[str, str | Any]]:  # noqa: F722
         audio_filename = self.filenames[idx]
 
         try:
