@@ -8,10 +8,10 @@ import torchvision.transforms.functional as TF
 
 def get_loader(batch_size):
     """Get ImageNet dataloader
-    
+
     Args:
         batch_size: Batch size per GPU
-        
+
     Returns:
         DataLoader for ImageNet dataset
     """
@@ -20,7 +20,7 @@ def get_loader(batch_size):
     if dist.is_initialized():
         world_size = dist.get_world_size()
         global_rank = dist.get_rank()
-        
+
     dataset = load_dataset("benjamin-paine/imagenet-1k-256x256")
     train_dataset = dataset["train"]
 

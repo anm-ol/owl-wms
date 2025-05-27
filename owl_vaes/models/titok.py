@@ -1,11 +1,16 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
+from typing import Tuple
 
 import einops as eo
+import torch
+from torch import nn
+from torchtyping import TensorType
 
-from ..nn.attn import StackedTransformer, PatchProjIn, PatchProjOut
+from owl_vaes.utils.get_device import DeviceManager
+
+from ..nn.attn import PatchProjIn, PatchProjOut, StackedTransformer
 from ..nn.embeddings import LearnedPosEnc
+
+device = DeviceManager.get_device()
 
 class Encoder(nn.Module):
     def __init__(self, config : 'TransformerConfig'):
@@ -17,13 +22,13 @@ class Encoder(nn.Module):
         self.proj_in = PatchProjIn(config.d_model, config.channels, config.patch_size)
         self.pos_enc = LearnedPosEnc(n_tokens+n_latents, config.d_model)
         self.latent_tokens = nn.Parameter(torch.randn(n_latents,config.d_model)*0.02)
-    
+
         self.transformer = StackedTransformer(config)
         self.proj_out = nn.Linear(config.d_model, config.latent_channels, bias=False)
-    
+
     def forward(self, x):
         x = self.proj_in(x)
-        
+
         b,n,d = x.shape
         z = eo.repeat(self.latent_tokens, 'n d -> b n d', b = b)
         n_latents = z.shape[1]
@@ -46,10 +51,10 @@ class Decoder(nn.Module):
         self.proj_out = PatchProjOut(config.sample_size, config.d_model, config.channels, config.patch_size)
         self.pos_enc = LearnedPosEnc(n_tokens+n_latents, config.d_model)
         self.image_tokens = nn.Parameter(torch.randn(n_tokens,config.d_model)*0.02)
-    
+
         self.transformer = StackedTransformer(config)
         self.proj_in = nn.Linear(config.latent_channels, config.d_model, bias=False)
-    
+
     def forward(self, z):
         z = self.proj_in(z) # [b,n,d]
 
@@ -61,7 +66,7 @@ class Decoder(nn.Module):
         x = self.transformer(x)
         x = x[:,n_latents:]
         x = self.proj_out(x)
-        
+
         return x
 
 class TiToKVAE(nn.Module):
@@ -73,13 +78,16 @@ class TiToKVAE(nn.Module):
 
         self.config = config
 
-    def forward(self, x):
+    def forward(self, x: TensorType) -> Tuple[TensorType, ...]:
         z = self.encoder(x)
+
         if self.config.noise_decoder_inputs > 0.0:
             dec_input = z + torch.randn_like(z) * self.config.noise_decoder_inputs
         else:
             dec_input = z.clone()
+
         rec = self.decoder(dec_input)
+
         return rec, z
 
 if __name__ == "__main__":
@@ -96,12 +104,12 @@ if __name__ == "__main__":
         patch_size = 1
     )
 
-    model = TiToKVAE(cfg).float().cuda()
+    model = TiToKVAE(cfg).float().to(device)
 
-    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-        x = torch.randn(1, 32, 16, 16, device='cuda', dtype=torch.bfloat16)
+    with torch.autocast(device_type=device, dtype=torch.bfloat16):
+        x = torch.randn(1, 32, 16, 16, device=device, dtype=torch.bfloat16)
         rec, z = model(x)
-        
+
         print(f'Input shape: {x.shape}, dtype: {x.dtype}')
-        print(f'Latent shape: {z.shape}, dtype: {z.dtype}') 
+        print(f'Latent shape: {z.shape}, dtype: {z.dtype}')
         print(f'Output shape: {rec.shape}, dtype: {rec.dtype}')

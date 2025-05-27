@@ -2,23 +2,24 @@
 Trainer for reconstruction only
 """
 
-import torch
-from ema_pytorch import EMA
-import wandb
-import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.distributed as dist
 import einops as eo
+import torch
+import torch.nn.functional as F
+import wandb
+from ema_pytorch import EMA
+from torch.nn.parallel import DistributedDataParallel as DDP
 
+from ..data import get_loader
+from ..models import get_model_cls
+from ..muon import init_muon
+from ..nn.lpips import VGGLPIPS
+from ..schedulers import get_scheduler_cls
+from ..utils import Timer, freeze
+from ..utils.get_device import DeviceManager
+from ..utils.logging import LogHelper, to_wandb
 from .base import BaseTrainer
 
-from ..utils import freeze, Timer
-from ..schedulers import get_scheduler_cls
-from ..models import get_model_cls
-from ..nn.lpips import VGGLPIPS
-from ..data import get_loader
-from ..utils.logging import LogHelper, to_wandb
-from ..muon import init_muon
+device = DeviceManager.get_device()
 
 def latent_reg_loss(z):
     # z is [b,c,h,w]
@@ -38,7 +39,7 @@ class RecTrainer(BaseTrainer):
     :param local_rank: Rank for current device on this process.
     :param world_size: Overall number of devices
     """
-    def __init__(self,*args,**kwargs):  
+    def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
 
         model_id = self.model_cfg.model_id
@@ -65,13 +66,13 @@ class RecTrainer(BaseTrainer):
             'steps': self.total_step_counter
         }
         super().save(save_dict)
-    
+
     def load(self):
         if self.train_cfg.resume_ckpt is not None:
             save_dict = super().load(self.train_cfg.resume_ckpt)
         else:
             return
-        
+
         self.model.load_state_dict(save_dict['model'])
         self.ema.load_state_dict(save_dict['ema'])
         self.opt.load_state_dict(save_dict['opt'])
@@ -86,13 +87,13 @@ class RecTrainer(BaseTrainer):
         se_reg_weight = self.train_cfg.loss_weights.get('se_reg', 0.0)
 
         # Prepare model, lpips, ema
-        self.model = self.model.cuda().train()
+        self.model = self.model.to(device).train()
         if self.world_size > 1:
             self.model = DDP(self.model)
 
         lpips = None
         if lpips_weight > 0.0:
-            lpips = VGGLPIPS().cuda().eval()
+            lpips = VGGLPIPS().to(device).eval()
             freeze(lpips)
 
         self.ema = EMA(
@@ -115,7 +116,7 @@ class RecTrainer(BaseTrainer):
         accum_steps = self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size
         accum_steps = max(1, accum_steps)
         self.scaler = torch.amp.GradScaler()
-        ctx = torch.amp.autocast('cuda',torch.bfloat16)
+        ctx = torch.amp.autocast(device, torch.bfloat16)
 
         # Timer reset
         timer = Timer()
@@ -123,7 +124,7 @@ class RecTrainer(BaseTrainer):
         metrics = LogHelper()
         if self.rank == 0:
             wandb.watch(self.get_module(), log = 'all')
-        
+
         # Dataset setup
         loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size)
 
@@ -131,7 +132,7 @@ class RecTrainer(BaseTrainer):
         for _ in range(self.train_cfg.epochs):
             for batch in loader:
                 total_loss = 0.
-                batch = batch.cuda().bfloat16()
+                batch = batch.to(device).bfloat16()
 
                 with ctx:
                     out = self.model(batch)
@@ -144,14 +145,14 @@ class RecTrainer(BaseTrainer):
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight
                     metrics.log('reg_loss', reg_loss)
-                
+
                 if se_reg_weight > 0:
                     with torch.no_grad():
                         down_batch = F.interpolate(batch, scale_factor=.5, mode = 'bilinear')
                     se_loss = F.mse_loss(down_rec, down_batch) / accum_steps
                     if lpips_weight > 0.0:
                         se_loss += lpips_weight * lpips(down_rec, down_batch) / accum_steps
-                    
+
                     total_loss += se_reg_weight * se_loss
                     metrics.log('se_loss', se_loss)
 
@@ -209,23 +210,5 @@ class RecTrainer(BaseTrainer):
                     if self.total_step_counter % self.train_cfg.save_interval == 0:
                         if self.rank == 0:
                             self.save()
-                        
+
                     self.barrier()
-                    
-
-                    
-
-
-
-
-        
-
-
-
-
-        
-
-
-
-
-

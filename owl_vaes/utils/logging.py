@@ -9,7 +9,7 @@ class LogHelper:
     Helps get stats across devices/grad accum steps
 
     Can log stats then when pop'd will get them across
-    all devices (averaged out). 
+    all devices (averaged out).
     For gradient accumulation, ensure you divide by accum steps beforehand.
     """
     def __init__(self):
@@ -17,9 +17,9 @@ class LogHelper:
             self.world_size = dist.get_world_size()
         else:
             self.world_size = 1
-        
+
         self.data = {}
-    
+
     def log(self, key, data):
         if isinstance(data, torch.Tensor):
             data = data.detach().item()
@@ -35,11 +35,11 @@ class LogHelper:
 
     def pop(self):
         reduced = {k : sum(v) for k,v in self.data.items()}
-        
+
         if self.world_size > 1:
             gathered = [None for _ in range(self.world_size)]
             dist.all_gather_object(gathered, reduced)
-            
+
             final = {}
             for d in gathered:
                 for k,v in d.items():
@@ -49,7 +49,7 @@ class LogHelper:
                         final[k] += v
         else:
             final = reduced
-            
+
         self.data = {}
         return final
 

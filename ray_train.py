@@ -9,21 +9,21 @@ def train_process(local_rank, node_rank, num_gpus_per_node, config_path):
     # Set environment variables for DDP
     os.environ["MASTER_ADDR"] = "127.0.0.1"  # This should come from cluster config in real multi-node
     os.environ["MASTER_PORT"] = "29500"
-    
+
     # Calculate proper ranks
     world_size = num_gpus_per_node * ray.cluster_resources()["num_nodes"]
     global_rank = (node_rank * num_gpus_per_node) + local_rank
-    
+
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["RANK"] = str(global_rank)
     os.environ["LOCAL_RANK"] = str(local_rank)
 
     # Load config
     cfg = Config.from_yaml(config_path)
-    
+
     # Initialize process group
     dist.init_process_group(backend="nccl")
-    
+
     # Create and run trainer
     trainer = get_trainer_cls(cfg.train.trainer_id)(
         cfg.train,
@@ -34,7 +34,7 @@ def train_process(local_rank, node_rank, num_gpus_per_node, config_path):
         world_size
     )
     trainer.train()
-    
+
     # Cleanup
     dist.destroy_process_group()
 
@@ -49,7 +49,7 @@ def main():
     ray.init()
 
     num_nodes = ray.cluster_resources()["num_nodes"]
-    
+
     # Launch training processes
     futures = []
     for node_rank in range(num_nodes):
@@ -62,7 +62,7 @@ def main():
                     args.config_path
                 )
             )
-    
+
     ray.get(futures)
 
 if __name__ == "__main__":

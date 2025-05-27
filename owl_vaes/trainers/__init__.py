@@ -1,8 +1,14 @@
-from .rec import RecTrainer
-from .proxy import ProxyTrainer
+from typing import Literal
 
-def get_trainer_cls(trainer_id):
-    if trainer_id == "rec":
-        return RecTrainer
-    if trainer_id == "proxy":
-        return ProxyTrainer
+from .proxy import ProxyTrainer
+from .rec import RecTrainer
+
+
+def get_trainer_cls(trainer_id: Literal["rec", "proxy"]):
+    match trainer_id:
+        case "rec":
+            return RecTrainer
+        case "proxy":
+            return ProxyTrainer
+        case _:
+            raise NotImplementedError

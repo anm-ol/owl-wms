@@ -2,14 +2,12 @@ from dotenv import load_dotenv
 
 import os
 import torch
-import torch.nn.functional as F
 from huggingface_hub import hf_hub_download
 
 load_dotenv()
 
 import tarfile
 import shutil
-import asyncio
 import numpy as np
 import time
 from PIL import Image
@@ -18,10 +16,8 @@ import random
 from torch.utils.data import IterableDataset, DataLoader
 import torch.distributed as dist
 
-import random
 import threading
 import io
-from torchvision import transforms
 
 from huggingface_hub.utils import disable_progress_bars
 
@@ -33,7 +29,7 @@ class RandomizedQueue:
 
     def add(self, item):
         self.items.append(item)
-    
+
     def pop(self):
         if not self.items:
             return None
@@ -52,7 +48,7 @@ class HFImageDataset(IterableDataset):
 
         # Max to have in each queue
         self.max_tars = 2
-        self.max_imgs = 1000 
+        self.max_imgs = 1000
 
         self.tar_queue = RandomizedQueue()
         self.img_queue = RandomizedQueue()
@@ -82,7 +78,7 @@ class HFImageDataset(IterableDataset):
             if len(self.tar_queue.items) < self.max_tars:
                 filename = self.random_sample_prefix()
                 local_path = os.path.join(self.staging_dir, filename)
-                
+
                 try:
                     downloaded_file_path = hf_hub_download(
                         repo_id="timm/imagenet-22k-wds",
@@ -98,7 +94,7 @@ class HFImageDataset(IterableDataset):
                         os.remove(local_path)
             else:
                 time.sleep(1)
-    
+
     def background_load_images(self):
         """
         Thread that pops tars then loads images into image queue.
@@ -111,7 +107,7 @@ class HFImageDataset(IterableDataset):
                 if tar_path is None:
                     time.sleep(1)
                     continue
-                    
+
                 try:
                     with tarfile.open(tar_path) as tar:
                         members = tar.getmembers()
@@ -133,7 +129,7 @@ class HFImageDataset(IterableDataset):
                         os.remove(tar_path)
             else:
                 time.sleep(1)
-    
+
     def __iter__(self):
         while True:
             img = self.img_queue.pop()
@@ -154,7 +150,7 @@ def collate_fn(images):
         img = img.permute(2, 0, 1) # [h,w,c] -> [c,h,w]
         img = (img / 127.5) - 1.0
         processed.append(img)
-    
+
     # Stack into batch
     batch = torch.stack(processed)
     #batch = F.interpolate(batch, (512, 512), mode = 'bicubic')
@@ -176,7 +172,7 @@ def get_loader(batch_size, **dataloader_kwargs):
 
 if __name__ == "__main__":
     import time
-    
+
     loader = get_loader(256)
 
     for batch in loader:

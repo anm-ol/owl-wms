@@ -1,5 +1,3 @@
-import torch
-import torch.nn.functional as F
 from torch import nn
 
 from vector_quantize_pytorch import LFQ

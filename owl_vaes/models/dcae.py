@@ -1,12 +1,15 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-
 import einops as eo
+import torch
+import torch.nn.functional as F
+from torch import nn
 
-from ..nn.resnet import UpBlock, DownBlock, SameBlock
-from ..nn.sana import SpaceToChannel, ChannelToSpace
+from owl_vaes.utils.get_device import DeviceManager
+
 from ..nn.normalization import GroupNorm
+from ..nn.resnet import DownBlock, SameBlock, UpBlock
+from ..nn.sana import ChannelToSpace, SpaceToChannel
+
+device = DeviceManager.get_device()
 
 class Encoder(nn.Module):
     def __init__(self, config : 'ResNetConfig'):
@@ -37,7 +40,7 @@ class Encoder(nn.Module):
 
         self.blocks = nn.ModuleList(blocks)
         self.residuals = nn.ModuleList(residuals)
-                
+
         self.final = SameBlock(ch_max, ch_max, blocks_per_stage[-1], total_blocks)
 
         self.avg_factor = ch // config.latent_channels
@@ -46,7 +49,7 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         x = self.conv_in(x)
-    
+
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
@@ -91,7 +94,7 @@ class Decoder(nn.Module):
 
         self.blocks = nn.ModuleList(list(reversed(blocks)))
         self.residuals = nn.ModuleList(list(reversed(residuals)))
-                
+
         self.conv_out = nn.Conv2d(ch_0, 3, 1, 1, 0, bias=False)
         self.norm_out = GroupNorm(ch_0)
         self.act_out = nn.SiLU()
@@ -102,7 +105,7 @@ class Decoder(nn.Module):
 
         x = self.conv_in(x) + res
         x = self.starter(x) + x
-    
+
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
@@ -143,12 +146,12 @@ if __name__ == "__main__":
     from ..configs import Config
 
     cfg = Config.from_yaml("configs/1d_diff_exps/teacher_1.yml").model
-    model = DCAE(cfg).float().cuda()
+    model = DCAE(cfg).float().to(device)
 
-    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-        x = torch.randn(1, 3, 256, 256, device='cuda', dtype=torch.bfloat16)
+    with torch.autocast(device, dtype=torch.bfloat16):
+        x = torch.randn(1, 3, 256, 256, device=device, dtype=torch.bfloat16)
         rec, z, _ = model(x)
-        
+
         print(f'Input shape: {x.shape}, dtype: {x.dtype}')
-        print(f'Latent shape: {z.shape}, dtype: {z.dtype}') 
+        print(f'Latent shape: {z.shape}, dtype: {z.dtype}')
         print(f'Output shape: {rec.shape}, dtype: {rec.dtype}')

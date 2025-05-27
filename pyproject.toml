@@ -20,6 +20,8 @@ dependencies = [
     "muon",
     "lpips",
     "dotenv>=0.9.9",
+    "torchtyping>=0.1.5",
+    "pre-commit>=4.2.0",
 ]
 
 [dependency-groups]
@@ -32,4 +34,3 @@ dev = [
 [tool.uv.sources]
 muon = { git = "https://github.com/KellerJordan/Muon" }
 lpips = { git = "https://github.com/shahbuland/PerceptualSimilarity" }
-

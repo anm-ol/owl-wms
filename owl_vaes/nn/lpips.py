@@ -1,4 +1,4 @@
-import torch 
+import torch
 from torch import nn
 import torch.nn.functional as F
 
@@ -9,10 +9,10 @@ from .augs import PairedRandomAffine
 def vgg_patchify(x):
     _,_,h,_ = x.shape
     if h != 512: x = F.interpolate(x, (512, 512), mode='bicubic', align_corners=True)
-    
+
     tl = x[:,:,:224,:224]
     tr = x[:,:,:224,-224:]
-    bl = x[:,:,-224:,:224] 
+    bl = x[:,:,-224:,:224]
     br = x[:,:,-224:,-224:]
     return torch.cat([tl, tr, bl, br], dim=0)
 
@@ -29,7 +29,5 @@ class VGGLPIPS(nn.Module):
         if h > 224:
             x_fake = vgg_patchify(x_fake)
             x_real = vgg_patchify(x_real)
-        
+
         return self.model(x_fake, x_real).mean()
-        
-        

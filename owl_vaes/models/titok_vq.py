@@ -1,5 +1,3 @@
-import torch
-from torch import nn
 
 from .titok import TiToKVAE
 from ..nn.lfq import LFQModule

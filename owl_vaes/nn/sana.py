@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import einops as eo
 
 from .attn import Attn
-from .resnet import ResBlock
 from ..configs import TransformerConfig
 
 """

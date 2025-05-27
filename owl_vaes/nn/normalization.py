@@ -1,8 +1,6 @@
 import torch
 from torch import nn
-import torch.nn.functional as F
 
-import einops as eo
 
 class GroupNorm(nn.Module):
     def __init__(self, dim, groups = 32):
@@ -13,11 +11,11 @@ class GroupNorm(nn.Module):
     def forward(self, x):
         b, c, h, w = x.shape
         x = x.reshape(b, self.groups, c // self.groups, h, w)
-        
+
         var = x.float().var(dim=(2,3,4), keepdim=True, unbiased=False)
         std = (var + 1.0e-6).sqrt()
         x = x / std.to(x.dtype)
-        
+
         x = x.reshape(b, c, h, w)
         return x * (1. + self.gain[None,:,None,None])
 
@@ -27,7 +25,7 @@ class RMSNorm(nn.Module):
 
         # small init to default to no gain
         self.gain = nn.Parameter(torch.randn(dim) * 0.02)
-    
+
     def forward(self, x):
         b,h,n,d = x.shape
         gain = self.gain[None,None,None,:] # [1,1,1,d]
@@ -57,4 +55,3 @@ class QKNorm(nn.Module):
 
 def LayerNorm(dim):
     return nn.LayerNorm(dim, elementwise_affine = False)
-
