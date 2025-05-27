@@ -13,6 +13,8 @@ model:
   d_model: 384
 
   patch_size: 4
+  mimetic_init: false
+  causal: false
 
 train:
   trainer_id: rec
@@ -34,7 +36,6 @@ train:
     adamw_keys: [encoder.proj_in, encoder.proj_out, decoder.proj_in, decoder.proj_out]
 
   loss_weights:
-    latent_reg: 0.0
     lpips: 0.0
 
   scheduler: LinearWarmup

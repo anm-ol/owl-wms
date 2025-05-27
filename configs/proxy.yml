@@ -13,6 +13,8 @@ model:
   d_model: 384
 
   patch_size: 1
+  causal: false
+  mimetic_init: false
 
 train:
   trainer_id: proxy

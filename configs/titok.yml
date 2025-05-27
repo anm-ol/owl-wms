@@ -13,7 +13,8 @@ model:
   d_model: 384
 
   patch_size: 4
-  causal: False
+  causal: false
+  mimetic_init: false 
 
 train:
   trainer_id: rec

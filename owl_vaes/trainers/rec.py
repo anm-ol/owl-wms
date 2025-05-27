@@ -83,7 +83,7 @@ class RecTrainer(BaseTrainer):
         # Loss weights
         reg_weight =  self.train_cfg.loss_weights.get('latent_reg', 0.0)
         lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
-        se_reg_weight = self.train_cfg.loss_weights.get('se_reg', 0.25)
+        se_reg_weight = self.train_cfg.loss_weights.get('se_reg', 0.0)
 
         # Prepare model, lpips, ema
         self.model = self.model.cuda().train()
@@ -134,7 +134,11 @@ class RecTrainer(BaseTrainer):
                 batch = batch.cuda().bfloat16()
 
                 with ctx:
-                    batch_rec, z, down_rec = self.model(batch)
+                    out = self.model(batch)
+                    if len(out) == 2:
+                        batch_rec, z = out
+                    elif len(out) == 3:
+                        batch_rec, z, down_rec = out
 
                 if reg_weight > 0:
                     reg_loss = latent_reg_loss(z) / accum_steps
