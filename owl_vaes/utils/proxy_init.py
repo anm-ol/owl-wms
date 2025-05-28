@@ -43,6 +43,27 @@ class CombinedModule(nn.Module):
         x = self.decode(x)
         return x
 
+def load_proxy_model(
+    t_cfg_path: str,
+    t_ckpt_path: str,
+    r_cfg_path: str,
+    r_ckpt_path: str
+):
+    # Load configs
+    t_cfg = Config.from_yaml(t_cfg_path).model
+    r_cfg = Config.from_yaml(r_cfg_path).model
+    
+    # Disable mimetic initialization
+    t_cfg.mimetic_init = False
+    
+    # Initialize combined model
+    model = CombinedModule(t_cfg, r_cfg).to(device).bfloat16()
+    
+    # Load checkpoints
+    model.load_ckpt(t_ckpt_path, r_ckpt_path)
+    
+    return model
+
 if __name__ == "__main__":
 
     t_cfg_path = "configs/1d_diff_exps/proxy.yml"
