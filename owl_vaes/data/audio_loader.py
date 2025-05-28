@@ -51,6 +51,8 @@ class SampleDataset(torch.utils.data.Dataset):
 
         self.filenames = []
         self.root_paths = []
+        self.sample_size = sample_size
+        self.random_crop = random_crop
 
         self.augs = torch.nn.Sequential(PhaseFlipper())
 
@@ -75,7 +77,42 @@ class SampleDataset(torch.utils.data.Dataset):
             if config.custom_metadata_fn is not None:
                 self.custom_metadata_fns[config.path] = config.custom_metadata_fn
 
-        print(f"Found {len(self.filenames)} files")
+        self._calculate_chunks()
+
+    def _calculate_chunks(self):
+        """Calculate total number of chunks across all files."""
+        self.file_chunks = []
+        self.total_chunks = 0
+
+        for filename in self.filenames:
+            try:
+                audio, in_sr = load(filename) # get duration info
+
+                if in_sr != self.sr:
+                    # Calculate resampled length
+                    audio_length = int(audio.shape[-1] * self.sr / in_sr)
+                else:
+                    audio_length = audio.shape[-1]
+
+                # Calculate # of non-overlapping chunks for this file
+                if self.random_crop:
+                    chunks_per_file = max(
+                        1, audio_length // self.sample_size * 10
+                    )  # 10x oversampling for variety
+                else:
+                    # For sequential chunks
+                    chunks_per_file = max(1, audio_length // self.sample_size)
+
+                self.file_chunks.append((filename, chunks_per_file, audio_length))
+                self.total_chunks += chunks_per_file
+
+            except Exception as e:
+                print(f"Warning: Could not process {filename}: {e}")
+                continue
+
+        print(
+            f"== Found {len(self.filenames)} files with {self.total_chunks} total chunks =="
+        )
 
     def load_file(self, filename: str) -> Tensor:
         ext = filename.split(".")[-1]
@@ -89,12 +126,12 @@ class SampleDataset(torch.utils.data.Dataset):
         return audio
 
     def __len__(self):
-        return len(self.filenames)
+        return self.total_chunks
 
     def __getitem__(
         self, idx: int
     ) -> tuple[TensorType[" batch", " channels", " n_samples"], Dict[str, str | Any]]:  # noqa: F722
-        audio_filename = self.filenames[idx]
+        audio_filename = self.file_chunks[0][0]  # Single file
 
         try:
             start_time = time.time()
@@ -159,14 +196,14 @@ class SampleDataset(torch.utils.data.Dataset):
 
                     del info["__audio__"]
 
-            return (audio, info) # type: ignore
+            return (audio, info)  # type: ignore
 
         except Exception as e:
             print(f"Couldn't load file {audio_filename}: {e}")
             return self[random.randrange(len(self))]
 
 
-def get_loader(batch_size: int, paths: list[str] | str):
+def get_audio_loader(batch_size: int, paths: list[str] | str):
     """Get data loader for Sample Audio Model pipeline.
 
     Args:
@@ -235,4 +272,4 @@ def get_loader(batch_size: int, paths: list[str] | str):
 
 
 if __name__ == "__main__":
-    get_loader(1, "my_data/")
+    get_audio_loader(1, "my_data/")

@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torchtyping import TensorType
 
-from owl_vaes.data.audio_loader import get_loader
+from owl_vaes.data.audio_loader import get_audio_loader
 from owl_vaes.nn.audio_blocks import (
     DecoderBlock,
     EncoderBlock,
@@ -140,18 +140,21 @@ class AudioAutoEncoder(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 2,
-        out_channels: int = 2,
-        channels: int = 128,
-        latent_dim: int = 32,
-        c_mults: list[int] = [1, 2, 4, 8],
-        strides: list[int] = [2, 4, 8, 8],
-        use_snake: bool = False,
-        antialias_activation: bool = False,
-        use_nearest_upsample: bool = False,
-        final_tanh: bool = True,
+        config,
     ):
         super().__init__()
+
+        # Extract parameters from config with defaults
+        in_channels = getattr(config, "in_channels", 2)
+        out_channels = getattr(config, "out_channels", 2)
+        channels = getattr(config, "channels", 128)
+        latent_dim = getattr(config, "latent_dim", 32)
+        c_mults = getattr(config, "c_mults", [1, 2, 4, 8])
+        strides = getattr(config, "strides", [2, 4, 8, 8])
+        use_snake = getattr(config, "use_snake", False)
+        antialias_activation = getattr(config, "antialias_activation", False)
+        use_nearest_upsample = getattr(config, "use_nearest_upsample", False)
+        final_tanh = getattr(config, "final_tanh", True)
 
         self.encoder = OobleckEncoder(
             in_channels=in_channels,
@@ -206,7 +209,7 @@ class AudioAutoEncoder(nn.Module):
 
 
 if __name__ == "__main__":
-    loader = get_loader(1, "my_data/")
+    loader = get_audio_loader(1, "my_data/")
     sample = next(iter(loader))[0]
 
     myEncoder = OobleckEncoder(2, 128, use_snake=True, antialias_activation=True)
@@ -214,9 +217,15 @@ if __name__ == "__main__":
         2, 128, antialias_activation=True, use_nearest_upsample=True
     )
 
-    model = AudioAutoEncoder(
-        2, 2, use_snake=True, antialias_activation=True, use_nearest_upsample=True
-    )
+    model_config = {
+        "in_channels": 2,
+        "out_channels": 2,
+        "use_snake": True,
+        "antialias_activation": True,
+        "use_nearest_upsample": True,
+    }
+
+    model = AudioAutoEncoder(model_config)
 
     latent = myEncoder(sample)
     decoded = myDecoder(latent)

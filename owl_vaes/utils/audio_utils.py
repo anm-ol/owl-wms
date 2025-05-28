@@ -11,7 +11,7 @@ from typing import Tuple
 import torch
 from torch import nn
 from torch.types import Tensor
-from torchaudio import transforms as T  # type: ignore[import-untyped]
+from torchaudio import transforms as T
 
 
 class PadCrop(nn.Module):
