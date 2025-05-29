@@ -39,6 +39,7 @@ dev = [
     "pylsp-rope>=0.1.17",
     "python-lsp-server>=1.12.2",
     "ruff>=0.11.11",
+    "skypilot[runpod]>=0.9.3",
 ]
 
 [tool.uv.sources]

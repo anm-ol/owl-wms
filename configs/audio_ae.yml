@@ -20,7 +20,7 @@ train:
   filepath: "my_data/"
 
   target_batch_size: 16
-  batch_size: 4
+  batch_size: 12
   epochs: 100
 
   opt: AdamW

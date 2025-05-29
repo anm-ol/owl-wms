@@ -1,5 +1,5 @@
 """
-Audio Reconstruction Trainer for Audio AutoEncoder
+Audio Reconstruction Trainer for Audio AutoEncoder - Optimized with torch.compile
 """
 
 import einops
@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from ema_pytorch import EMA
-from torch import Tensor
+from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
@@ -25,6 +25,7 @@ from .base import BaseTrainer
 device = DeviceManager.get_device()
 
 
+@torch.compile(mode="max-autotune-no-cudagraphs")
 def stft_loss(
     x_rec: Tensor,
     x_target: Tensor,
@@ -32,18 +33,21 @@ def stft_loss(
     hop_length_ratio: float = 0.25,
 ) -> Tensor:
     """
-    Multi-scale STFT loss for audio reconstruction.
+    Multi-scale STFT loss for audio reconstruction
 
     Args:
         x_rec: Reconstructed audio (B, C, T)
         x_target: Target audio (B, C, T)
         n_fft_list: List of FFT sizes for multi-scale analysis
-        hop_length_ratio: Hop length as ratio of n_fft
+        hop_length_ratio: Hop length of the window as ratio of n_fft
 
     Returns:
         Combined STFT loss
     """
     total_loss = 0.0
+
+    x_rec = x_rec.to(torch.float16)
+    x_target = x_target.to(torch.float16)
 
     for n_fft in n_fft_list:
         hop_length = int(n_fft * hop_length_ratio)
@@ -66,16 +70,20 @@ def stft_loss(
         mag_target = torch.abs(stft_target)
         mag_loss = F.l1_loss(mag_rec, mag_target)
 
-        phase_loss = F.mse_loss(stft_rec, stft_target)
+        # Phase loss: MSE on real and imaginary parts (GPU-friendly)
+        real_loss = F.mse_loss(stft_rec.real, stft_target.real)
+        imag_loss = F.mse_loss(stft_rec.imag, stft_target.imag)
+        phase_loss = real_loss + imag_loss
 
-        total_loss += mag_loss + phase_loss
+        total_loss = total_loss + mag_loss + phase_loss
 
     return total_loss / len(n_fft_list)
 
 
+@torch.compile(mode="max-autotune")
 def lr_to_ms(audio: Tensor) -> Tensor:
     """
-    Convert Left-Right (L/R) stereo to Mid-Side (M/S).
+    Convert Left-Right (L/R) stereo to Mid-Side (M/S)
 
     Args:
         audio: Input audio tensor (B, 2, T) where channel 0=L, channel 1=R
@@ -86,25 +94,43 @@ def lr_to_ms(audio: Tensor) -> Tensor:
     if audio.size(1) != 2:
         return audio
 
-    left = audio[:, 0:1, :]  # (B, 1, T)
-    right = audio[:, 1:2, :]  # (B, 1, T)
+    left = audio[:, 0:1, :].clone()  # (B, 1, T)
+    right = audio[:, 1:2, :].clone()  # (B, 1, T)
 
-    mid = (left + right) / 2  # Mid channel
-    side = (left - right) / 2  # Side channel
+    mid = (
+        left + right
+    ) * 0.5  # Mid channel - use multiplication for better compilation
+    side = (left - right) * 0.5  # Side channel
 
     return torch.cat([mid, side], dim=1)
 
 
-def latent_reg_loss(z: Tensor, target_var: float = 0.1):
+@torch.compile(mode="max-autotune")
+def latent_reg_loss(z: Tensor, target_var: float = 0.1) -> Tensor:
+    """
+    Latent regularization loss - Compiled for performance.
+    """
     # z is [b,c,h,w]
     # KL divergence between N(z, 0.1) and N(0,1)
     mu = z
-    logvar = 2 * torch.log(torch.tensor(target_var))  # log(0.1^2)
+    log_target_var = 2 * torch.log(
+        torch.tensor(target_var, device=z.device, dtype=z.dtype)
+    )  # log(0.1^2)
 
-    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+    kl = -0.5 * (1 + log_target_var - mu.pow(2) - log_target_var.exp())
     kl = einops.reduce(kl, "b ... -> b", reduction="sum").mean()
 
     return kl
+
+
+@torch.compile(mode="max-autotune-no-cudagraphs")
+def compute_ms_loss(batch_rec: Tensor, batch: Tensor) -> Tensor:
+    """
+    Compute M/S component loss - Compiled for performance.
+    """
+    batch_ms = lr_to_ms(batch)
+    batch_rec_ms = lr_to_ms(batch_rec)
+    return F.mse_loss(batch_rec_ms, batch_ms)
 
 
 def log_audio_to_wandb(
@@ -157,14 +183,14 @@ def log_audio_to_wandb(
 
 class AudioRecTrainer(BaseTrainer):
     """
-    Trainer for audio reconstruction with specialized audio losses.
+    Trainer for audio reconstruction with specialized audio losses
 
     Includes:
     - Reconstruction loss (MSE)
-    - STFT loss (multi-scale spectral loss)
+    - STFT loss (multi-scale spectral loss) - COMPILED
     - TODO: HuBERT perceptual loss)
-    - KL divergence regularization (down-weighted by 1e-4)
-    - L/R vs M/S component weighting (L/R down-weighted by 0.5)
+    - KL divergence regularization (down-weighted by 1e-4) - COMPILED
+    - L/R vs M/S component weighting (L/R down-weighted by 0.5) - COMPILED
     - Audio logging to W&B
     """
 
@@ -172,7 +198,7 @@ class AudioRecTrainer(BaseTrainer):
         super().__init__(*args, **kwargs)
 
         model_id = self.model_cfg.model_id
-        self.model = get_model_cls(model_id)(self.model_cfg)
+        self.model: nn.Module = get_model_cls(model_id)(self.model_cfg).to(device)
 
         if self.rank == 0:
             param_count = sum(p.numel() for p in self.model.parameters())
@@ -185,7 +211,12 @@ class AudioRecTrainer(BaseTrainer):
 
         self.total_step_counter = 0
 
+    def _compile_model(self, model: nn.Module) -> nn.Module:
+        print("Compiling model...")
+        return torch.compile(model, mode="max-autotune-no-cudagraphs", dynamic=True)  # type: ignore
+
     def save(self):
+        # Save the original model state, not the compiled one
         save_dict = {
             "model": self.model.state_dict(),
             "ema": self.ema.state_dict(),
@@ -225,8 +256,12 @@ class AudioRecTrainer(BaseTrainer):
 
         # Prepare model and EMA
         self.model = self.model.to(device).train()
+
         if self.world_size > 1:
             self.model = DDP(self.model)
+
+        # Compile model after DDP setup
+        self.model = self._compile_model(self.model)
 
         self.ema = EMA(self.model, beta=0.9999, update_after_step=0, update_every=1)
 
@@ -275,49 +310,49 @@ class AudioRecTrainer(BaseTrainer):
             for batch in tqdm(
                 loader, desc=f"Epoch {epoch_idx + 1}/{self.train_cfg.epochs}"
             ):
-                total_loss = 0.0
-                batch = batch[0].to(device).bfloat16()
+                total_loss = torch.tensor(0.0, device=device)
+                batch = batch[0].to(device, dtype=torch.bfloat16)
+
+                if batch.is_cuda:
+                    torch.compiler.cudagraph_mark_step_begin()
 
                 with ctx:
-                    # Forward pass: (reconstructed, latent)
+                    # Forward pass: (reconstructed, latent) - Use compiled model
                     batch_rec, z = self.model(batch)
+                    batch_rec, z = batch_rec.to(device), z.to(device)
 
                 # Reconstruction loss
                 if recon_weight > 0:
                     recon_loss = F.mse_loss(batch_rec, batch) / accum_steps
-                    total_loss += recon_loss * recon_weight
+                    total_loss = total_loss + recon_loss * recon_weight
                     metrics.log("recon_loss", recon_loss)
 
-                # STFT loss
+                # STFT loss - Now compiled!
                 if stft_weight > 0:
                     with ctx:
                         stft_l = (
                             stft_loss(batch_rec, batch, n_fft_list=n_fft_list)
                             / accum_steps
                         )
-                    total_loss += stft_l * stft_weight
+                    total_loss = total_loss + stft_l * stft_weight
                     metrics.log("stft_loss", stft_l)
 
-                # L/R vs M/S component weighting
+                # L/R vs M/S component weighting - Now compiled!
                 if lr_ms_ratio < 1.0 and batch.size(1) == 2:  # Only for stereo audio
-                    # Convert to M/S for both original and reconstructed
-                    batch_ms = lr_to_ms(batch)
-                    batch_rec_ms = lr_to_ms(batch_rec)
-
-                    # Separate loss for M/S components
-                    ms_loss = F.mse_loss(batch_rec_ms, batch_ms) / accum_steps
+                    with ctx:
+                        ms_loss = compute_ms_loss(batch_rec, batch) / accum_steps
 
                     # Weight the M/S loss more heavily than L/R
                     ms_weight = (
                         1.0 + lr_ms_ratio
                     ) / 2.0  # Balance between L/R and M/S weighting
-                    total_loss += ms_loss * ms_weight * recon_weight
+                    total_loss = total_loss + ms_loss * ms_weight * recon_weight
                     metrics.log("ms_loss", ms_loss)
 
-                # KL divergence regularization
+                # KL divergence regularization - Now compiled!
                 if kl_weight > 0:
                     kl_loss = latent_reg_loss(z) / accum_steps
-                    total_loss += kl_loss * kl_weight
+                    total_loss = total_loss + kl_loss * kl_weight
                     metrics.log("kl_loss", kl_loss)
 
                 # HuBERT loss (placeholder)
@@ -330,10 +365,10 @@ class AudioRecTrainer(BaseTrainer):
                 # Log latent statistics
                 with torch.no_grad():
                     metrics.log_dict({
-                        "z_std": z.std() / accum_steps,
-                        "z_mean": z.mean() / accum_steps,
-                        "z_max": z.max() / accum_steps,
-                        "z_min": z.min() / accum_steps,
+                        "z_std": z.std(),
+                        "z_mean": z.mean(),
+                        "z_max": z.max(),
+                        "z_min": z.min(),
                     })
 
                 local_step += 1

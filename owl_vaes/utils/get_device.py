@@ -1,5 +1,5 @@
 import os
-import torch
+
 
 class DeviceManager:
     envvar = os.getenv("DEVICE_TYPE")
@@ -7,7 +7,6 @@ class DeviceManager:
 
     @classmethod
     def set_device(cls, device: str):
-        torch.set_default_device(device)
         cls._device = device
 
     @classmethod

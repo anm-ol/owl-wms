@@ -265,7 +265,13 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
         sampler=train_sampler,
         drop_last=True,
         collate_fn=collate_fn,
-        generator=torch.Generator(device),
+        generator=torch.Generator("cpu"),
+        num_workers=32,
+        prefetch_factor=16,
+        pin_memory=True,
+        pin_memory_device=device,
+        persistent_workers=True,
+        in_order=False
     )
 
     return train_loader
