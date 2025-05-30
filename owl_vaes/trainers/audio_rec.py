@@ -25,7 +25,6 @@ from .base import BaseTrainer
 device = DeviceManager.get_device()
 
 
-@torch.compile(mode="max-autotune-no-cudagraphs")
 def stft_loss(
     x_rec: Tensor,
     x_target: Tensor,
@@ -123,7 +122,7 @@ def latent_reg_loss(z: Tensor, target_var: float = 0.1) -> Tensor:
     return kl
 
 
-@torch.compile(mode="max-autotune-no-cudagraphs")
+@torch.compile(mode="max-autotune")
 def compute_ms_loss(batch_rec: Tensor, batch: Tensor) -> Tensor:
     """
     Compute M/S component loss - Compiled for performance.
@@ -321,13 +320,11 @@ class AudioRecTrainer(BaseTrainer):
                     batch_rec, z = self.model(batch)
                     batch_rec, z = batch_rec.to(device), z.to(device)
 
-                # Reconstruction loss
                 if recon_weight > 0:
                     recon_loss = F.mse_loss(batch_rec, batch) / accum_steps
                     total_loss = total_loss + recon_loss * recon_weight
                     metrics.log("recon_loss", recon_loss)
 
-                # STFT loss - Now compiled!
                 if stft_weight > 0:
                     with ctx:
                         stft_l = (
@@ -337,19 +334,16 @@ class AudioRecTrainer(BaseTrainer):
                     total_loss = total_loss + stft_l * stft_weight
                     metrics.log("stft_loss", stft_l)
 
-                # L/R vs M/S component weighting - Now compiled!
                 if lr_ms_ratio < 1.0 and batch.size(1) == 2:  # Only for stereo audio
                     with ctx:
                         ms_loss = compute_ms_loss(batch_rec, batch) / accum_steps
 
-                    # Weight the M/S loss more heavily than L/R
                     ms_weight = (
                         1.0 + lr_ms_ratio
                     ) / 2.0  # Balance between L/R and M/S weighting
                     total_loss = total_loss + ms_loss * ms_weight * recon_weight
                     metrics.log("ms_loss", ms_loss)
 
-                # KL divergence regularization - Now compiled!
                 if kl_weight > 0:
                     kl_loss = latent_reg_loss(z) / accum_steps
                     total_loss = total_loss + kl_loss * kl_weight
@@ -362,7 +356,6 @@ class AudioRecTrainer(BaseTrainer):
 
                 self.scaler.scale(total_loss).backward()
 
-                # Log latent statistics
                 with torch.no_grad():
                     metrics.log_dict({
                         "z_std": z.std(),
@@ -373,7 +366,6 @@ class AudioRecTrainer(BaseTrainer):
 
                 local_step += 1
                 if local_step % accum_steps == 0:
-                    # Updates
                     self.scaler.unscale_(self.opt)
                     torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), max_norm=1.0
@@ -388,7 +380,6 @@ class AudioRecTrainer(BaseTrainer):
                         self.scheduler.step()
                     self.ema.update()
 
-                    # Logging
                     with torch.no_grad():
                         wandb_dict = metrics.pop()
                         wandb_dict["time"] = timer.hit()

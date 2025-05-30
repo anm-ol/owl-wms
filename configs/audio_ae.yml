@@ -20,20 +20,20 @@ train:
   filepath: "my_data/"
 
   target_batch_size: 16
-  batch_size: 12
+  batch_size: 24
   epochs: 100
 
   opt: AdamW
   opt_kwargs:
-    lr: 2.0e-4
+    lr: 1.0e-4
     eps: 1.0e-15
-    betas: [0.9, 0.999]
+    betas: [0.9, 0.98]
     weight_decay: 0.01
 
   loss_weights:
-    recon: 1.0
-    stft: 2.0
-    kl: 1.0e-4
+    recon: 2.0
+    stft: 1.5
+    kl: 2.0e-4
     lr_ms_ratio: 0.5
     hubert: 0.0
 
