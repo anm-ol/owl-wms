@@ -33,20 +33,12 @@ def stft_loss(
 ) -> Tensor:
     """
     Multi-scale STFT loss for audio reconstruction
-
-    Args:
-        x_rec: Reconstructed audio (B, C, T)
-        x_target: Target audio (B, C, T)
-        n_fft_list: List of FFT sizes for multi-scale analysis
-        hop_length_ratio: Hop length of the window as ratio of n_fft
-
-    Returns:
-        Combined STFT loss
+    Using view_as_real to properly handle complex tensors
     """
     total_loss = 0.0
 
-    x_rec = x_rec.to(torch.float16)
-    x_target = x_target.to(torch.float16)
+    x_rec = x_rec.to(torch.float32)
+    x_target = x_target.to(torch.float32)
 
     for n_fft in n_fft_list:
         hop_length = int(n_fft * hop_length_ratio)
@@ -64,15 +56,16 @@ def stft_loss(
             return_complex=True,
         )
 
-        # Magnitude loss
         mag_rec = torch.abs(stft_rec)
         mag_target = torch.abs(stft_target)
         mag_loss = F.l1_loss(mag_rec, mag_target)
 
-        # Phase loss: MSE on real and imaginary parts (GPU-friendly)
-        real_loss = F.mse_loss(stft_rec.real, stft_target.real)
-        imag_loss = F.mse_loss(stft_rec.imag, stft_target.imag)
-        phase_loss = real_loss + imag_loss
+        # Convert Complex tensors to real so torch doesn't panic
+        stft_rec_real = torch.view_as_real(stft_rec)        # Shape: (..., 2) where last dim is [real, imag]
+        stft_target_real = torch.view_as_real(stft_target)
+
+        # Compute MSE on the real-valued tensor (contains both real and imaginary parts)
+        phase_loss = F.mse_loss(stft_rec_real, stft_target_real)
 
         total_loss = total_loss + mag_loss + phase_loss
 
@@ -130,6 +123,82 @@ def compute_ms_loss(batch_rec: Tensor, batch: Tensor) -> Tensor:
     batch_ms = lr_to_ms(batch)
     batch_rec_ms = lr_to_ms(batch_rec)
     return F.mse_loss(batch_rec_ms, batch_ms)
+
+
+@torch.compile(mode="max-autotune")
+def compute_forward_pass(model, batch):
+    """
+    Compiled forward pass function
+    """
+    return model(batch)
+
+
+def compute_losses(
+    batch_rec: Tensor,
+    batch: Tensor,
+    z: Tensor,
+    recon_weight: float,
+    stft_weight: float,
+    kl_weight: float,
+    lr_ms_ratio: float,
+    accum_steps: int,
+    n_fft_list: list[int],
+):
+    """
+    Compiled loss computation function
+    """
+    total_loss = torch.tensor(0.0, device=batch.device)
+    metrics = {}
+
+    # Reconstruction loss
+    if recon_weight > 0:
+        recon_loss = F.mse_loss(batch_rec, batch) / accum_steps
+        total_loss = total_loss + recon_loss * recon_weight
+        metrics["recon_loss"] = recon_loss
+
+    # STFT loss
+    if stft_weight > 0:
+        stft_l = stft_loss(batch_rec, batch, n_fft_list=n_fft_list) / accum_steps
+        total_loss = total_loss + stft_l * stft_weight
+        metrics["stft_loss"] = stft_l
+
+    # M/S loss for stereo audio
+    if lr_ms_ratio < 1.0 and batch.size(1) == 2:
+        ms_loss = compute_ms_loss(batch_rec, batch) / accum_steps
+        ms_weight = (1.0 + lr_ms_ratio) / 2.0
+        total_loss = total_loss + ms_loss * ms_weight * recon_weight
+        metrics["ms_loss"] = ms_loss
+
+    # KL loss
+    if kl_weight > 0:
+        kl_loss = latent_reg_loss(z) / accum_steps
+        total_loss = total_loss + kl_loss * kl_weight
+        metrics["kl_loss"] = kl_loss
+
+    # Z statistics
+    metrics.update({
+        "z_std": z.std(),
+        "z_mean": z.mean(),
+        "z_max": z.max(),
+        "z_min": z.min(),
+    })
+
+    return total_loss, metrics
+
+
+@torch.compile(mode="max-autotune")
+def optimization_step(scaler, opt, model_parameters, scheduler=None):
+    """
+    Compiled optimization step
+    """
+    scaler.unscale_(opt)
+    torch.nn.utils.clip_grad_norm_(model_parameters, max_norm=1.0)
+    scaler.step(opt)
+    opt.zero_grad(set_to_none=True)
+    scaler.update()
+
+    if scheduler is not None:
+        scheduler.step()
 
 
 def log_audio_to_wandb(
@@ -309,75 +378,42 @@ class AudioRecTrainer(BaseTrainer):
             for batch in tqdm(
                 loader, desc=f"Epoch {epoch_idx + 1}/{self.train_cfg.epochs}"
             ):
-                total_loss = torch.tensor(0.0, device=device)
                 batch = batch[0].to(device, dtype=torch.bfloat16)
 
                 if batch.is_cuda:
                     torch.compiler.cudagraph_mark_step_begin()
 
                 with ctx:
-                    # Forward pass: (reconstructed, latent) - Use compiled model
-                    batch_rec, z = self.model(batch)
-                    batch_rec, z = batch_rec.to(device), z.to(device)
+                    # Forward pass using compiled function
+                    batch_rec, z = compute_forward_pass(self.model, batch)
 
-                if recon_weight > 0:
-                    recon_loss = F.mse_loss(batch_rec, batch) / accum_steps
-                    total_loss = total_loss + recon_loss * recon_weight
-                    metrics.log("recon_loss", recon_loss)
+                    # Compute all losses using compiled function
+                    total_loss, loss_metrics = compute_losses(
+                        batch_rec=batch_rec,
+                        batch=batch,
+                        z=z,
+                        recon_weight=recon_weight,
+                        stft_weight=stft_weight,
+                        kl_weight=kl_weight,
+                        lr_ms_ratio=lr_ms_ratio,
+                        accum_steps=accum_steps,
+                        n_fft_list=n_fft_list,
+                    )
 
-                if stft_weight > 0:
-                    with ctx:
-                        stft_l = (
-                            stft_loss(batch_rec, batch, n_fft_list=n_fft_list)
-                            / accum_steps
-                        )
-                    total_loss = total_loss + stft_l * stft_weight
-                    metrics.log("stft_loss", stft_l)
+                # Update metrics
+                metrics.log_dict(loss_metrics)
 
-                if lr_ms_ratio < 1.0 and batch.size(1) == 2:  # Only for stereo audio
-                    with ctx:
-                        ms_loss = compute_ms_loss(batch_rec, batch) / accum_steps
-
-                    ms_weight = (
-                        1.0 + lr_ms_ratio
-                    ) / 2.0  # Balance between L/R and M/S weighting
-                    total_loss = total_loss + ms_loss * ms_weight * recon_weight
-                    metrics.log("ms_loss", ms_loss)
-
-                if kl_weight > 0:
-                    kl_loss = latent_reg_loss(z) / accum_steps
-                    total_loss = total_loss + kl_loss * kl_weight
-                    metrics.log("kl_loss", kl_loss)
-
-                # HuBERT loss (placeholder)
-                if hubert_weight > 0:
-                    # TODO: Implement HuBERT perceptual loss
-                    pass
-
+                # Backward pass
                 self.scaler.scale(total_loss).backward()
-
-                with torch.no_grad():
-                    metrics.log_dict({
-                        "z_std": z.std(),
-                        "z_mean": z.mean(),
-                        "z_max": z.max(),
-                        "z_min": z.min(),
-                    })
 
                 local_step += 1
                 if local_step % accum_steps == 0:
-                    self.scaler.unscale_(self.opt)
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), max_norm=1.0
+                    # Optimization step using compiled function
+                    optimization_step(
+                        self.scaler, self.opt, self.model.parameters(), self.scheduler
                     )
 
-                    self.scaler.step(self.opt)
-                    self.opt.zero_grad(set_to_none=True)
-
-                    self.scaler.update()
-
-                    if self.scheduler is not None:
-                        self.scheduler.step()
+                    # EMA update (not compiled as it has its own optimized implementation)
                     self.ema.update()
 
                     with torch.no_grad():

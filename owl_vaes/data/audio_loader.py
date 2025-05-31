@@ -68,7 +68,6 @@ class SampleDataset(torch.utils.data.Dataset):
         )
 
         self.sr = sample_rate
-
         self.custom_metadata_fns = {}
 
         for config in configs:
@@ -86,21 +85,18 @@ class SampleDataset(torch.utils.data.Dataset):
 
         for filename in self.filenames:
             try:
-                audio, in_sr = load(filename) # get duration info
+                audio, in_sr = load(filename)
 
                 if in_sr != self.sr:
-                    # Calculate resampled length
                     audio_length = int(audio.shape[-1] * self.sr / in_sr)
                 else:
                     audio_length = audio.shape[-1]
 
-                # Calculate # of non-overlapping chunks for this file
                 if self.random_crop:
                     chunks_per_file = max(
                         1, audio_length // self.sample_size * 10
-                    )  # 10x oversampling for variety
+                    )  # 10x oversampling
                 else:
-                    # For sequential chunks
                     chunks_per_file = max(1, audio_length // self.sample_size)
 
                 self.file_chunks.append((filename, chunks_per_file, audio_length))
@@ -116,26 +112,33 @@ class SampleDataset(torch.utils.data.Dataset):
 
     def load_file(self, filename: str) -> Tensor:
         ext = filename.split(".")[-1]
-
         audio, in_sr = load(filename, format=ext)
-
         if in_sr != self.sr:
             resample_tf = T.Resample(in_sr, self.sr)
             audio = resample_tf(audio)
-
         return audio
 
     def __len__(self):
         return self.total_chunks
 
     def __getitem__(
-        self, idx: int
-    ) -> tuple[TensorType[" batch", " channels", " n_samples"], Dict[str, str | Any]]:  # noqa: F722
-        audio_filename = self.file_chunks[0][0]  # Single file
+        self, chunk_idx: int
+    ) -> tuple[TensorType["batch", "channels", "n_samples"], Dict[str, str | Any]]:  # noqa: F821
+        for filename, chunks_per_file, audio_length in self.file_chunks:
+            if chunk_idx < chunks_per_file:
+                break
+            chunk_idx -= chunks_per_file
 
         try:
             start_time = time.time()
-            audio = self.load_file(audio_filename)
+            audio = self.load_file(filename)
+
+            # If random cropping, the PadCrop_Normalized_T transform will randomize the start;
+            # otherwise, compute deterministic offset
+            if not self.random_crop:
+                offset = chunk_idx * self.sample_size
+                # Slice the audio to that chunk (if shorter near the end, the PadCrop will handle it)
+                audio = audio[:, offset: offset + self.sample_size]
 
             audio, t_start, t_end, seconds_start, seconds_total, padding_mask = (
                 self.pad_crop(audio)
@@ -145,7 +148,7 @@ class SampleDataset(torch.utils.data.Dataset):
             if is_silence(audio):
                 return self[random.randrange(len(self))]
 
-            # Run augmentations on this sample (including random crop)
+            # Run augmentations on this sample
             if self.augs is not None:
                 audio = self.augs(audio)
 
@@ -156,65 +159,47 @@ class SampleDataset(torch.utils.data.Dataset):
                 audio = self.encoding(audio)
 
             info: Dict[str, Any] = {}
-
-            info["path"] = audio_filename
+            info["path"] = filename
 
             for root_path in self.root_paths:
-                if root_path in audio_filename:
-                    info["relpath"] = path.relpath(audio_filename, root_path)
+                if root_path in filename:
+                    info["relpath"] = path.relpath(filename, root_path)
 
             info["timestamps"] = (t_start, t_end)
             info["seconds_start"] = seconds_start
             info["seconds_total"] = seconds_total
             info["padding_mask"] = padding_mask
             info["sample_rate"] = self.sr
-
             end_time = time.time()
-
             info["load_time"] = end_time - start_time
 
-            for custom_md_path in self.custom_metadata_fns.keys():
-                if custom_md_path in audio_filename:
-                    custom_metadata_fn: Callable = self.custom_metadata_fns[
-                        custom_md_path
-                    ]
+            # Any custom metadata injection
+            for custom_md_path, custom_metadata_fn in self.custom_metadata_fns.items():
+                if custom_md_path in filename:
                     custom_metadata = custom_metadata_fn(info, audio)
                     info.update(custom_metadata)
 
                 if "__reject__" in info and info["__reject__"]:
                     return self[random.randrange(len(self))]
 
-                # Provide audio inputs as their own dictionary to be merged into info, each audio element will be normalized in the same way as the main audio
                 if "__audio__" in info:
                     for audio_key, audio_value in info["__audio__"].items():
-                        # Process the audio_value tensor, which should be a torch tensor
                         audio_value, _, _, _, _, _ = self.pad_crop(audio_value)
                         audio_value = audio_value.clamp(-1, 1)
                         if self.encoding is not None:
                             audio_value = self.encoding(audio_value)
                         info[audio_key] = audio_value
-
                     del info["__audio__"]
 
             return (audio, info)  # type: ignore
 
         except Exception as e:
-            print(f"Couldn't load file {audio_filename}: {e}")
+            print(f"Couldn't load file {filename}: {e}")
             return self[random.randrange(len(self))]
 
 
 def get_audio_loader(batch_size: int, paths: list[str] | str):
-    """Get data loader for Sample Audio Model pipeline.
-
-    Args:
-        batch_size: Batch size per GPU
-        world_size: Number of GPUs being used
-        global_rank: Rank of current GPU
-
-    Returns:
-        DataLoader for chosen path's dataset
-    """
-
+    """Get data loader for Sample Audio Model pipeline."""
     world_size = 1
     global_rank = 0
 
@@ -230,7 +215,7 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
     train_dataset = SampleDataset(
         configs=[LocalDatasetConfig(str(i), path) for i, path in enumerate(paths)],
         random_crop=True,
-        sample_size=81408,  # 2 * 44100
+        sample_size=81408,  # 2 * 44100, rounded
         sample_rate=44100,
     )
 
@@ -241,7 +226,7 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
         for b in batched:
             if isinstance(b[0], (int, float)):
                 b = np.array(b)
-            elif isinstance(b[0], Tensor):
+            elif isinstance(b[0], torch.Tensor):
                 b = torch.stack(b)
             elif isinstance(b[0], np.ndarray):
                 b = np.array(b)
@@ -254,7 +239,7 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
     if world_size > 1:
         train_sampler = torch.utils.data.DistributedSampler(
             train_dataset, num_replicas=world_size, rank=global_rank, shuffle=True
-        )  # type: ignore[var-annotated]
+        )
     else:
         train_sampler = None
 
@@ -266,8 +251,8 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
         drop_last=True,
         collate_fn=collate_fn,
         generator=torch.Generator("cpu"),
-        num_workers=32,
-        prefetch_factor=16,
+        num_workers=8,
+        prefetch_factor=8,
         pin_memory=True,
         pin_memory_device=device,
         persistent_workers=True,
@@ -278,4 +263,4 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
 
 
 if __name__ == "__main__":
-    get_audio_loader(1, "my_data/")
+    ll = get_audio_loader(32, "my_data/")
