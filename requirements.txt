@@ -9,3 +9,4 @@ wandb
 kornia
 datasets
 huggingface-hub
+python-dotenv
