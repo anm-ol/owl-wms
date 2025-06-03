@@ -55,14 +55,14 @@ def cn_patchify(x):
             
     return torch.cat(patches, dim=0)
     
-class ConvNext(nn.Module):
+class ConvNextLPIPS(nn.Module):
     def __init__(self):
         super().__init__()
 
         self.loss = ConvNextPerceptualLoss(
             model_type=ConvNextType.Base,
             device='cpu',
-            feature_layers=[0,2,4,6,8,12,14].
+            feature_layers=[0,2,4,6,8,12,14],
             use_gram=False,
             layer_weight_decay=0.99
         )

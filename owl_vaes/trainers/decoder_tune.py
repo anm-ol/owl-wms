@@ -52,7 +52,7 @@ class DecTuneTrainer(BaseTrainer):
 
         self.encoder = teacher.encoder
 
-        if self.train_cfg.user_teacher_decoder:
+        if self.train_cfg.use_teacher_decoder:
             self.model = teacher.decoder
             self.model.decoder_only = True
         else:
