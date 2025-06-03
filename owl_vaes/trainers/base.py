@@ -18,6 +18,7 @@ class BaseTrainer:
         global_rank=0,
         local_rank=0,
         world_size=1,
+        device = 'cuda'
     ):
         self.rank = global_rank
         self.local_rank = local_rank
@@ -26,6 +27,8 @@ class BaseTrainer:
         self.train_cfg = train_cfg
         self.logging_cfg = logging_cfg
         self.model_cfg = model_cfg
+
+        self.device = device
 
         if self.logging_cfg is not None and self.rank == 0:
             log = self.logging_cfg
