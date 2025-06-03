@@ -26,7 +26,6 @@ if __name__ == "__main__":
         else:
             device = "cpu"
 
-
     trainer = get_trainer_cls(cfg.train.trainer_id)(
         cfg.train, cfg.wandb, cfg.model, global_rank, local_rank, world_size, device
     )
