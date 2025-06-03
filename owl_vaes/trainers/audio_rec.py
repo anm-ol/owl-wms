@@ -18,112 +18,16 @@ from ..models import get_model_cls
 from ..muon import init_muon
 from ..schedulers import get_scheduler_cls
 from ..utils import Timer
-from ..utils.get_device import DeviceManager
-from ..utils.logging import LogHelper
+from ..utils.logging import LogHelper, log_audio_to_wandb
 from .base import BaseTrainer
 
-device = DeviceManager.get_device()
-
-
-def stft_loss(
-    x_rec: Tensor,
-    x_target: Tensor,
-    n_fft_list: list[int] = [1024, 2048, 512],
-    hop_length_ratio: float = 0.25,
-) -> Tensor:
-    """
-    Multi-scale STFT loss for audio reconstruction
-    Using view_as_real to properly handle complex tensors
-    """
-    total_loss = 0.0
-
-    x_rec = x_rec.to(torch.float32)
-    x_target = x_target.to(torch.float32)
-
-    for n_fft in n_fft_list:
-        hop_length = int(n_fft * hop_length_ratio)
-
-        stft_rec = torch.stft(
-            x_rec.view(-1, x_rec.size(-1)),
-            n_fft=n_fft,
-            hop_length=hop_length,
-            return_complex=True,
-        )
-        stft_target = torch.stft(
-            x_target.view(-1, x_target.size(-1)),
-            n_fft=n_fft,
-            hop_length=hop_length,
-            return_complex=True,
-        )
-
-        mag_rec = torch.abs(stft_rec)
-        mag_target = torch.abs(stft_target)
-        mag_loss = F.l1_loss(mag_rec, mag_target)
-
-        # Convert Complex tensors to real so torch doesn't panic
-        stft_rec_real = torch.view_as_real(stft_rec)        # Shape: (..., 2) where last dim is [real, imag]
-        stft_target_real = torch.view_as_real(stft_target)
-
-        # Compute MSE on the real-valued tensor (contains both real and imaginary parts)
-        phase_loss = F.mse_loss(stft_rec_real, stft_target_real)
-
-        total_loss = total_loss + mag_loss + phase_loss
-
-    return total_loss / len(n_fft_list)
-
-
-@torch.compile(mode="max-autotune")
-def lr_to_ms(audio: Tensor) -> Tensor:
-    """
-    Convert Left-Right (L/R) stereo to Mid-Side (M/S)
-
-    Args:
-        audio: Input audio tensor (B, 2, T) where channel 0=L, channel 1=R
-
-    Returns:
-        Audio in M/S format (B, 2, T) where channel 0=M, channel 1=S
-    """
-    if audio.size(1) != 2:
-        return audio
-
-    left = audio[:, 0:1, :].clone()  # (B, 1, T)
-    right = audio[:, 1:2, :].clone()  # (B, 1, T)
-
-    mid = (
-        left + right
-    ) * 0.5  # Mid channel - use multiplication for better compilation
-    side = (left - right) * 0.5  # Side channel
-
-    return torch.cat([mid, side], dim=1)
-
-
-@torch.compile(mode="max-autotune")
-def latent_reg_loss(z: Tensor, target_var: float = 0.1) -> Tensor:
-    """
-    Latent regularization loss - Compiled for performance.
-    """
-    # z is [b,c,h,w]
-    # KL divergence between N(z, 0.1) and N(0,1)
-    mu = z
-    log_target_var = 2 * torch.log(
-        torch.tensor(target_var, device=z.device, dtype=z.dtype)
-    )  # log(0.1^2)
-
-    kl = -0.5 * (1 + log_target_var - mu.pow(2) - log_target_var.exp())
-    kl = einops.reduce(kl, "b ... -> b", reduction="sum").mean()
-
-    return kl
-
-
-@torch.compile(mode="max-autotune")
-def compute_ms_loss(batch_rec: Tensor, batch: Tensor) -> Tensor:
-    """
-    Compute M/S component loss - Compiled for performance.
-    """
-    batch_ms = lr_to_ms(batch)
-    batch_rec_ms = lr_to_ms(batch_rec)
-    return F.mse_loss(batch_rec_ms, batch_ms)
-
+from ..losses.audio import (
+    stft_loss,
+    compute_ms_loss
+)
+from ..losses.basic import (
+    latent_reg_loss
+)
 
 @torch.compile(mode="max-autotune")
 def compute_forward_pass(model, batch):
@@ -131,7 +35,6 @@ def compute_forward_pass(model, batch):
     Compiled forward pass function
     """
     return model(batch)
-
 
 def compute_losses(
     batch_rec: Tensor,
@@ -200,55 +103,6 @@ def optimization_step(scaler, opt, model_parameters, scheduler=None):
     if scheduler is not None:
         scheduler.step()
 
-
-def log_audio_to_wandb(
-    original: Tensor,
-    reconstructed: Tensor,
-    sample_rate: int = 44100,
-    max_samples: int = 4,
-) -> dict[str, wandb.Audio]:
-    """
-    Log audio samples to Weights & Biases.
-
-    Args:
-        original: Original audio tensor (B, C, T)
-        reconstructed: Reconstructed audio tensor (B, C, T)
-        sample_rate: Audio sample rate
-        max_samples: Maximum number of samples to log
-
-    Returns:
-        Dictionary for wandb logging
-    """
-    batch_size = min(original.size(0), max_samples)
-    audio_logs = {}
-
-    for i in range(batch_size):
-        # Convert to numpy and ensure correct shape for wandb
-        orig_audio = original[i].detach().cpu().numpy()  # (C, T)
-        rec_audio = reconstructed[i].detach().cpu().numpy()  # (C, T)
-
-        # For stereo audio, mix down to mono for logging
-        if orig_audio.shape[0] == 2:
-            orig_mono = np.mean(orig_audio, axis=0)
-            rec_mono = np.mean(rec_audio, axis=0)
-        else:
-            orig_mono = orig_audio[0]
-            rec_mono = rec_audio[0]
-
-        # Ensure audio is in correct range [-1, 1]
-        orig_mono = np.clip(orig_mono, -1.0, 1.0)
-        rec_mono = np.clip(rec_mono, -1.0, 1.0)
-
-        audio_logs[f"audio_original_{i}"] = wandb.Audio(
-            orig_mono, sample_rate=sample_rate
-        )
-        audio_logs[f"audio_reconstructed_{i}"] = wandb.Audio(
-            rec_mono, sample_rate=sample_rate
-        )
-
-    return audio_logs
-
-
 class AudioRecTrainer(BaseTrainer):
     """
     Trainer for audio reconstruction with specialized audio losses
@@ -266,7 +120,7 @@ class AudioRecTrainer(BaseTrainer):
         super().__init__(*args, **kwargs)
 
         model_id = self.model_cfg.model_id
-        self.model: nn.Module = get_model_cls(model_id)(self.model_cfg).to(device)
+        self.model: nn.Module = get_model_cls(model_id)(self.model_cfg).to(self.device)
 
         if self.rank == 0:
             param_count = sum(p.numel() for p in self.model.parameters())
@@ -323,7 +177,7 @@ class AudioRecTrainer(BaseTrainer):
         n_fft_list = getattr(self.train_cfg, "n_fft_list", [1024, 2048, 512])
 
         # Prepare model and EMA
-        self.model = self.model.to(device).train()
+        self.model = self.model.to(self.device).train()
 
         if self.world_size > 1:
             self.model = DDP(self.model)
@@ -359,7 +213,7 @@ class AudioRecTrainer(BaseTrainer):
         )
         accum_steps = max(1, accum_steps)
         self.scaler = torch.GradScaler()
-        ctx = torch.autocast(device, torch.bfloat16)
+        ctx = torch.autocast(self.device, torch.bfloat16)
 
         # Timer and metrics setup
         timer = Timer()
@@ -378,7 +232,7 @@ class AudioRecTrainer(BaseTrainer):
             for batch in tqdm(
                 loader, desc=f"Epoch {epoch_idx + 1}/{self.train_cfg.epochs}"
             ):
-                batch = batch[0].to(device, dtype=torch.bfloat16)
+                batch = batch[0].to(self.device, dtype=torch.bfloat16)
 
                 if batch.is_cuda:
                     torch.compiler.cudagraph_mark_step_begin()
