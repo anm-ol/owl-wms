@@ -50,13 +50,17 @@ class DecTuneTrainer(BaseTrainer):
         teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
         teacher.load_state_dict(teacher_ckpt)
 
-        del teacher.decoder
         self.encoder = teacher.encoder
 
-        model_id = self.model_cfg.model_id
-        model = get_model_cls(model_id)(self.model_cfg)
-        del model.encoder
-        self.model = model.decoder
+        if self.train_cfg.user_teacher_decoder:
+            self.model = teacher.decoder
+            self.model.decoder_only = True
+        else:
+            del teacher.decoder
+            model_id = self.model_cfg.model_id
+            model = get_model_cls(model_id)(self.model_cfg)
+            del model.encoder
+            self.model = model.decoder
 
         disc_cfg = self.model_cfg.discriminator
         self.discriminator = get_discriminator_cls(disc_cfg.model_id)(disc_cfg)

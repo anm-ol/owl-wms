@@ -59,7 +59,7 @@ class Encoder(nn.Module):
         return x
 
 class Decoder(nn.Module):
-    def __init__(self, config : 'ResNetConfig'):
+    def __init__(self, config : 'ResNetConfig', decoder_only = False):
         super().__init__()
 
         size = config.sample_size
@@ -95,7 +95,13 @@ class Decoder(nn.Module):
         self.norm_out = GroupNorm(ch_0)
         self.act_out = nn.SiLU()
 
+        self.decoder_only = decoder_only
+        self.noise_decoder_inputs = noise_decoder_inputs
+
     def forward(self, x):
+        if self.decoder_only and self.noise_decoder_inputs > 0.0:
+            x = x + torch.randn_like(x) * self.noise_decoder_inputs
+            
         res = x.clone()
         res = eo.repeat(res, 'b c h w -> b (rep c) h w', rep = self.rep_factor)
 
