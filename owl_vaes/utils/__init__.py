@@ -29,6 +29,7 @@ def versatile_load(path):
         for key in key_list:
             if key.startswith("ema_model.module."):
                 ddp_ckpt = True
+                break
         if ddp_ckpt:
             prefix = 'ema_model.module.'
         else:
