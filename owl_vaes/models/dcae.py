@@ -96,7 +96,7 @@ class Decoder(nn.Module):
         self.act_out = nn.SiLU()
 
         self.decoder_only = decoder_only
-        self.noise_decoder_inputs = noise_decoder_inputs
+        self.noise_decoder_inputs = config.noise_decoder_inputs
 
     def forward(self, x):
         if self.decoder_only and self.noise_decoder_inputs > 0.0:
