@@ -115,24 +115,24 @@ class DecTuneTrainer(BaseTrainer):
         gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
 
         # Prepare model, lpips, ema
-        self.model = self.model.cuda().train()
+        self.model = self.model.to(self.device).train()
         if self.world_size > 1:
             self.model = DDP(self.model)
         
-        self.discriminator = self.discriminator.cuda().train()
+        self.discriminator = self.discriminator.to(self.device).train()
         if self.world_size > 1:
             self.discriminator = DDP(self.discriminator)
         freeze(self.discriminator)
 
         lpips = None
         if lpips_weight > 0.0:
-            lpips = get_lpips_cls(self.train_cfg.lpips_id)().cuda().eval()
+            lpips = get_lpips_cls(self.train_cfg.lpips_id)(self.device).to(self.device).eval()
             freeze(lpips)
 
-        self.encoder = self.encoder.cuda().bfloat16().eval()
+        self.encoder = self.encoder.to(self.device).bfloat16().eval()
         freeze(self.encoder)
 
-        #self.encoder = torch.compile(self.encoder)
+        self.encoder = torch.compile(self.encoder)
         #self.lpips.model = torch.compile(self.lpips.model)
 
         self.ema = EMA(
@@ -159,7 +159,7 @@ class DecTuneTrainer(BaseTrainer):
         accum_steps = max(1, accum_steps)
 
         self.scaler = torch.amp.GradScaler()
-        ctx = torch.amp.autocast(f'cuda:{self.local_rank}', torch.bfloat16)
+        ctx = torch.amp.autocast(self.device, torch.bfloat16)
 
         # Timer reset
         timer = Timer()
@@ -184,11 +184,10 @@ class DecTuneTrainer(BaseTrainer):
         for _ in range(self.train_cfg.epochs):
             for batch in loader:
                 total_loss = 0.
-                batch = batch.to('cuda').bfloat16()
+                batch = batch.to(self.device).bfloat16()
 
                 with torch.no_grad():
                     teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
-
                 with ctx:
                     batch_rec = self.model(teacher_z)
 

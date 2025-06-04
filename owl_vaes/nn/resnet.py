@@ -143,3 +143,16 @@ class SameBlock(nn.Module):
         for block in self.blocks:
             x = block(x)
         return x
+
+# Sorta bad bandaid solution?
+class ConditionalResample(nn.Module):
+    def __init__(self, input_shape, target_shape):
+        super().__init__()
+        
+        self.input_shape = input_shape
+        self.target_shape = target_shape
+
+    def forward(self, x):
+        if x.shape[-2:] == self.input_shape:
+            x = F.interpolate(x, size=self.target_shape, mode='bilinear', align_corners=False)
+        return x

@@ -11,7 +11,8 @@ class BaseTrainer:
     def __init__(
         self,
         train_cfg, logging_cfg, model_cfg,
-        global_rank = 0, local_rank = 0, world_size = 1
+        global_rank = 0, local_rank = 0, world_size = 1,
+        device = None
     ):
         self.rank = global_rank
         self.local_rank = local_rank
@@ -21,6 +22,10 @@ class BaseTrainer:
         self.logging_cfg = logging_cfg
         self.model_cfg = model_cfg
 
+        if device is None:
+            device = f'cuda:{local_rank}'
+        self.device = device
+        
         if self.logging_cfg is not None and self.rank == 0:
             log = self.logging_cfg
             wandb.init(

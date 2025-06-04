@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..nn.resnet import DownBlock, SameBlock
+from ..nn.resnet import ConditionalResample
 
 class R3GANDiscriminator(nn.Module):
     def __init__(self, config):
@@ -30,18 +31,30 @@ class R3GANDiscriminator(nn.Module):
             next_ch = min(ch*2,ch_max)
 
             blocks.append(DownBlock(ch, next_ch, blocks_per_stage, total_blocks))
+
+
             ch = next_ch
             size = size // 2
+    
+            if size == 45:
+                size = 64
 
         blocks.append(SameBlock(ch, ch_max, blocks_per_stage, total_blocks))
-        self.blocks = nn.Sequential(*blocks)
+        self.blocks = nn.ModuleList(blocks)
 
         self.final = nn.Conv2d(ch_max, 1, 4, 1, 0)
+        self.cond = ConditionalResample(
+            (45, 80),
+            (64, 64)
+        )
 
     def _forward(self, x):
         # Forward on single sample
         x = self.conv_in(x)
-        x = self.blocks(x)
+        for block in self.blocks:
+            x = block(x)
+            x = self.cond(x)
+
         x = self.final(x)
         x = x.flatten(0)
         return x

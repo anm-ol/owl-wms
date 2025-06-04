@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..nn.normalization import GroupNorm
-from ..nn.resnet import DownBlock, SameBlock, UpBlock
+from ..nn.resnet import DownBlock, SameBlock, UpBlock, ConditionalResample
 from ..nn.sana import ChannelToSpace, SpaceToChannel
 
 class Encoder(nn.Module):
@@ -42,6 +42,10 @@ class Encoder(nn.Module):
         self.avg_factor = ch // config.latent_channels
         self.conv_out = nn.Conv2d(ch, config.latent_channels, 1, 1, 0, bias=False)
 
+        self.cond_resample = ConditionalResample(
+            (45,80),
+            (40,64)
+        )
 
     def forward(self, x):
         x = self.conv_in(x)
@@ -49,6 +53,7 @@ class Encoder(nn.Module):
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
+            x = self.cond_resample(x)
 
         x = self.final(x) + x
 
@@ -98,6 +103,11 @@ class Decoder(nn.Module):
         self.decoder_only = decoder_only
         self.noise_decoder_inputs = config.noise_decoder_inputs
 
+        self.cond_resample = ConditionalResample(
+            (40,64),
+            (45,80)
+        )
+
     def forward(self, x):
         if self.decoder_only and self.noise_decoder_inputs > 0.0:
             x = x + torch.randn_like(x) * self.noise_decoder_inputs
@@ -111,6 +121,7 @@ class Decoder(nn.Module):
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
+            x = self.cond_resample(x)
 
         x = self.norm_out(x)
         x = self.act_out(x)
