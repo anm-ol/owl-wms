@@ -22,10 +22,6 @@ from owl_vaes.utils.audio_utils import (
     get_audio_filenames,
     is_silence,
 )
-from owl_vaes.utils.get_device import DeviceManager
-
-device = DeviceManager.get_device()
-
 
 @dataclass
 class LocalDatasetConfig:
@@ -197,7 +193,23 @@ class SampleDataset(torch.utils.data.Dataset):
             print(f"Couldn't load file {filename}: {e}")
             return self[random.randrange(len(self))]
 
+def collate_fn(samples):
+    batched = list(zip(*samples))
+    result = []
 
+    for b in batched:
+        if isinstance(b[0], (int, float)):
+            b = np.array(b)
+        elif isinstance(b[0], torch.Tensor):
+            b = torch.stack(b)
+        elif isinstance(b[0], np.ndarray):
+            b = np.array(b)
+        else:
+            b = b
+        result.append(b)
+
+    return result
+    
 def get_audio_loader(batch_size: int, paths: list[str] | str):
     """Get data loader for Sample Audio Model pipeline."""
     world_size = 1
@@ -219,23 +231,6 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
         sample_rate=44100,
     )
 
-    def collate_fn(samples):
-        batched = list(zip(*samples))
-        result = []
-
-        for b in batched:
-            if isinstance(b[0], (int, float)):
-                b = np.array(b)
-            elif isinstance(b[0], torch.Tensor):
-                b = torch.stack(b)
-            elif isinstance(b[0], np.ndarray):
-                b = np.array(b)
-            else:
-                b = b
-            result.append(b)
-
-        return result
-
     if world_size > 1:
         train_sampler = torch.utils.data.DistributedSampler(
             train_dataset, num_replicas=world_size, rank=global_rank, shuffle=True
@@ -253,10 +248,7 @@ def get_audio_loader(batch_size: int, paths: list[str] | str):
         generator=torch.Generator("cpu"),
         num_workers=8,
         prefetch_factor=8,
-        pin_memory=True,
-        pin_memory_device=device,
-        persistent_workers=True,
-        in_order=False
+        persistent_workers=True
     )
 
     return train_loader

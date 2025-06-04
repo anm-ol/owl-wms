@@ -7,11 +7,6 @@ from torch import exp, nn, pow, sin
 from torch.types import Tensor
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
-from owl_vaes.utils.get_device import DeviceManager
-
-device = DeviceManager.get_device()
-
-
 # Adapted from https://github.com/NVIDIA/BigVGAN/blob/main/activations.py under MIT license
 class SnakeBeta(nn.Module):
     def __init__(

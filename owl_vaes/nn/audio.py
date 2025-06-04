@@ -9,9 +9,6 @@ from owl_vaes.nn.audio_blocks import (
     WNConv1d,
     get_activation,
 )
-from owl_vaes.utils.get_device import DeviceManager
-
-device = DeviceManager.get_device()
 
 class OobleckEncoder(nn.Module):
     def __init__(
