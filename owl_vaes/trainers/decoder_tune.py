@@ -161,6 +161,8 @@ class DecTuneTrainer(BaseTrainer):
         self.scaler = torch.amp.GradScaler()
         ctx = torch.amp.autocast(self.device, torch.bfloat16)
 
+        self.load()
+
         # Timer reset
         timer = Timer()
         timer.reset()
@@ -175,9 +177,10 @@ class DecTuneTrainer(BaseTrainer):
             if self.total_step_counter < self.train_cfg.delay_adv:
                 return 0.0
             else:
-                ramp = (self.total_step_counter - self.train_cfg.delay_adv) / self.train_cfg.warmup_adv
-                ramp = max(0.0, ramp)
-                ramp = min(1.0, ramp)
+                x = (self.total_step_counter - self.train_cfg.delay_adv) / self.train_cfg.warmup_adv
+                x = max(0.0, min(1.0, x))
+                # Cosine annealing from 0 to 1
+                ramp = 0.5 * (1 - torch.cos(torch.tensor(x * torch.pi)).item())
                 return ramp * gan_weight
 
         local_step = 0
@@ -188,6 +191,8 @@ class DecTuneTrainer(BaseTrainer):
 
                 with torch.no_grad():
                     teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
+                    teacher_z = F.interpolate(teacher_z, scale_factor=.5)
+                    batch = F.interpolate(batch, scale_factor=.5)
                 with ctx:
                     batch_rec = self.model(teacher_z)
 

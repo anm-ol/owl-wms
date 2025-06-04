@@ -7,6 +7,8 @@ from ..nn.normalization import GroupNorm
 from ..nn.resnet import DownBlock, SameBlock, UpBlock, ConditionalResample
 from ..nn.sana import ChannelToSpace, SpaceToChannel
 
+from torch.utils.checkpoint import checkpoint
+
 class Encoder(nn.Module):
     def __init__(self, config : 'ResNetConfig'):
         super().__init__()
