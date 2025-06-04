@@ -42,7 +42,9 @@ class CoDDataset(IterableDataset):
 
 def collate_fn(x):
     # x is list of frames
-    return torch.stack(x)  # [b,c,h,w]
+    res = torch.stack(x)
+    res = F.interpolate(res, (360, 640))
+    return res  # [b,c,h,w]
 
 def get_loader(batch_size, **data_kwargs):
     """
