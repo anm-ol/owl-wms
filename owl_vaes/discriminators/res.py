@@ -48,7 +48,7 @@ class R3GANDiscriminator(nn.Module):
             (64, 64)
         )
 
-    def _forward(self, x):
+    def forward(self, x):
         # Forward on single sample
         x = self.conv_in(x)
         for block in self.blocks:
@@ -58,19 +58,7 @@ class R3GANDiscriminator(nn.Module):
         x = self.final(x)
         x = x.flatten(0)
         return x
-
-    def forward(self, x_fake, x_real = None):
-        if x_real is None:
-            return -self._forward(x_fake).mean()
-        else:
-            fake_out = self._forward(x_fake)
-            real_out = self._forward(x_real)
-
-            fake_loss = F.relu(1 + fake_out).mean()
-            real_loss = F.relu(1 - real_out).mean()
-
-            return fake_loss + real_loss
-
+        
 def r3gandiscriminator_test():
     from dataclasses import dataclass
 

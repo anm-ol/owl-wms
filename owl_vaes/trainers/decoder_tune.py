@@ -113,6 +113,7 @@ class DecTuneTrainer(BaseTrainer):
         # Loss weights
         lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
         gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
+        r12_weight = self.train_cfg.loss_weights.get('r12', 0.0)
 
         # Prepare model, lpips, ema
         self.model = self.model.to(self.device).train()
@@ -181,7 +182,41 @@ class DecTuneTrainer(BaseTrainer):
                 x = max(0.0, min(1.0, x))
                 # Cosine annealing from 0 to 1
                 ramp = 0.5 * (1 - torch.cos(torch.tensor(x * torch.pi)).item())
-                return ramp * gan_weight
+                return ramp * gan_weight  
+
+        def r_loss(d, x, sigma = 0.01):
+            z = sigma * torch.randn_like(x)
+            d_clean = d(x.detach())
+            d_noisy = d(x.detach() + z)
+
+            return ((d_clean - d_noisy).pow(2).mean())
+        
+        def d_loss(d, x_fake, x_real):
+            fake_out = d(x_fake)
+            real_out = d(x_real)
+
+            fake_loss = F.relu(1+fake_out).mean()
+            real_loss = F.relu(1-real_out).mean()
+
+            return fake_loss + real_loss
+
+        def g_loss(d, x_fake):
+            return -d(x_fake).mean()
+
+        def merged_d_losses(d, x_fake, x_real, sigma=0.01):
+            fake_out = d(x_fake.detach())
+            real_out = d(x_real.detach())
+
+            fake_out_noisy = d((x_fake + sigma*torch.randn_like(x_fake)).detach())
+            real_out_noisy = d((x_real + sigma*torch.randn_like(x_real)).detach())
+
+            r1_penalty = (fake_out_noisy - fake_out).pow(2).mean()
+            r2_penalty = (real_out_noisy - real_out).pow(2).mean()
+
+            fake_loss = F.relu(1 + fake_out).mean()
+            real_loss = F.relu(1 - real_out).mean()
+
+            return r1_penalty, r2_penalty, (fake_loss + real_loss)
 
         local_step = 0
         for _ in range(self.train_cfg.epochs):
@@ -199,8 +234,26 @@ class DecTuneTrainer(BaseTrainer):
                 # Discriminator training 
                 unfreeze(self.discriminator)
                 with ctx:
-                    disc_loss = self.discriminator(batch_rec.detach(), batch.detach()) / accum_steps
-                metrics.log('disc_loss', disc_loss)
+                    if r12_weight == 0.0:
+                        disc_loss = d_loss(self.discriminator, batch_rec.detach(), batch.detach()) / accum_steps
+                        metrics.log('disc_loss', disc_loss)
+                    else:
+                        r1_penalty, r2_penalty, d_loss = merged_d_losses(
+                            self.discriminator, 
+                            batch_rec.detach(), 
+                            batch.detach()
+                        )
+                        r1_penalty = r1_penalty / accum_steps
+                        r2_penalty = r2_penalty / accum_steps
+                        d_loss = d_loss / accum_steps
+
+                        metrics.log('r1_penalty', r1_penalty)
+                        metrics.log('r2_penalty', r2_penalty)
+                        metrics.log('disc_loss', d_loss)
+
+                        disc_loss = d_loss + (r1_penalty + r2_penalty) * 0.5 * r12_weight
+
+
                 self.scaler.scale(disc_loss).backward()
                 freeze(self.discriminator)
 
@@ -217,7 +270,7 @@ class DecTuneTrainer(BaseTrainer):
                 crnt_gan_weight = warmup_gan_weight()
                 if crnt_gan_weight > 0.0:
                     with ctx:
-                        gan_loss = self.discriminator(batch_rec) / accum_steps
+                        gan_loss = g_loss(self.discriminator, batch_rec) / accum_steps
                     metrics.log('gan_loss', gan_loss)
                     total_loss += crnt_gan_weight * gan_loss
 
