@@ -109,6 +109,7 @@ class TrainingConfig:
 
     # For distillation, if you want to renormalize latents, scale by this amount before decode
     latent_scale:float = 1.0
+    lpips_id: str = "convnext"
 
 @dataclass
 class WANDBConfig:
