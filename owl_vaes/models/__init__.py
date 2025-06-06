@@ -1,5 +1,7 @@
 from typing import Any
 
+from owl_vaes.nn.audio import AudioAutoEncoder
+
 from .dcae import DCAE
 
 from .dcae import DCAE, Decoder
@@ -16,4 +18,5 @@ def get_model_cls(model_id: str) -> Any:
         "dcae_vq": DCVQVAE,
         "proxy_titok": ProxyTiToKVAE,
         "dcae_decoder": Decoder
+        "audio_ae": AudioAutoEncoder,
     }.get(model_id)
