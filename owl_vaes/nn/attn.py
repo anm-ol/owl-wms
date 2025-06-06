@@ -35,6 +35,52 @@ class Attn(nn.Module):
         x = self.out(x)
         return x
 
+class MMAttn(nn.Module):
+    """
+    MMDiT style attention
+    """
+    def __init__(self, config : TransformerConfig):
+        super().__init__()
+
+        self.n_heads = config.n_heads
+
+        self.qkv_1 = nn.Linear(config.d_model, 3 * config.d_model)
+        self.qkv_2 = nn.Linear(config.d_model, 3 * config.d_model)
+
+        self.out_1 = nn.Linear(config.d_model, config.d_model)
+        self.out_2 = nn.Linear(config.d_model, config.d_model)
+
+        self.qk_norm_1 = QKNorm(config.d_model // config.n_heads)
+        self.qk_norm_2 = QKNorm(config.d_model // config.n_heads)
+
+    def split(self, qkv):
+        return eo.rearrange(qkv, 'b n (three h d) -> three b h n d', three = 3, h = self.n_heads)
+
+    def merge(self, x):
+        return eo.rearrange(x, 'b h n d -> b n (h d)')
+
+    def forward(self, x_1, x_2):
+        n1 = x_1.shape[1]
+
+        q1,k1,v1 = self.split(self.qkv_1(x_1))
+        q2,k2,v2 = self.split(self.qkv_2(x_2))
+
+        q1,k1 = self.qk_norm_1(q1,k1)
+        q2,k2 = self.qk_norm_2(q2,k2)
+
+        q = torch.cat([q1,q2],dim=-2)
+        k = torch.cat([k1,k2],dim=-2)
+        v = torch.cat([v1,v2],dim=-2)
+
+        x = F.scaled_dot_product_attention(q,k,v)
+        x = self.merge(x)
+        
+        x_1, x_2 = x[:,:n1], x[:,n1:]
+        x_1 = self.out_1(x_1)
+        x_2 = self.out_2(x_2)
+
+        return x_1, x_2
+        
 class Transformer(nn.Module):
     def __init__(self, config):
         super().__init__()
