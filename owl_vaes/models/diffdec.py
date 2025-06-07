@@ -27,6 +27,13 @@ class DiffusionDecoderCore(nn.Module):
         self.n_p_x = config.sample_size[1] // self.p
 
         self.blocks = UViT(config)
+        self.config = config
+
+    def sample(self, z):
+        d = torch.full(len(z), 1., device = z.device, dtype = z.dtype)
+        ts = torch.full(len(z), 1., device = z.device, dtype = z.dtype)
+        x = torch.randn(len(z), self.config.channels, self.config.sample_size, self.config.sample_size)
+        return self.forward(x, z, ts, d)
 
     def forward(self, x, z, ts, d):
         # x is [b,c,h,w]
@@ -74,8 +81,8 @@ def sample_discrete_timesteps(steps, eps = 1.0e-6):
     """
     return ts
 
-def sample_steps(b, device, dtype):
-    valid = torch.tensor([2**i for i in range(0, 8)]) # [1,2,...,128]
+def sample_steps(b, device, dtype, min_val = 0):
+    valid = torch.tensor([2**i for i in range(min_val, 8)]) # [1,2,...,128]
     inds = torch.randint(low=0,high=len(valid), size = (b,))
     steps = valid[inds].to(device=device,dtype=dtype)
     return steps
@@ -85,9 +92,63 @@ class DiffusionDecoder(nn.Module):
         super().__init__()
 
         self.core = DiffusionDecoderCore(config)
+        self.ema = None
+        self.sc_frac = 0.25
+        self.cfg_prob = 0.1
+        self.cfg_strength = 1.5
+
+    def set_ema_core(self, ema):
+        if hasattr(ema.ema_model, 'module'):
+            self.ema = ema.ema_model.module.core
+        else:
+            self.ema = ema.ema_model.core
+
+    @torch.no_grad()
+    @torch.compile()
+    def get_sc_targets(self, x, z):
+        steps_slow = sample_steps(len(x),x.device,x.dtype, min_val = 1)
+        steps_fast = steps_slow / 2
+
+        dt_slow = 1./steps_slow
+        dt_fast = 1./steps_fast
+
+        def expand(t):
+            #b,c,h,w = x.shape
+            #t = eo.repeat(t,'b -> b c h w',c=c,h=h,w=w)
+            #return t
+            return t[:,None,None,None]
+
+        ts = sample_discrete_timesteps(steps_fast)
+        cfg_mask = torch.isclose(steps_slow, 128)
+        cfg_mask = expand(cfg_mask) # -> [b,1,1,1]
+
+        pred_1_uncond = self.ema(x, torch.randn_like(z), ts, steps_slow)
+        pred_1_cond = self.ema(x, z, ts, steps_slow)
+        pred_1_cfg = pred_1_uncond + self.cfg_strength * (pred_1_cond - pred_1_uncond)
+        pred_1 = torch.where(cfg_mask, pred_1_cfg, pred_1_cond)
+
+        x_new = x - pred_1 * expand(dt_slow)
+        ts_new = ts - dt_slow
+
+        pred_2_uncond = self.ema(x_new, torch.randn_like(z), ts_new, steps_slow)
+        pred_2_cond = self.ema(x_new, z, ts_new, steps_slow)
+        pred_2_cfg = pred_2_uncond + self.cfg_strength * (pred_2_cond - pred_2_uncond)
+        pred_2 = torch.where(cfg_mask, pred_2_cfg, pred_2_cond)
+
+        pred = 0.5 * (pred_1 + pred_2)
+        return pred, steps_fast, ts
+
+    def get_sc_loss(self, x, z):
+        target, steps, ts = get_sc_targets(x, z)
+        pred = self.core(x, z, ts, steps)
+        sc_loss = F.mse_loss(pred, target)
+        return sc_loss
     
-    
-    def forward(self, x):
+    def forward(self, x, z):
+        b = len(x) * (1 - self.sc_frac)
+        x,x_sc = x[:b], x[b:]
+        z,z_sc = z[:b], z[b:]
+
         with torch.no_grad():
             steps = sample_steps(len(x),x.device,x.dtype)
             ts = sample_discrete_timesteps(steps)
@@ -98,10 +159,11 @@ class DiffusionDecoder(nn.Module):
             lerpd = x * (1. - ts_exp) + ts_exp * z
             target = z - x
 
-        pred = self.core(lerpd)
+        mask = torch.rand(len(z), device=z.device) < self.cfg_prob
+        z_masked = torch.where(mask.view(-1, 1, 1, 1), torch.randn_like(z), z)
 
-            
-        
+        pred = self.core(lerpd, z, ts, steps)
+        diff_loss = F.mse_loss(pred, target)
+        sc_loss = self.get_sc_loss(x_sc,z_sc)
 
-
-
+        return diff_loss, sc_loss
