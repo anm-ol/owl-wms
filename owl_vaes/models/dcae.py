@@ -4,10 +4,18 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..nn.normalization import GroupNorm
-from ..nn.resnet import DownBlock, SameBlock, UpBlock, ConditionalResample
+from ..nn.resnet import (
+    DownBlock, SameBlock, UpBlock,
+    LandscapeToSquare, SquareToLandscape
+)
 from ..nn.sana import ChannelToSpace, SpaceToChannel
 
 from torch.utils.checkpoint import checkpoint
+
+def is_landscape(sample_size):
+    h,w = sample_size
+    ratio = w/h
+    return abs(ratio - 16/9) < 0.01  # Check if ratio is approximately 16:9
 
 class Encoder(nn.Module):
     def __init__(self, config : 'ResNetConfig'):
@@ -18,7 +26,8 @@ class Encoder(nn.Module):
         ch_0 = config.ch_0
         ch_max = config.ch_max
 
-        self.conv_in = nn.Conv2d(3, ch_0, 1, 1, 0, bias = False)
+        self.conv_in = nn.Conv2d(3, ch_0, 3, 1, 1, bias = False)
+        self.l_to_s = SquareToLandscape(ch_0) if is_landscape(size) else nn.Sequential()
 
         blocks = []
         residuals = []
@@ -44,18 +53,13 @@ class Encoder(nn.Module):
         self.avg_factor = ch // config.latent_channels
         self.conv_out = nn.Conv2d(ch, config.latent_channels, 1, 1, 0, bias=False)
 
-        self.cond_resample = ConditionalResample(
-            (45,80),
-            (40,64)
-        )
-
     def forward(self, x):
         x = self.conv_in(x)
+        x = self.l_to_s(x)
 
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
-            x = self.cond_resample(x)
 
         x = self.final(x) + x
 
@@ -98,17 +102,14 @@ class Decoder(nn.Module):
         self.blocks = nn.ModuleList(list(reversed(blocks)))
         self.residuals = nn.ModuleList(list(reversed(residuals)))
 
-        self.conv_out = nn.Conv2d(ch_0, 3, 1, 1, 0, bias=False)
+        self.s_to_l = SquareToLandscape(ch_0) if is_landscape(size) else nn.Sequential()
+        self.conv_out = nn.Conv2d(ch_0, 3, 3, 1, 1, bias = False)
         self.norm_out = GroupNorm(ch_0)
         self.act_out = nn.SiLU()
 
         self.decoder_only = decoder_only
         self.noise_decoder_inputs = config.noise_decoder_inputs
 
-        self.cond_resample = ConditionalResample(
-            (40,64),
-            (45,80)
-        )
 
     def forward(self, x):
         if self.decoder_only and self.noise_decoder_inputs > 0.0:
@@ -123,8 +124,8 @@ class Decoder(nn.Module):
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
-            x = self.cond_resample(x)
-
+        
+        x = self.s_to_l(x)
         x = self.norm_out(x)
         x = self.act_out(x)
         x = self.conv_out(x)

@@ -143,16 +143,37 @@ class SameBlock(nn.Module):
         for block in self.blocks:
             x = block(x)
         return x
-
-# Sorta bad bandaid solution?
-class ConditionalResample(nn.Module):
-    def __init__(self, input_shape, target_shape):
+    
+class LandscapeToSquare(nn.Module):
+    def __init__(self, ch):
         super().__init__()
-        
-        self.input_shape = input_shape
-        self.target_shape = target_shape
 
+        self.proj = nn.Conv2d(ch, ch, 3, 1, 1, bias = False)
+    
     def forward(self, x):
-        if x.shape[-2:] == self.input_shape:
-            x = F.interpolate(x, size=self.target_shape, mode='bilinear', align_corners=False)
-        return x
+        # x is [9, 16]
+        _,_,h,w = x.shape
+
+        h_mult = (512/360)
+        w_mult = (512/640)
+
+        new_h = round(h * h_mult)
+        new_w = round(w * w_mult)
+
+        x = F.interpolate(x, (new_h, new_w), mode='bicubic')
+        x = self.proj(x)
+        
+class SquareToLandscape(LandscapeToSquare):
+    def forward(self, x):
+        # x is [1,1]
+        _,_,h,w = x.shape
+
+        h_mult = (360/512)
+        w_mult = (640/512)
+
+        new_h = round(h*h_mult)
+        new_w = round(w*w_mult)
+
+        x = self.proj(x)
+        x = F.interpolate(x, (new_h, new_w), mode='bicubic')
+
