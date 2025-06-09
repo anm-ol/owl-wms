@@ -12,7 +12,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from ..data import get_loader
 from ..models import get_model_cls
 from ..muon import init_muon
-from ..nn.lpips import VGGLPIPS
+from ..nn.lpips import get_lpips_cls
 from ..schedulers import get_scheduler_cls
 from ..utils import Timer, freeze
 from ..utils.logging import LogHelper, to_wandb
@@ -92,7 +92,7 @@ class RecTrainer(BaseTrainer):
 
         lpips = None
         if lpips_weight > 0.0:
-            lpips = VGGLPIPS().cuda().eval()
+            lpips = get_lpips_cls(self.train_cfg.lpips_type).to(self.device).eval()
             freeze(lpips)
 
         self.ema = EMA(
