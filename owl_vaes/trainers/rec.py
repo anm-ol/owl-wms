@@ -92,7 +92,7 @@ class RecTrainer(BaseTrainer):
 
         lpips = None
         if lpips_weight > 0.0:
-            lpips = get_lpips_cls(self.train_cfg.lpips_type).to(self.device).eval()
+            lpips = get_lpips_cls(self.train_cfg.lpips_type)(self.device).to(self.device).eval()
             freeze(lpips)
 
         self.ema = EMA(
