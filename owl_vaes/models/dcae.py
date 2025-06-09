@@ -42,7 +42,6 @@ class Encoder(nn.Module):
             blocks.append(DownBlock(ch, next_ch, block_count, total_blocks))
             residuals.append(SpaceToChannel(ch, next_ch))
 
-            size = size // 2
             ch = next_ch
 
         self.blocks = nn.ModuleList(blocks)
@@ -96,7 +95,6 @@ class Decoder(nn.Module):
             blocks.append(UpBlock(next_ch, ch, block_count, total_blocks))
             residuals.append(ChannelToSpace(next_ch, ch))
 
-            size = size // 2
             ch = next_ch
 
         self.blocks = nn.ModuleList(list(reversed(blocks)))
