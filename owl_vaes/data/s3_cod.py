@@ -2,6 +2,7 @@ import boto3
 import threading
 from dotenv import load_dotenv
 import os
+import numpy as np
 
 load_dotenv()
 
@@ -65,7 +66,8 @@ class S3CoDDataset(IterableDataset):
 
     def random_sample_prefix(self):
         # For now just 2 shards (00, 01)
-        shard = random.randint(0, TOTAL_SHARDS-1)
+        #shard = random.randint(0, TOTAL_SHARDS-1)
+        shard = 1
         # Each shard has 1000 subdirs
         subdir = random.randint(0, NUM_SUBDIRS-1)
         # Each subdir has multiple tars
@@ -156,10 +158,12 @@ def get_loader(batch_size, **data_kwargs):
 
 if __name__ == "__main__":
     import time
-    loader = get_loader(256, window_length = 120, file_share_max = 20)
+    loader = get_loader(4)
 
     start = time.time()
     batch = next(iter(loader))
+    print(batch.shape)
+    exit()
     end = time.time()
     first_time = end - start
     

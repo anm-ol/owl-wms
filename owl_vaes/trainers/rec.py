@@ -132,14 +132,12 @@ class RecTrainer(BaseTrainer):
             for batch in loader:
                 total_loss = 0.
                 batch = batch.to('cuda').bfloat16()
-
                 with ctx:
                     out = self.model(batch)
                     if len(out) == 2:
                         batch_rec, z = out
                     elif len(out) == 3:
                         batch_rec, z, down_rec = out
-
                 if reg_weight > 0:
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight

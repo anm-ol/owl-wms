@@ -62,6 +62,7 @@ class ResBlock(nn.Module):
             x = self.norm2(x)
             x = self.act2(x)
             x = self.conv3(x)
+            return x
 
         if self.training:
             x = checkpoint(_inner, x)
@@ -174,7 +175,8 @@ class LandscapeToSquare(nn.Module):
 
         x = F.interpolate(x, (new_h, new_w), mode='bicubic')
         x = self.proj(x)
-        
+        return x
+
 class SquareToLandscape(LandscapeToSquare):
     def forward(self, x):
         # x is [1,1]
@@ -188,4 +190,4 @@ class SquareToLandscape(LandscapeToSquare):
 
         x = self.proj(x)
         x = F.interpolate(x, (new_h, new_w), mode='bicubic')
-
+        return x
