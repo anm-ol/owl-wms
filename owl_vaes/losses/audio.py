@@ -48,7 +48,7 @@ def stft_loss(
 
     return total_loss / len(n_fft_list)
 
-@torch.compile(mode="max-autotune")
+#@torch.compile(mode="max-autotune")
 def lr_to_ms(audio: Tensor) -> Tensor:
     """
     Convert Left-Right (L/R) stereo to Mid-Side (M/S)
@@ -72,7 +72,7 @@ def lr_to_ms(audio: Tensor) -> Tensor:
 
     return torch.cat([mid, side], dim=1)
 
-@torch.compile(mode="max-autotune")
+#@torch.compile(mode="max-autotune")
 def compute_ms_loss(batch_rec: Tensor, batch: Tensor) -> Tensor:
     """
     Compute M/S component loss - Compiled for performance.

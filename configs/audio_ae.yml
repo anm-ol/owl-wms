@@ -1,41 +1,46 @@
 model:
   model_id: audio_ae
 
-  in_channels: 2
-  out_channels: 2
-  channels: 128
-  latent_dim: 32
+  channels: 2
+  latent_channels: 64
+  ch_0: 128
+  ch_max: 512
 
-  c_mults: [1, 2, 4, 8]
-  strides: [2, 4, 8, 8]
+  strides: [3, 5, 7, 7, 1]
 
-  use_snake: true
-  antialias_activation: true
-  use_nearest_upsample: true
-  final_tanh: true
+  eq: true
+  checkpoint_grads: true
 
 train:
   trainer_id: audio_rec
-  data_id: audio_loader
-  filepath: "my_data/"
+  data_id: local_cod_audio
+  data_kwargs:
+    window_length: 88200
+    root: "../cod_download/raw"
 
-  target_batch_size: 16
-  batch_size: 24
+  target_batch_size: 128
+  batch_size: 16
   epochs: 100
 
-  opt: AdamW
+  opt: Muon
   opt_kwargs:
-    lr: 1.5e-4
-    eps: 1.0e-15
-    betas: [0.9, 0.98]
-    weight_decay: 1.0e-4
+    lr: 2.5e-4
+    momentum: 0.95
+    adamw_lr: 2.5e-5
+    adamw_wd: 0.01
+    adamw_eps: 1.0e-15
+    adamw_betas: [0.9, 0.95]
+    adamw_keys:
+      [encoder.conv_in, encoder.conv_out, decoder.conv_in, decoder.conv_out]
+
 
   loss_weights:
     recon: 2.5
     stft: 1.5
-    kl: 2.5e-4
+    kl: 1.0e-5
     lr_ms_ratio: 0.5
     hubert: 0.0
+    crt: 4.0
 
   sample_rate: 44100
   n_fft_list: [1024, 2048, 512]
@@ -43,7 +48,7 @@ train:
   scheduler: LinearWarmup
   scheduler_kwargs:
     warmup_steps: 1500
-    min_lr: 2.0e-6
+    min_lr: 1.0e-6
 
   checkpoint_dir: checkpoints/audio_ae
   sample_interval: 500
@@ -55,5 +60,3 @@ wandb:
   name: ${env:WANDB_USER_NAME}
   project: owl_audio_vaes
   run_name: audio_ae_baseline
-
-  notes: "First attempt AE run."

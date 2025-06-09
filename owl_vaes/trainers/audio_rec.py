@@ -10,6 +10,7 @@ from ema_pytorch import EMA
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
+from contextlib import nullcontext
 
 import wandb
 
@@ -17,7 +18,7 @@ from ..data import get_loader
 from ..models import get_model_cls
 from ..muon import init_muon
 from ..schedulers import get_scheduler_cls
-from ..utils import Timer
+from ..utils import Timer, freeze, unfreeze
 from ..utils.logging import LogHelper, log_audio_to_wandb
 from .base import BaseTrainer
 
@@ -29,12 +30,7 @@ from ..losses.basic import (
     latent_reg_loss
 )
 
-@torch.compile(mode="max-autotune")
-def compute_forward_pass(model, batch):
-    """
-    Compiled forward pass function
-    """
-    return model(batch)
+from ..nn.crt import CRT
 
 def compute_losses(
     batch_rec: Tensor,
@@ -73,23 +69,24 @@ def compute_losses(
         metrics["ms_loss"] = ms_loss
 
     # KL loss
-    if kl_weight > 0:
+    if kl_weight > 0 and z is not None:
         kl_loss = latent_reg_loss(z) / accum_steps
         total_loss = total_loss + kl_loss * kl_weight
         metrics["kl_loss"] = kl_loss
 
     # Z statistics
-    metrics.update({
-        "z_std": z.std(),
-        "z_mean": z.mean(),
-        "z_max": z.max(),
-        "z_min": z.min(),
-    })
+    if z is not None:
+        metrics.update({
+            "z_std": z.std(),
+            "z_mean": z.mean(),
+            "z_max": z.max(),
+            "z_min": z.min(),
+        })
 
     return total_loss, metrics
 
 
-@torch.compile(mode="max-autotune")
+#@torch.compile(mode="max-autotune")
 def optimization_step(scaler, opt, model_parameters, scheduler=None):
     """
     Compiled optimization step
@@ -131,6 +128,9 @@ class AudioRecTrainer(BaseTrainer):
         self.scheduler = None
         self.scaler = None
 
+        self.crt = CRT(self.model_cfg.latent_channels)
+        self.crt_opt = None
+        
         self.total_step_counter = 0
 
     def _compile_model(self, model: nn.Module) -> nn.Module:
@@ -146,6 +146,8 @@ class AudioRecTrainer(BaseTrainer):
             "scheduler": self.scheduler.state_dict(),
             "scaler": self.scaler.state_dict(),
             "steps": self.total_step_counter,
+            "crt": self.crt.state_dict(),
+            "crt_opt": self.crt_opt.state_dict()
         }
         super().save(save_dict)
 
@@ -161,6 +163,8 @@ class AudioRecTrainer(BaseTrainer):
         self.scheduler.load_state_dict(save_dict["scheduler"])
         self.scaler.load_state_dict(save_dict["scaler"])
         self.total_step_counter = save_dict["steps"]
+        self.crt.load_state_dict(save_dict["crt"])
+        self.crt_opt.load_state_dict(save_dict["crt_opt"])
 
     def train(self):
         # Loss weights
@@ -171,6 +175,8 @@ class AudioRecTrainer(BaseTrainer):
         lr_ms_ratio = self.train_cfg.loss_weights.get(
             "lr_ms_ratio", 0.5
         )  # L/R weight relative to M/S
+        eq_weight = self.train_cfg.loss_weights.get('eq', 0.25)
+        crt_weight = self.train_cfg.loss_weights.get('crt', 4.0)
 
         # Audio-specific config
         sample_rate = getattr(self.train_cfg, "sample_rate", 44100)
@@ -178,12 +184,14 @@ class AudioRecTrainer(BaseTrainer):
 
         # Prepare model and EMA
         self.model = self.model.to(self.device).train()
+        self.crt = self.crt.to(self.device).train()
 
         if self.world_size > 1:
             self.model = DDP(self.model)
+            self.crt = DDP(self.crt)
 
         # Compile model after DDP setup
-        self.model = self._compile_model(self.model)
+        #self.model = self._compile_model(self.model)
 
         self.ema = EMA(self.model, beta=0.9999, update_after_step=0, update_every=1)
 
@@ -199,6 +207,13 @@ class AudioRecTrainer(BaseTrainer):
             self.opt = getattr(torch.optim, self.train_cfg.opt)(
                 self.model.parameters(), **self.train_cfg.opt_kwargs
             )
+        
+        self.crt_opt = torch.optim.AdamW(
+            self.crt.parameters(),
+            lr=1e-4,
+            betas=(0.9, 0.95),
+            weight_decay=1e-4
+        )
 
         if self.train_cfg.scheduler is not None:
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(
@@ -224,35 +239,69 @@ class AudioRecTrainer(BaseTrainer):
 
         # Dataset setup
         loader = get_loader(
-            self.train_cfg.data_id, self.train_cfg.batch_size, self.train_cfg.filepath
+            self.train_cfg.data_id, self.train_cfg.batch_size, **self.train_cfg.data_kwargs
         )
 
         local_step = 0
-        for epoch_idx in range(self.train_cfg.epochs):
-            for batch in tqdm(
-                loader, desc=f"Epoch {epoch_idx + 1}/{self.train_cfg.epochs}"
-            ):
-                batch = batch[0].to(self.device, dtype=torch.bfloat16)
 
-                if batch.is_cuda:
-                    torch.compiler.cudagraph_mark_step_begin()
+        def loss_fn(batch_rec, batch, z=None):
+            return compute_losses(
+                batch_rec=batch_rec,
+                batch=batch,
+                z=z,
+                recon_weight=recon_weight,
+                stft_weight=stft_weight,
+                kl_weight=kl_weight,
+                lr_ms_ratio=lr_ms_ratio,
+                accum_steps=accum_steps,
+                n_fft_list=n_fft_list,
+            )
+
+        def warmup_crt_weight():
+            if self.total_step_counter >= 1000:
+                return crt_weight
+            progress = self.total_step_counter / 1000
+            progress = min(1.0, max(0.0, progress))
+            return crt_weight * (1 - np.cos(progress * np.pi)) / 2
+
+        for epoch_idx in range(self.train_cfg.epochs):
+            for batch in loader:
+                batch = batch.to(self.device, dtype=torch.bfloat16)
+
+                #if batch.is_cuda:
+                #    torch.compiler.cudagraph_mark_step_begin()
 
                 with ctx:
                     # Forward pass using compiled function
-                    batch_rec, z = compute_forward_pass(self.model, batch)
+                    output = self.model(batch)
+                    if len(output) == 3:
+                        batch_rec, z, (rec_1, rec_2) = output
+                    else:
+                        batch_rec, z = output
 
-                    # Compute all losses using compiled function
-                    total_loss, loss_metrics = compute_losses(
-                        batch_rec=batch_rec,
-                        batch=batch,
-                        z=z,
-                        recon_weight=recon_weight,
-                        stft_weight=stft_weight,
-                        kl_weight=kl_weight,
-                        lr_ms_ratio=lr_ms_ratio,
-                        accum_steps=accum_steps,
-                        n_fft_list=n_fft_list,
-                    )
+                    total_loss, loss_metrics = loss_fn(batch_rec, batch, z)
+                    if eq_weight > 0.0:
+                        third_samples = batch.shape[-1] // 3
+                        target_1 = batch[:,:,:third_samples*2]
+                        target_2 = batch[:,:,third_samples:]
+
+                        eq_loss_1, _ = loss_fn(rec_1, target_1)
+                        eq_loss_2, _ = loss_fn(rec_2, target_2)
+                        eq_loss = 0.5 * (eq_loss_1 + eq_loss_2)
+                        metrics.log("eq_loss", eq_loss)
+                        total_loss += eq_loss * eq_weight
+
+                # CRT
+                unfreeze(self.crt)
+                with ctx:
+                    crt_loss_local = self.crt(z.detach().transpose(1,2)) / accum_steps
+                self.scaler.scale(crt_loss_local).backward()
+                freeze(self.crt)
+
+                with ctx:
+                    crt_loss = self.crt(z.transpose(1,2)) / accum_steps
+                    total_loss += warmup_crt_weight() * crt_loss
+                    metrics.log('crt_loss', crt_loss)
 
                 # Update metrics
                 metrics.log_dict(loss_metrics)
@@ -263,9 +312,21 @@ class AudioRecTrainer(BaseTrainer):
                 local_step += 1
                 if local_step % accum_steps == 0:
                     # Optimization step using compiled function
-                    optimization_step(
-                        self.scaler, self.opt, self.model.parameters(), self.scheduler
-                    )
+                    self.scaler.unscale_(self.opt)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    
+                    self.scaler.unscale_(self.crt_opt)
+                    torch.nn.utils.clip_grad_norm_(self.crt.parameters(), max_norm=1.0)
+
+                    self.scaler.step(self.opt)
+                    self.scaler.step(self.crt_opt)
+                    self.opt.zero_grad(set_to_none=True)
+                    self.crt_opt.zero_grad(set_to_none=True)
+
+                    self.scaler.update()
+
+                    if self.scheduler is not None:
+                        self.scheduler.step()
 
                     # EMA update (not compiled as it has its own optimized implementation)
                     self.ema.update()
@@ -273,7 +334,7 @@ class AudioRecTrainer(BaseTrainer):
                     with torch.no_grad():
                         wandb_dict = metrics.pop()
                         wandb_dict["time"] = timer.hit()
-                        wandb_dict["lr"] = self.opt.param_groups[0]["lr"]
+                        if self.scheduler is not None: wandb_dict["lr"] = self.opt.param_groups[0]["lr"]
                         timer.reset()
 
                         # Audio logging
