@@ -17,12 +17,7 @@ from ..schedulers import get_scheduler_cls
 from ..utils import Timer, freeze
 from ..utils.logging import LogHelper, to_wandb
 from .base import BaseTrainer
-
-def latent_reg_loss(z):
-    # z is [b,c,h,w]
-    loss = z.pow(2)
-    loss = eo.reduce(loss, 'b ... -> b', reduction = 'sum').mean()
-    return 0.5 * loss
+from ..losses.basic import latent_reg_loss
 
 class RecTrainer(BaseTrainer):
     """
