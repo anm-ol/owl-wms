@@ -146,17 +146,13 @@ class DCAE(nn.Module):
 
     def forward(self, x):
         z = self.encoder(x)
-        down_z = F.interpolate(z, scale_factor=.5,mode='bilinear')
         if self.config.noise_decoder_inputs > 0.0:
             dec_input = z + torch.randn_like(z) * self.config.noise_decoder_inputs
-            down_dec_input = down_z + torch.randn_like(down_z) * self.config.noise_decoder_inputs
         else:
             dec_input = z.clone()
-            down_dec_input = down_z.clone()
 
         rec = self.decoder(dec_input)
-        down_rec = self.decoder(down_dec_input)
-        return rec, z, down_rec
+        return rec, z
 
 def dcae_test():
     from ..configs import ResNetConfig

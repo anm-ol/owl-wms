@@ -1,11 +1,16 @@
 from torch import nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
 from .normalization import RMSNorm2d, GroupNorm
 
 """
 Building blocks for any ResNet based model
 """
+
+def checkpoint(function, *args, **kwargs):
+    kwargs.setdefault("use_reentrant", False)
+    return torch_checkpoint(function, *args, **kwargs)
 
 class ResBlock(nn.Module):
     """
@@ -48,13 +53,20 @@ class ResBlock(nn.Module):
 
     def forward(self, x):
         res = x.clone()
-        x = self.conv1(x)
-        x = self.norm1(x)
-        x = self.act1(x)
-        x = self.conv2(x)
-        x = self.norm2(x)
-        x = self.act2(x)
-        x = self.conv3(x)
+
+        def _inner(x):
+            x = self.conv1(x)
+            x = self.norm1(x)
+            x = self.act1(x)
+            x = self.conv2(x)
+            x = self.norm2(x)
+            x = self.act2(x)
+            x = self.conv3(x)
+
+        if self.training:
+            x = checkpoint(_inner, x)
+        else:
+            x = _inner(x)
 
         return x + res
 
