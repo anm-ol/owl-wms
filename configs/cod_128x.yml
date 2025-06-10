@@ -18,14 +18,14 @@ model:
 train:
   trainer_id: rec
   data_id: s3_cod
-  target_batch_size: 32
-  batch_size: 4
+  target_batch_size: 128
+  batch_size: 16
 
   epochs: 200
 
   opt: AdamW
   opt_kwargs:
-    lr: 3.0e-5
+    lr: 1.0e-4
     weight_decay: 1.0e-4
     betas: [0.9, 0.95]
     eps: 1.0e-15
@@ -33,13 +33,13 @@ train:
   lpips_type: convnext
   loss_weights:
     latent_reg: 1.0e-6
-    lpips: 1.0
+    lpips: 10.0
     se_reg: 0.0
 
   scheduler: LinearWarmup
   scheduler_kwargs:
     warmup_steps: 3000
-    min_lr: 1.0e-6
+    min_lr: 5.0e-6
 
   checkpoint_dir: checkpoints/cod_128x
   resume_ckpt: null #checkpoints/2d_64x/step_10000.pt
