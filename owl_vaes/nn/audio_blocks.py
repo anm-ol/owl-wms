@@ -7,237 +7,89 @@ from torch import exp, nn, pow, sin
 from torch.types import Tensor
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
+from .normalization import RMSNorm1d
+
 # Adapted from https://github.com/NVIDIA/BigVGAN/blob/main/activations.py under MIT license
 class SnakeBeta(nn.Module):
     def __init__(
-        self, in_features: int, alpha=1.0, alpha_trainable=True, alpha_logscale=True
+        self, in_features: int, alpha=1.0, alpha_trainable=True
     ):
         super(SnakeBeta, self).__init__()
 
         self.in_features = in_features
-        self.alpha_logscale = alpha_logscale
+        self.eps = 1.0e-6
 
-        if self.alpha_logscale:  # log scale alphas initialized to zeros
-            self.alpha = nn.Parameter(torch.zeros(in_features) * alpha)
-            self.beta = nn.Parameter(torch.zeros(in_features) * alpha)
-        else:  # linear scale alphas initialized to ones
-            self.alpha = nn.Parameter(torch.ones(in_features) * alpha)
-            self.beta = nn.Parameter(torch.ones(in_features) * alpha)
+        # Alpha initialized to zeros, will be used as (1 + alpha)
+        self.alpha = nn.Parameter(torch.zeros(in_features) * alpha)
+        # Beta initialized to zeros, will be used as exp(beta)
+        self.beta = nn.Parameter(torch.zeros(in_features) * alpha)
 
         self.alpha.requires_grad = alpha_trainable
         self.beta.requires_grad = alpha_trainable
 
-        self.no_div_by_zero = 0.000000001
-
     def snake_beta(self, x, alpha, beta):
-        return x + (1.0 / (beta + 0.000000001)) * pow(sin(x * alpha), 2)
+        alpha = alpha[None,:,None]
+        beta = beta[None,:,None]
+        return x + (1.0 / (self.eps + beta.exp())) * pow(sin(x * (1. + alpha)), 2)
 
     def forward(self, x):
-        alpha = self.alpha.unsqueeze(0).unsqueeze(-1)  # line up with x to [B, C, T]
-        beta = self.beta.unsqueeze(0).unsqueeze(-1)
-
-        if self.alpha_logscale:
-            alpha = exp(alpha)
-            beta = exp(beta)
-
-        x = self.snake_beta(x, alpha, beta)
-
+        x = self.snake_beta(x, self.alpha, self.beta)
         return x
-
-
-def get_activation(
-    activation: Literal["elu", "snake", "none"],
-    antialias: bool = False,
-    channels: int | None = None,
-):
-    act: Activation1d | SnakeBeta | nn.Module = nn.Identity()
-
-    match activation:
-        case "elu":
-            act = nn.ELU()
-        case "snake":
-            if channels is not None:
-                act = SnakeBeta(channels)
-        case "none":
-            act = nn.Identity()
-        case _:
-            raise ValueError(f"Unknown activation {activation}")
-
-    if antialias:
-        act = Activation1d(act)
-
-    return act
-
-
-def WNConv1d(*args, **kwargs):
-    return nn.utils.parametrizations.weight_norm(nn.Conv1d(*args, **kwargs))
-
-
-def WNConvTranspose1d(*args, **kwargs):
-    return nn.utils.parametrizations.weight_norm(nn.ConvTranspose1d(*args, **kwargs))
-
 
 def checkpoint(function, *args, **kwargs):
     kwargs.setdefault("use_reentrant", False)
     return torch_checkpoint(function, *args, **kwargs)
 
-
-class ResidualUnit(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        dilation,
-        use_snake=False,
-        antialias_activation=False,
-    ):
+class ResBlock(nn.Module):
+    def __init__(self, ch, dilation, total_res_blocks):
         super().__init__()
 
         self.dilation = dilation
+        self.p = (dilation * (7 - 1))//2
 
-        padding = (dilation * (7 - 1)) // 2
+        grp_size = 16
+        n_grps = (2*ch) // grp_size
 
-        self.layers = nn.Sequential(
-            get_activation(
-                "snake" if use_snake else "elu",
-                antialias=antialias_activation,
-                channels=out_channels,
-            ),
-            WNConv1d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=7,
-                dilation=dilation,
-                padding=padding,
-            ),
-            get_activation(
-                "snake" if use_snake else "elu",
-                antialias=antialias_activation,
-                channels=out_channels,
-            ),
-            WNConv1d(
-                in_channels=out_channels, out_channels=out_channels, kernel_size=1
-            ),
-        )
+        self.conv1 = nn.Conv1d(ch, 2*ch, 1, 1, 0)
+        self.norm1 = RMSNorm1d(2*ch)
 
-    def forward(self, x: Tensor) -> Tensor:
-        res = x
+        self.conv2 = nn.Conv1d(2*ch, 2*ch, 7, dilation=dilation, padding=self.p, groups=n_grps)
+        self.norm2 = RMSNorm1d(2*ch)
+
+        self.conv3 = nn.Conv1d(2*ch, ch, 1, 1, 0, bias=False)
+
+        self.act1 = SnakeBeta(2*ch)
+        self.act2 = SnakeBeta(2*ch)
+
+        # Fix up init
+        scaling_factor = total_res_blocks ** -.25
+
+        nn.init.kaiming_uniform_(self.conv1.weight)
+        nn.init.zeros_(self.conv1.bias)
+        self.conv1.weight.data *= scaling_factor
+
+        nn.init.kaiming_uniform_(self.conv2.weight)
+        nn.init.zeros_(self.conv2.bias)
+        self.conv2.weight.data *= scaling_factor
+
+        nn.init.zeros_(self.conv3.weight)
+
+    def forward(self, x):
+        res = x.clone()
+
+        def _inner(x):
+            x = self.conv1(x)
+            x = self.norm1(x)
+            x = self.act1(x)
+            x = self.conv2(x)
+            x = self.norm2(x)
+            x = self.act2(x)
+            x = self.conv3(x)
+            return x
 
         if self.training:
-            x = checkpoint(self.layers, x)
+            x = checkpoint(_inner, x)
         else:
-            x = self.layers(x)
+            x = _inner(x)
 
         return x + res
-
-
-class EncoderBlock(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        stride,
-        use_snake=False,
-        antialias_activation=False,
-    ):
-        super().__init__()
-
-        self.layers = nn.Sequential(
-            ResidualUnit(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                dilation=1,
-                use_snake=use_snake,
-            ),
-            ResidualUnit(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                dilation=3,
-                use_snake=use_snake,
-            ),
-            ResidualUnit(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                dilation=9,
-                use_snake=use_snake,
-            ),
-            get_activation(
-                "snake" if use_snake else "elu",
-                antialias=antialias_activation,
-                channels=in_channels,
-            ),
-            WNConv1d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=2 * stride,
-                stride=stride,
-                padding=math.ceil(stride / 2),
-            ),
-        )
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.layers(x)
-
-
-class DecoderBlock(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        stride,
-        use_snake=False,
-        antialias_activation=False,
-        use_nearest_upsample=False,
-    ):
-        super().__init__()
-
-        if use_nearest_upsample:
-            upsample_layer = nn.Sequential(
-                nn.Upsample(scale_factor=stride, mode="nearest"),
-                WNConv1d(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    kernel_size=2 * stride,
-                    stride=1,
-                    bias=False,
-                    padding="same",
-                ),
-            )
-        else:
-            upsample_layer = WNConvTranspose1d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=2 * stride,
-                stride=stride,
-                padding=math.ceil(stride / 2),
-            )
-
-        self.layers = nn.Sequential(
-            get_activation(
-                "snake" if use_snake else "elu",
-                antialias=antialias_activation,
-                channels=in_channels,
-            ),
-            upsample_layer,
-            ResidualUnit(
-                in_channels=out_channels,
-                out_channels=out_channels,
-                dilation=1,
-                use_snake=use_snake,
-            ),
-            ResidualUnit(
-                in_channels=out_channels,
-                out_channels=out_channels,
-                dilation=3,
-                use_snake=use_snake,
-            ),
-            ResidualUnit(
-                in_channels=out_channels,
-                out_channels=out_channels,
-                dilation=9,
-                use_snake=use_snake,
-            ),
-        )
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.layers(x)
