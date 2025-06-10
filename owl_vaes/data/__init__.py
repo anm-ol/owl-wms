@@ -13,8 +13,11 @@ def get_loader(data_id: str, batch_size: int, **data_kwargs):
         return local_cod.get_loader(batch_size)
     if data_id == "audio_loader":
         from .audio_loader import get_audio_loader
-        assert filepath is not None, "No filepath provided for the dataset."
+        assert data_kwargs['filepath'] is not None, "No filepath provided for the dataset."
         return get_audio_loader(batch_size, data_kwargs['filepath'])
     if data_id == "s3_cod":
         from . import s3_cod
         return s3_cod.get_loader(batch_size, **data_kwargs)
+    if data_id == "local_cod_audio":
+        from .local_cod_audio import get_loader
+        return get_loader(batch_size, **data_kwargs)

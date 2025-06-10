@@ -37,6 +37,9 @@ class BaseTrainer:
                 config={"train": train_cfg, "model": model_cfg},
             )
 
+        if 'cuda' in self.device:
+            torch.cuda.set_device(self.local_rank)
+
     def barrier(self):
         if self.world_size > 1:
             dist.barrier()
