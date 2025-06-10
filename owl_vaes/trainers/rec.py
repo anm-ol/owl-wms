@@ -12,17 +12,12 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from ..data import get_loader
 from ..models import get_model_cls
 from ..muon import init_muon
-from ..nn.lpips import VGGLPIPS
+from ..nn.lpips import get_lpips_cls
 from ..schedulers import get_scheduler_cls
 from ..utils import Timer, freeze
 from ..utils.logging import LogHelper, to_wandb
 from .base import BaseTrainer
-
-def latent_reg_loss(z):
-    # z is [b,c,h,w]
-    loss = z.pow(2)
-    loss = eo.reduce(loss, 'b ... -> b', reduction = 'sum').mean()
-    return 0.5 * loss
+from ..losses.basic import latent_reg_loss
 
 class RecTrainer(BaseTrainer):
     """
@@ -92,7 +87,7 @@ class RecTrainer(BaseTrainer):
 
         lpips = None
         if lpips_weight > 0.0:
-            lpips = VGGLPIPS().cuda().eval()
+            lpips = get_lpips_cls(self.train_cfg.lpips_type)(self.device).to(self.device).eval()
             freeze(lpips)
 
         self.ema = EMA(
@@ -132,14 +127,12 @@ class RecTrainer(BaseTrainer):
             for batch in loader:
                 total_loss = 0.
                 batch = batch.to('cuda').bfloat16()
-
                 with ctx:
                     out = self.model(batch)
                     if len(out) == 2:
                         batch_rec, z = out
                     elif len(out) == 3:
                         batch_rec, z, down_rec = out
-
                 if reg_weight > 0:
                     reg_loss = latent_reg_loss(z) / accum_steps
                     total_loss += reg_loss * reg_weight
