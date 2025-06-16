@@ -5,7 +5,8 @@ import math
 import einops as eo
 
 from ..nn.audio_blocks import ResBlock, SnakeBeta
-from torch.nn.utils import weight_norm
+from torch.nn.utils.parametrization import weight_norm
+
 
 from torch.utils.checkpoint import checkpoint
 

@@ -6,7 +6,7 @@ from alias_free_torch import Activation1d
 from torch import exp, nn, pow, sin
 from torch.types import Tensor
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
-from torch.nn.utils import weight_norm
+from torch.nn.utils.parametrization import weight_norm
 
 from .normalization import RMSNorm1d
 
