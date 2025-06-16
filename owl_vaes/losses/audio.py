@@ -17,6 +17,8 @@ def stft_loss(
     x_rec = x_rec.to(torch.float32)
     x_target = x_target.to(torch.float32)
 
+    x_rec = x_rec.contiguous().view(-1,x_rec.size(-1))
+    x_target = x_target.contiguous().view(-1,x_target.size(-1))
     for n_fft in n_fft_list:
         hop_length = int(n_fft * hop_length_ratio)
 
