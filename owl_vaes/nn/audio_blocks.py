@@ -6,6 +6,7 @@ from alias_free_torch import Activation1d
 from torch import exp, nn, pow, sin
 from torch.types import Tensor
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
+from torch.nn.utils import weight_norm
 
 from .normalization import RMSNorm1d
 
@@ -50,13 +51,9 @@ class ResBlock(nn.Module):
         grp_size = 16
         n_grps = (2*ch) // grp_size
 
-        self.conv1 = nn.Conv1d(ch, 2*ch, 1, 1, 0)
-        self.norm1 = RMSNorm1d(2*ch)
-
-        self.conv2 = nn.Conv1d(2*ch, 2*ch, 7, dilation=dilation, padding=self.p, groups=n_grps)
-        self.norm2 = RMSNorm1d(2*ch)
-
-        self.conv3 = nn.Conv1d(2*ch, ch, 1, 1, 0, bias=False)
+        self.conv1 = weight_norm(nn.Conv1d(ch, 2*ch, 1, 1, 0))
+        self.conv2 = weight_norm(nn.Conv1d(2*ch, 2*ch, 7, dilation=dilation, padding=self.p, groups=n_grps))
+        self.conv3 = weight_norm(nn.Conv1d(2*ch, ch, 1, 1, 0, bias=False))
 
         self.act1 = SnakeBeta(2*ch)
         self.act2 = SnakeBeta(2*ch)
@@ -64,25 +61,23 @@ class ResBlock(nn.Module):
         # Fix up init
         scaling_factor = total_res_blocks ** -.25
 
-        nn.init.kaiming_uniform_(self.conv1.weight)
-        nn.init.zeros_(self.conv1.bias)
+        nn.init.kaiming_uniform_(self.conv1.weight.data)
+        nn.init.zeros_(self.conv1.bias.data)
         self.conv1.weight.data *= scaling_factor
 
-        nn.init.kaiming_uniform_(self.conv2.weight)
-        nn.init.zeros_(self.conv2.bias)
+        nn.init.kaiming_uniform_(self.conv2.weight.data)
+        nn.init.zeros_(self.conv2.bias.data)
         self.conv2.weight.data *= scaling_factor
 
-        nn.init.zeros_(self.conv3.weight)
+        nn.init.zeros_(self.conv3.weight.data)
 
     def forward(self, x):
         res = x.clone()
 
         def _inner(x):
             x = self.conv1(x)
-            x = self.norm1(x)
             x = self.act1(x)
             x = self.conv2(x)
-            x = self.norm2(x)
             x = self.act2(x)
             x = self.conv3(x)
             return x
