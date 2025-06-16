@@ -5,7 +5,7 @@ import math
 import einops as eo
 
 from ..nn.audio_blocks import ResBlock, SnakeBeta
-from torch.nn.utils.parametrization import weight_norm
+from torch.nn.utils.parametrizations import weight_norm
 
 
 from torch.utils.checkpoint import checkpoint
@@ -19,7 +19,7 @@ class EncoderBlock(nn.Module):
         self.block3 = ResBlock(ch_in, 9, total_blocks * 3)
     
         self.act = SnakeBeta(ch_in)
-        self.proj = nn.Conv1d(ch_in, ch_out, 2*stride,stride,math.ceil(stride/2), bias = False)
+        self.proj = weight_norm(nn.Conv1d(ch_in, ch_out, 2*stride,stride,math.ceil(stride/2), bias = False))
     
     def forward(self, x):
         x = self.block1(x)
@@ -40,7 +40,7 @@ class DecoderBlock(nn.Module):
 
         self.act = SnakeBeta(ch_out)
 
-        self.proj = nn.Conv1d(ch_in, ch_out, 2*stride, stride=1, bias = False, padding = 'same')
+        self.proj = weight_norm(nn.Conv1d(ch_in, ch_out, 2*stride, stride=1, bias = False, padding = 'same'))
         self.stride = stride
 
     def forward(self, x):
@@ -62,7 +62,7 @@ class Block(nn.Module):
         self.block3 = ResBlock(ch_in, 9, total_blocks * 3)
     
         self.act = SnakeBeta(ch_in)
-        self.proj = nn.Conv1d(ch_in, ch_out, 1,1,0, bias = False)
+        self.proj = weight_norm(nn.Conv1d(ch_in, ch_out, 1,1,0, bias = False))
     
     def forward(self, x):
         x = self.block1(x)
