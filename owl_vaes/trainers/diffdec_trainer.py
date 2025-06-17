@@ -96,7 +96,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
         self.encoder = self.encoder.to(self.device).bfloat16().eval()
         freeze(self.encoder)
-        self.encoder = torch.compile(self.encoder)
+        self.encoder = torch.compile(self.encoder, dynamic=False,fullgraph=True)
 
         self.ema = EMA(
             self.model,

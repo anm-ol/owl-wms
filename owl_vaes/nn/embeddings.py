@@ -74,7 +74,7 @@ class StepEmbedding(nn.Module):
 
         self.mlp = MLPSimple(d_in, dim_out=d_out)
         self.max_steps = max_steps
-        mult = 1000 / math.log2(max_steps)
+        mult = 1000 / (math.log2(max_steps) - 1)  # Adjusted to map [1,128] -> [0,1000]
         self.sincos = SinCosEmbedding(d_in, theta=300, mult=mult)
 
     def forward(self, steps):
@@ -83,7 +83,9 @@ class StepEmbedding(nn.Module):
         if steps.ndim == 0:
             steps = steps.unsqueeze(0)
 
-        # Map steps to [0, log2(max_steps)]
-        t = (math.log2(self.max_steps) - torch.log2(steps.float())).to(steps.dtype)
+        # Map steps to [1, log2(max_steps)-1] to make 1 and 128 map to same value
+        t = (math.log2(self.max_steps) - 1 - torch.log2(steps.float())).to(steps.dtype)
+        # Wrap around so 0 maps to same as max
+        t = t % (math.log2(self.max_steps) - 1)
         embs = self.sincos(t)
         return self.mlp(embs)

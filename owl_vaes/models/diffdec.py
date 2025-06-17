@@ -104,7 +104,7 @@ class DiffusionDecoder(nn.Module):
             self.ema = ema.ema_model.core
 
     @torch.no_grad()
-    @torch.compile()
+    @torch.compile(mode='max-autotune',fullgraph=True)
     def get_sc_targets(self, x, z):
         steps_slow = sample_steps(len(x),x.device,x.dtype, min_val = 1)
         steps_fast = steps_slow / 2
