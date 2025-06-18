@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
 from .normalization import RMSNorm2d, GroupNorm
+from torch.nn.utils.parametrizations import weight_norm
 
 """
 Building blocks for any ResNet based model
@@ -25,15 +26,15 @@ class ResBlock(nn.Module):
         grp_size = 16
         n_grps = (2*ch) // grp_size
 
-        self.conv1 = nn.Conv2d(ch, 2*ch, 1, 1, 0)
+        self.conv1 = weight_norm(nn.Conv2d(ch, 2*ch, 1, 1, 0))
         #self.norm1 = RMSNorm2d(2*ch)
-        self.norm1 = GroupNorm(2*ch, n_grps)
+        #self.norm1 = GroupNorm(2*ch, n_grps)
 
-        self.conv2 = nn.Conv2d(2*ch, 2*ch, 3, 1, 1, groups = n_grps)
+        self.conv2 = weight_norm(nn.Conv2d(2*ch, 2*ch, 3, 1, 1, groups = n_grps))
         #self.norm2 = RMSNorm2d(2*ch)
-        self.norm2 = GroupNorm(2*ch, n_grps)
+        #self.norm2 = GroupNorm(2*ch, n_grps)
 
-        self.conv3 = nn.Conv2d(2*ch, ch, 1, 1, 0, bias=False)
+        self.conv3 = weight_norm(nn.Conv2d(2*ch, ch, 1, 1, 0, bias=False))
 
         self.act1 = nn.LeakyReLU(inplace=True)
         self.act2 = nn.LeakyReLU(inplace=True)
@@ -56,10 +57,10 @@ class ResBlock(nn.Module):
 
         def _inner(x):
             x = self.conv1(x)
-            x = self.norm1(x)
+            #x = self.norm1(x)
             x = self.act1(x)
             x = self.conv2(x)
-            x = self.norm2(x)
+            #x = self.norm2(x)
             x = self.act2(x)
             x = self.conv3(x)
             return x
@@ -78,7 +79,7 @@ class Upsample(nn.Module):
     def __init__(self, ch_in, ch_out):
         super().__init__()
 
-        self.proj = nn.Sequential() if ch_in == ch_out else nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False)
+        self.proj = nn.Sequential() if ch_in == ch_out else weight_norm(nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False))
 
     def forward(self, x):
         x = self.proj(x)
@@ -92,7 +93,7 @@ class Downsample(nn.Module):
     def __init__(self, ch_in, ch_out):
         super().__init__()
 
-        self.proj = nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False)
+        self.proj = weight_norm(nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False))
 
     def forward(self, x):
         x = F.interpolate(x, scale_factor = .5, mode = 'bicubic')
@@ -161,7 +162,7 @@ class LandscapeToSquare(nn.Module):
     def __init__(self, ch):
         super().__init__()
 
-        self.proj = nn.Conv2d(ch, ch, 3, 1, 1, bias = False)
+        self.proj = weight_norm(nn.Conv2d(ch, ch, 3, 1, 1, bias = False))
     
     def forward(self, x):
         # x is [9, 16]
