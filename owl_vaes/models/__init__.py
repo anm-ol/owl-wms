@@ -23,6 +23,6 @@ def get_model_cls(model_id: str) -> Any:
         from .diffdec import DiffusionDecoder
         return DiffusionDecoder
     if model_id == "audio_ae":
-        from owl_vaes.nn.audio import AudioAutoEncoder
-        return AudioAutoEncoder
+        from .oobleck import OobleckVAE
+        return OobleckVAE
     return None

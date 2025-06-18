@@ -152,6 +152,7 @@ class AudioAutoEncoder(nn.Module):
         antialias_activation = getattr(config, "antialias_activation", False)
         use_nearest_upsample = getattr(config, "use_nearest_upsample", False)
         final_tanh = getattr(config, "final_tanh", True)
+        self.eq = getattr(config, 'eq', False)
 
         self.encoder = OobleckEncoder(
             in_channels=in_channels,
@@ -199,21 +200,79 @@ class AudioAutoEncoder(nn.Module):
         """
         z = self.encode(x)
         x_rec = self.decode(z)
-        return x_rec, z
+
+        if self.eq:
+            n = z.shape[-1]
+            n = n // 3
+            z_1 = z[:,:,:2*n] # First 2/3
+            z_2 = z[:,:,n:] # Last 2/3
+            rec_1 = self.decode(z_1)
+            rec_2 = self.decode(z_2)
+            return x_rec, z, (rec_1, rec_2)
+        else:
+            return x_rec, z
 
     def get_compression_ratio(self) -> int:
         return self.total_stride
 
 
-if __name__ == "__main__":
-    loader = get_audio_loader(1, "my_data/")
-    sample = next(iter(loader))[0]
 
-    myEncoder = OobleckEncoder(2, 128, use_snake=True, antialias_activation=True)
-    myDecoder = OobleckDecoder(
-        2, 128, antialias_activation=True, use_nearest_upsample=True
+if __name__ == "__main__":
+    from ..data import get_loader
+    from .music2latent_fe import AmplitudeCompressedComplexSTFT as AudioFE
+
+    audio_fe = AudioFE(
+        window_fn="hann",
+        n_fft=2048,
+        sampling_rate=44100,
+        alpha=0.5,
+        beta=1.0,
+        n_hops=4,
+        learnable_window=False,
     )
 
+    loader = get_loader("local_cod_audio", 4, root = "../cod_download/raw")
+    sample = next(iter(loader))
+
+    #myEncoder = OobleckEncoder(
+    #    2, 128, latent_dim = 128, 
+    #    use_snake=True, antialias_activation=True,
+    #    strides = [3,5,7,7]
+    #)
+    #myDecoder = OobleckDecoder(
+    #    2, 128, antialias_activation=True, use_nearest_upsample=True
+    #)
+
+    with torch.no_grad():
+        print(sample.shape)
+        x = audio_fe.forward(sample)
+            
+        print(x.shape)
+        exit()
+        #latent = myEncoder(sample)
+        print(latent.shape)
+
+        print("EQ Tests")
+        n = sample.shape[-1]
+        n_1 = n // 3
+
+        x_1 = sample[:,:,:2*n_1]
+        x_2 = sample[:,:,n_1:]
+
+        print(x_1.shape)
+        print(x_2.shape)
+
+        z_1 = myEncoder(x_1)
+        z_2 = myEncoder(x_2)
+
+        print(z_1.shape)
+        print(z_2.shape)
+
+
+
+    # 128 -> 172
+
+    exit()
     model_config = {
         "in_channels": 2,
         "out_channels": 2,
