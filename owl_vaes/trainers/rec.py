@@ -111,6 +111,8 @@ class RecTrainer(BaseTrainer):
         accum_steps = max(1, accum_steps)
         self.scaler = torch.amp.GradScaler()
         ctx = torch.amp.autocast(f'cuda:{self.local_rank}', torch.bfloat16)
+        
+        self.load()
 
         # Timer reset
         timer = Timer()
