@@ -2,37 +2,67 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import einops as eo
+import math
+
+from copy import deepcopy
 
 from ..configs import TransformerConfig
+from ..nn.resnet import SquareToLandscape, LandscapeToSquare
 
-from ..nn.dit import UViT, FinalLayer
+from ..nn.dit import DiT, FinalLayer
 from ..nn.embeddings import LearnedPosEnc
 from ..nn.embeddings import TimestepEmbedding, StepEmbedding
+
+def is_landscape(sample_size):
+    h,w = sample_size
+    ratio = w/h
+    return abs(ratio - 16/9) < 0.01  # Check if ratio is approximately 16:9
+
+def find_nearest_square(size):
+    h,w = size
+    avg = (h + w) / 2
+    return 2 ** int(round(torch.log2(torch.tensor(avg)).item()))
 
 class DiffusionDecoderCore(nn.Module):
     def __init__(self, config : TransformerConfig):
         super().__init__()
 
+        ch_0 = 16 # To lighten load on initial proj layers
+
+        # Landscape Assumption
+        size = config.sample_size
+        self.conv_in = LandscapeToSquare(config.channels, ch_0)
+        self.conv_out = SquareToLandscape(ch_0, config.channels)
+        size = find_nearest_square(size)
+        self.original_sample_size = deepcopy(config.sample_size)
+        config.sample_size = size
+
+        self.proj_in = nn.Linear(config.patch_size * config.patch_size * ch_0, config.d_model, bias = False)
+        self.pos_enc_x = LearnedPosEnc((config.sample_size // config.patch_size)**2, config.d_model)
+        self.proj_out = nn.Linear(config.d_model, config.patch_size * config.patch_size * ch_0, bias = False)
+
         patch_content = (config.patch_size ** 2) * config.channels
 
         self.d_embed = StepEmbedding(config.d_model)
         self.ts_embed = TimestepEmbedding(config.d_model)
+    
         
-        self.proj_in = nn.Linear(patch_content, config.d_model)
         self.proj_in_z = nn.Linear(config.latent_channels, config.d_model)
-        self.proj_out = FinalLayer(config)
+        self.pos_enc_z = LearnedPosEnc(config.latent_size**2, config.d_model)
+        
+        self.final = FinalLayer(config, skip_proj = True)
 
         self.p = config.patch_size
-        self.n_p_y = config.sample_size[0] // self.p
-        self.n_p_x = config.sample_size[1] // self.p
+        self.n_p_y = size // self.p
+        self.n_p_x = size // self.p
 
-        self.blocks = UViT(config)
+        self.blocks = DiT(config)
         self.config = config
 
     def sample(self, z):
-        d = torch.full(len(z), 1., device = z.device, dtype = z.dtype)
-        ts = torch.full(len(z), 1., device = z.device, dtype = z.dtype)
-        x = torch.randn(len(z), self.config.channels, self.config.sample_size, self.config.sample_size)
+        d = torch.full((len(z),), 1., device = z.device, dtype = z.dtype)
+        ts = torch.full((len(z),), 1., device = z.device, dtype = z.dtype)
+        x = torch.randn(len(z), self.config.channels, self.original_sample_size[0], self.original_sample_size[1], device = z.device, dtype=z.dtype)
         return self.forward(x, z, ts, d)
 
     def forward(self, x, z, ts, d):
@@ -43,21 +73,28 @@ class DiffusionDecoderCore(nn.Module):
 
         cond = self.ts_embed(ts) + self.d_embed(d)
 
+
+
+        x = self.conv_in(x) # -> [b,d,512,512]
         x = eo.rearrange(
             x,
             'b c (n_p_y p_y) (n_p_x p_x) -> b (n_p_y n_p_x) (p_y p_x c)',
             p_y=self.p,p_x=self.p
         )
-        z = eo.rearrange(z, 'b c h w -> b (h w) c')
+        x = self.proj_in(x) # -> [b,n,d]
+        x = self.pos_enc_x(x)
 
-        x = self.proj_in(x)
+        z = eo.rearrange(z, 'b c h w -> b (h w) c')
         z = self.proj_in_z(z)
+        z = self.pos_enc_z(z)
 
         n = x.shape[1]
         x = torch.cat([x,z],dim=1)
+
         x = self.blocks(x, cond)
         x = x[:,:n]
 
+        x = self.final(x, cond)
         x = self.proj_out(x)
         x = eo.rearrange(
             x,
@@ -65,6 +102,7 @@ class DiffusionDecoderCore(nn.Module):
             p_y = self.p, p_x = self.p,
             n_p_y = self.n_p_y, n_p_x = self.n_p_x
         )
+        x = self.conv_out(x)
 
         return x
 
@@ -167,3 +205,15 @@ class DiffusionDecoder(nn.Module):
         sc_loss = self.get_sc_loss(x_sc,z_sc)
 
         return diff_loss, sc_loss
+
+
+if __name__ == "__main__":
+    from ..configs import Config
+
+    cfg = Config.from_yaml("configs/diffdec.yml").model
+    model = DiffusionDecoderCore(cfg).bfloat16().cuda()
+    z = torch.randn(1,128,4,4).bfloat16().cuda()
+    with torch.no_grad():
+        y = model.sample(z)
+        print(y.shape)
+    print(cfg)

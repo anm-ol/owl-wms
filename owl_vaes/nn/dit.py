@@ -69,7 +69,7 @@ class MMDiTBlock(nn.Module):
         return torch.cat([x_1, x_2], dim=1)
 
 class FinalLayer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, skip_proj = False):
         super().__init__()
 
         channels = config.channels
@@ -78,7 +78,7 @@ class FinalLayer(nn.Module):
 
         self.norm = AdaLN(d_model)
         self.act = nn.SiLU()
-        self.proj = nn.Linear(d_model, channels*patch_size*patch_size)
+        self.proj = nn.Sequential() if skip_proj else nn.Linear(d_model, channels*patch_size*patch_size)
 
     def forward(self, x, cond):
         x = self.norm(x, cond)

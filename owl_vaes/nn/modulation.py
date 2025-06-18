@@ -12,17 +12,14 @@ class AdaLN(nn.Module):
         self.norm = LayerNorm(dim)
 
     def forward(self, x, cond):
-        # cond is [b,n,d]
-        # x is [b,n*m,d] where m is tokens per frame
-        b,n,d = cond.shape
-        _,nm,_ = x.shape
-        m = nm // n
+        # x is [b,n,d]
+        # cond is [b,d]
+        b,n,d = x.shape
 
         y = F.silu(cond)
-        ab = self.fc(y) # [b,n,d]
-        ab = ab[:,:,None,:].repeat(1,1,m,1)
-        ab = ab.reshape(b,nm,2*d)
-        a,b = ab.chunk(2,dim=-1) # each [b,nm,d]
+        ab = self.fc(y) # [b,2d]
+        ab = ab[:,None,:].expand(b,n,-1)
+        a,b = ab.chunk(2,dim=-1) # each [b,n,d]
 
         x = self.norm(x) * (1. + a) + b
         return x
@@ -34,14 +31,12 @@ class Gate(nn.Module):
         self.fc_c = nn.Linear(dim, dim)
 
     def forward(self, x, cond):
-        # cond is [b,n,d] x is [b,nm,d]
-        b,n,d = cond.shape
-        _,nm,_ = x.shape
-        m = nm//n
+        # x is [b,n,d]
+        # cond is [b,d]
+        b,n,d = x.shape
 
         y = F.silu(cond)
-        c = self.fc_c(y) # [b,n,d]
-        c = c[:,:,None,:].repeat(1,1,m,1)
-        c = c.reshape(b,nm,d)
+        c = self.fc_c(y) # [b,d]
+        c = c[:,None,:].expand(b,n,-1) # [b,n,d]
 
         return c * x
