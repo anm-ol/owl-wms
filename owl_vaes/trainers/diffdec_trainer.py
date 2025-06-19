@@ -104,7 +104,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
             update_after_step = 0,
             update_every = 1
         )
-        self.model.set_ema_core(self.ema)
+        self.model.module.set_ema_core(self.ema)
 
         # Set up optimizer and scheduler
         if self.train_cfg.opt.lower() == "muon":
@@ -142,9 +142,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
                 with torch.no_grad():
                     teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
-                    teacher_z = F.interpolate(teacher_z, scale_factor=.5)
-                    batch = F.interpolate(batch, scale_factor=.5)
-
+                
                 with ctx:
                     diff_loss, sc_loss = self.model(batch, teacher_z)
                     diff_loss = diff_loss / accum_steps

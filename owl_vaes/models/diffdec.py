@@ -6,6 +6,7 @@ import math
 
 from copy import deepcopy
 
+from ..utils import freeze
 from ..configs import TransformerConfig
 from ..nn.resnet import SquareToLandscape, LandscapeToSquare
 
@@ -73,8 +74,6 @@ class DiffusionDecoderCore(nn.Module):
 
         cond = self.ts_embed(ts) + self.d_embed(d)
 
-
-
         x = self.conv_in(x) # -> [b,d,512,512]
         x = eo.rearrange(
             x,
@@ -87,7 +86,7 @@ class DiffusionDecoderCore(nn.Module):
         z = eo.rearrange(z, 'b c h w -> b (h w) c')
         z = self.proj_in_z(z)
         z = self.pos_enc_z(z)
-
+        
         n = x.shape[1]
         x = torch.cat([x,z],dim=1)
 
@@ -140,6 +139,7 @@ class DiffusionDecoder(nn.Module):
             self.ema = ema.ema_model.module.core
         else:
             self.ema = ema.ema_model.core
+        freeze(self.ema)
 
     @torch.no_grad()
     #@torch.compile(mode='max-autotune',fullgraph=True)
@@ -157,7 +157,7 @@ class DiffusionDecoder(nn.Module):
             return t[:,None,None,None]
 
         ts = sample_discrete_timesteps(steps_fast)
-        cfg_mask = torch.isclose(steps_slow, 128)
+        cfg_mask = torch.isclose(steps_slow, torch.ones_like(steps_slow)*128)
         cfg_mask = expand(cfg_mask) # -> [b,1,1,1]
 
         pred_1_uncond = self.ema(x, torch.randn_like(z), ts, steps_slow)
@@ -177,7 +177,7 @@ class DiffusionDecoder(nn.Module):
         return pred, steps_fast, ts
 
     def get_sc_loss(self, x, z):
-        target, steps, ts = get_sc_targets(x, z)
+        target, steps, ts = self.get_sc_targets(x, z)
         pred = self.core(x, z, ts, steps)
         sc_loss = F.mse_loss(pred, target)
         return sc_loss
@@ -191,11 +191,11 @@ class DiffusionDecoder(nn.Module):
             steps = sample_steps(len(x),x.device,x.dtype)
             ts = sample_discrete_timesteps(steps)
 
-            z = torch.randn_like(x)
+            eps = torch.randn_like(x)
             ts_exp = ts.view(-1, 1, 1, 1).expand_as(x)
 
-            lerpd = x * (1. - ts_exp) + ts_exp * z
-            target = z - x
+            lerpd = x * (1. - ts_exp) + ts_exp * eps
+            target = eps - x
 
         mask = torch.rand(len(z), device=z.device) < self.cfg_prob
         z_masked = torch.where(mask.view(-1, 1, 1, 1), torch.randn_like(z), z)
