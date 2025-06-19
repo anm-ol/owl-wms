@@ -22,4 +22,7 @@ def get_model_cls(model_id: str) -> Any:
     if model_id == "audio_ae":
         from .oobleck import OobleckVAE
         return OobleckVAE
+    if model_id == "tdec":
+        from .audio_tdec import AudioTransformerDecoder
+        return AudioTransformerDecoder
     return None
