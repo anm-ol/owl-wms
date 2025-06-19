@@ -38,11 +38,9 @@ class DiffusionDecoderCore(nn.Module):
         self.original_sample_size = deepcopy(config.sample_size)
         config.sample_size = size
 
-        self.proj_in = nn.Linear(config.patch_size * config.patch_size * ch_0, config.d_model, bias = False)
-        self.pos_enc_x = LearnedPosEnc((config.sample_size // config.patch_size)**2, config.d_model)
-        self.proj_out = nn.Linear(config.d_model, config.patch_size * config.patch_size * ch_0, bias = False)
-
-        patch_content = (config.patch_size ** 2) * config.channels
+        self.proj_in = nn.Linear(config.patch_size * config.patch_size * ch_0 * 4, config.d_model, bias = False)
+        self.pos_enc_x = LearnedPosEnc((32 // config.patch_size)**2, config.d_model)
+        self.proj_out = nn.Linear(config.d_model, config.patch_size * config.patch_size * ch_0 * 4, bias = False)
 
         self.d_embed = StepEmbedding(config.d_model)
         self.ts_embed = TimestepEmbedding(config.d_model)
@@ -54,8 +52,8 @@ class DiffusionDecoderCore(nn.Module):
         self.final = FinalLayer(config, skip_proj = True)
 
         self.p = config.patch_size
-        self.n_p_y = size // self.p
-        self.n_p_x = size // self.p
+        self.n_p_y = 32 // self.p
+        self.n_p_x = 32 // self.p
 
         self.blocks = DiT(config)
         self.config = config

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .attn import MMAttn
+from .attn import MMAttn, Attn
 from .mlp import MLP
 from .modulation import AdaLN, Gate
 
@@ -69,7 +69,7 @@ class MMDiTBlock(nn.Module):
         return torch.cat([x_1, x_2], dim=1)
 
 class DiTBlock(nn.Module):
-    def __init__(self, config : TransformerConfig):
+    def __init__(self, config : 'TransformerConfig'):
         super().__init__()
 
         self.attn = Attn(config)
