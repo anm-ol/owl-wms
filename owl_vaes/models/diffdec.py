@@ -63,7 +63,7 @@ class DiffusionDecoderCore(nn.Module):
         d = torch.full((len(z),), 1., device = z.device, dtype = z.dtype)
         ts = torch.full((len(z),), 1., device = z.device, dtype = z.dtype)
         x = torch.randn(len(z), self.config.channels, self.original_sample_size[0], self.original_sample_size[1], device = z.device, dtype=z.dtype)
-        return self.forward(x, z, ts, d)
+        return x - self.forward(x, z, ts, d)
 
     def forward(self, x, z, ts, d):
         # x is [b,c,h,w]

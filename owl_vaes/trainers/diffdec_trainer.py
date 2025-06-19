@@ -73,10 +73,10 @@ class DiffusionDecoderTrainer(BaseTrainer):
         super().save(save_dict)
 
     def load(self):
-        if self.train_cfg.resume_ckpt is not None:
-            save_dict = super().load(self.train_cfg.resume_ckpt)
-        else:
+        resume_ckpt = getattr(self.train_cfg, 'resume_ckpt', None)
+        if resume_ckpt is None:
             return
+        save_dict = super().load(resume_ckpt)
 
         self.model.load_state_dict(save_dict['model'])
         self.ema.load_state_dict(save_dict['ema'])
