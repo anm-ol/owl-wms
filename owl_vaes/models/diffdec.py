@@ -60,11 +60,26 @@ class DiffusionDecoderCore(nn.Module):
         self.blocks = DiT(config)
         self.config = config
 
+    @torch.no_grad()
     def sample(self, z):
         d = torch.full((len(z),), 1., device = z.device, dtype = z.dtype)
         ts = torch.full((len(z),), 1., device = z.device, dtype = z.dtype)
         x = torch.randn(len(z), self.config.channels, self.original_sample_size[0], self.original_sample_size[1], device = z.device, dtype=z.dtype)
         return x - self.forward(x, z, ts, d)
+
+    @torch.no_grad()
+    def sample4(self, z):
+        d  = torch.full((len(z),), 4, device=z.device,dtype=z.dtype)
+        ts = torch.full((len(z),) 1., device=z.device,dtype=z.dtype)
+        x = torch.randn(len(z), self.config.channels, self.original_sample_size[0], self.original_sample_size[1], device = z.device, dtype=z.dtype)
+        dt = .25
+
+        for _ in range(4):
+            pred = self.forward(x, z, ts, d)
+            x = x - dt * pred
+            ts = ts - dt
+        
+        return x
 
     def forward(self, x, z, ts, d):
         # x is [b,c,h,w]

@@ -124,7 +124,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
         self.load()
         self.model.module.set_ema_core(self.ema)
-        
+
         # Timer reset
         timer = Timer()
         timer.reset()
@@ -179,11 +179,18 @@ class DiffusionDecoderTrainer(BaseTrainer):
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
                                 ema_rec = self.get_ema_core().sample(teacher_z)
+                                ema_rec_4 = self.get_ema_core().sample4(teacher_z)
                             wandb_dict['samples'] = to_wandb(
                                 batch.detach().contiguous().bfloat16(),
                                 ema_rec.detach().contiguous().bfloat16(),
                                 gather = False
                             )
+                            wandb_dict['4_step_samples'] = to_wandb(
+                                batch.detach().contiguous().bfloat16(),
+                                ema_rec_4.detach().contiguous().bfloat16(),
+                                gather = False
+                            )
+                            
                         if self.rank == 0:
                             wandb.log(wandb_dict)
 
