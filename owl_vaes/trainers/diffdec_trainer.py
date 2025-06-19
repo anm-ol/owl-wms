@@ -14,6 +14,8 @@ from ..utils.logging import LogHelper, to_wandb
 from .base import BaseTrainer
 from ..configs import Config
 
+from diffusers import AutoencoderTiny
+
 class DiffusionDecoderTrainer(BaseTrainer):
     """
     Trainer for diffusion decoder with frozen encoder.
@@ -95,8 +97,12 @@ class DiffusionDecoderTrainer(BaseTrainer):
             self.model = DDP(self.model)
 
         self.encoder = self.encoder.to(self.device).bfloat16().eval()
+        self.flux_vae = AutoencoderTiny.from_pretrained("madebyollin/taef1").bfloat16().cuda().eval()
+
         freeze(self.encoder)
+        freeze(self.flux_vae)
         self.encoder = torch.compile(self.encoder, dynamic=False,fullgraph=True)
+        self.flux_vae.encoder = torch.compile(self.flux_vae.encoder, dynamic=False,fullgraph=True)
 
         self.ema = EMA(
             self.model,
@@ -142,9 +148,10 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
                 with torch.no_grad():
                     teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
+                    latent_batch = self.flux_vae.encoder(batch)
                 
                 with ctx:
-                    diff_loss, sc_loss = self.model(batch, teacher_z)
+                    diff_loss, sc_loss = self.model(latent_batch, teacher_z)
                     diff_loss = diff_loss / accum_steps
                     sc_loss = sc_loss / accum_steps
                     total_loss = diff_loss + sc_loss
@@ -180,6 +187,9 @@ class DiffusionDecoderTrainer(BaseTrainer):
                             with ctx:
                                 ema_rec = self.get_ema_core().sample(teacher_z)
                                 ema_rec_4 = self.get_ema_core().sample4(teacher_z)
+                                ema_rec = self.flux_vae.decoder(ema_rec)
+                                ema_rec_4 = self.flux_vae.decoder(ema_rec_4)
+
                             wandb_dict['samples'] = to_wandb(
                                 batch.detach().contiguous().bfloat16(),
                                 ema_rec.detach().contiguous().bfloat16(),
