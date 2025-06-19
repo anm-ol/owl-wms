@@ -104,7 +104,6 @@ class DiffusionDecoderTrainer(BaseTrainer):
             update_after_step = 0,
             update_every = 1
         )
-        self.model.module.set_ema_core(self.ema)
 
         # Set up optimizer and scheduler
         if self.train_cfg.opt.lower() == "muon":
@@ -124,7 +123,8 @@ class DiffusionDecoderTrainer(BaseTrainer):
         ctx = torch.amp.autocast(self.device, torch.bfloat16)
 
         self.load()
-
+        self.model.module.set_ema_core(self.ema)
+        
         # Timer reset
         timer = Timer()
         timer.reset()
