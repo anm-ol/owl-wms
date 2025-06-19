@@ -55,3 +55,8 @@ def versatile_load(path):
 
 def prefix_filter(ckpt, prefix):
     return {k[len(prefix):] : v for (k,v) in ckpt.items() if k.startswith(prefix)}
+
+def find_unused_params(model):
+    for name, param in model.named_parameters():
+        if param.grad is None:
+            print(f"Parameter with no gradient: {name}")

@@ -108,7 +108,6 @@ class DiffusionDecoderCore(nn.Module):
 def sample_discrete_timesteps(steps, eps = 1.0e-6):
     # steps is Tensor([1,4,2,64,16]) as an example
     b = len(steps)
-    ts_list = []
     ts = torch.rand(b, device=steps.device, dtype=steps.dtype) * (steps - eps)
     ts = ts.clamp(eps).ceil() / steps
     """
@@ -200,7 +199,7 @@ class DiffusionDecoder(nn.Module):
         mask = torch.rand(len(z), device=z.device) < self.cfg_prob
         z_masked = torch.where(mask.view(-1, 1, 1, 1), torch.randn_like(z), z)
 
-        pred = self.core(lerpd, z, ts, steps)
+        pred = self.core(lerpd, z_masked, ts, steps)
         diff_loss = F.mse_loss(pred, target)
         sc_loss = self.get_sc_loss(x_sc,z_sc)
 
