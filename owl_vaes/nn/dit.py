@@ -68,6 +68,38 @@ class MMDiTBlock(nn.Module):
 
         return torch.cat([x_1, x_2], dim=1)
 
+class DiTBlock(nn.Module):
+    def __init__(self, config : TransformerConfig):
+        super().__init__()
+
+        self.attn = Attn(config)
+        self.mlp = MLP(config)
+
+        self.adaln1 = AdaLN(config.d_model)
+        self.adaln2 = AdaLN(config.d_model)
+        self.gate1 = Gate(config.d_model)
+        self.gate2 = Gate(config.d_model)
+
+    def forward(self, x, cond):
+        # x is [b,n,d]
+        # cond is [b,d]
+
+        # First block
+        res1 = x.clone()
+        x = self.adaln1(x, cond)
+        x = self.attn(x)
+        x = self.gate1(x, cond)
+        x = res1 + x
+
+        # Second block
+        res2 = x.clone()
+        x = self.adaln2(x, cond)
+        x = self.mlp(x)
+        x = self.gate2(x, cond)
+        x = res2 + x
+
+        return x
+
 class FinalLayer(nn.Module):
     def __init__(self, config, skip_proj = False):
         super().__init__()
@@ -93,7 +125,7 @@ class DiT(nn.Module):
 
         blocks = []
         for _ in range(config.n_layers):
-            blocks.append(MMDiTBlock(config))
+            blocks.append(DiTBlock(config))
         self.blocks = nn.ModuleList(blocks)
 
     def forward(self, x, cond):
