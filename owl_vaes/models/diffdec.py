@@ -89,7 +89,9 @@ class DiffusionDecoderCore(nn.Module):
 
         cond = self.ts_embed(ts) + self.d_embed(d)
 
-        x = self.conv_in(x) # -> [b,d,512,512]
+        x = self.conv_in(x) # -> [b,d,s,s]
+        x = F.pixel_unshuffle(x, downscale_factor=2) # [b,d,2s,2s] -> [b,4d,s,s]
+        
         x = eo.rearrange(
             x,
             'b c (n_p_y p_y) (n_p_x p_x) -> b (n_p_y n_p_x) (p_y p_x c)',
@@ -116,6 +118,8 @@ class DiffusionDecoderCore(nn.Module):
             p_y = self.p, p_x = self.p,
             n_p_y = self.n_p_y, n_p_x = self.n_p_x
         )
+
+        x = F.pixel_shuffle(x, upscale_factor=2) # 
         x = self.conv_out(x)
 
         return x

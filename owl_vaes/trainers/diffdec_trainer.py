@@ -148,7 +148,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
                 with torch.no_grad():
                     teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
-                    latent_batch = self.flux_vae.encoder(batch)
+                    latent_batch = self.flux_vae.encoder(batch) # [b,16,45,80]
                 
                 with ctx:
                     diff_loss, sc_loss = self.model(latent_batch, teacher_z)
