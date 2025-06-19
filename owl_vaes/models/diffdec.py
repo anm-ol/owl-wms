@@ -142,7 +142,7 @@ class DiffusionDecoder(nn.Module):
             self.ema = ema.ema_model.core
 
     @torch.no_grad()
-    @torch.compile(mode='max-autotune',fullgraph=True)
+    #@torch.compile(mode='max-autotune',fullgraph=True)
     def get_sc_targets(self, x, z):
         steps_slow = sample_steps(len(x),x.device,x.dtype, min_val = 1)
         steps_fast = steps_slow / 2
@@ -183,7 +183,7 @@ class DiffusionDecoder(nn.Module):
         return sc_loss
     
     def forward(self, x, z):
-        b = len(x) * (1 - self.sc_frac)
+        b = int(len(x) * (1 - self.sc_frac))
         x,x_sc = x[:b], x[b:]
         z,z_sc = z[:b], z[b:]
 
