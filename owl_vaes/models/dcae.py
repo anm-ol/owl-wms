@@ -59,7 +59,10 @@ class Encoder(nn.Module):
             x = block(x) + res
 
         res = x.clone()
-        res = eo.reduce(res, 'b (rep c) h w -> b c h w', rep = self.avg_factor, reduction = 'mean')
+        # Replace einops reduce with reshape + mean
+        b, c, h, w = res.shape
+        res = res.reshape(b, self.avg_factor, c//self.avg_factor, h, w)
+        res = res.mean(dim=1)
         x = self.conv_out(x) + res
 
         return x
@@ -105,9 +108,8 @@ class Decoder(nn.Module):
     def forward(self, x):
         if self.decoder_only and self.noise_decoder_inputs > 0.0:
             x = x + torch.randn_like(x) * self.noise_decoder_inputs
-            
         res = x.clone()
-        res = eo.repeat(res, 'b c h w -> b (rep c) h w', rep = self.rep_factor)
+        res = res.repeat(1, self.rep_factor, 1, 1)
 
         x = self.conv_in(x) + res
 
