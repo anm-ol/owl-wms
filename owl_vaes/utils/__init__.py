@@ -58,5 +58,7 @@ def prefix_filter(ckpt, prefix):
 
 def find_unused_params(model):
     for name, param in model.named_parameters():
+        if '.ema.' in name:
+            continue
         if param.grad is None:
             print(f"Parameter with no gradient: {name}")
