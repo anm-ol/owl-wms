@@ -78,7 +78,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
             return
         save_dict = super().load(resume_ckpt)
 
-        self.model.load_state_dict(save_dict['model'])
+        self.model.load_state_dict(save_dict['model'], strict=False)
         self.ema.load_state_dict(save_dict['ema'])
         self.opt.load_state_dict(save_dict['opt'])
         if self.scheduler is not None and 'scheduler' in save_dict:
@@ -190,7 +190,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
                                 ema_rec_4.detach().contiguous().bfloat16(),
                                 gather = False
                             )
-                            
+
                         if self.rank == 0:
                             wandb.log(wandb_dict)
 
