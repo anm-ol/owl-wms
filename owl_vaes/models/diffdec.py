@@ -145,8 +145,6 @@ class DiffusionDecoder(nn.Module):
         self.core = DiffusionDecoderCore(config)
         self.ema = None
         self.sc_frac = 0.25
-        self.cfg_prob = 0.1
-        self.cfg_strength = 1.5
 
     def set_ema_core(self, ema):
         if hasattr(ema.ema_model, 'module'):
@@ -165,28 +163,15 @@ class DiffusionDecoder(nn.Module):
         dt_fast = 1./steps_fast
 
         def expand(t):
-            #b,c,h,w = x.shape
-            #t = eo.repeat(t,'b -> b c h w',c=c,h=h,w=w)
-            #return t
             return t[:,None,None,None]
 
         ts = sample_discrete_timesteps(steps_fast)
-        cfg_mask = torch.isclose(steps_slow, torch.ones_like(steps_slow)*128)
-        cfg_mask = expand(cfg_mask) # -> [b,1,1,1]
 
-        pred_1_uncond = self.ema(x, torch.randn_like(z), ts, steps_slow)
-        pred_1_cond = self.ema(x, z, ts, steps_slow)
-        pred_1_cfg = pred_1_uncond + self.cfg_strength * (pred_1_cond - pred_1_uncond)
-        pred_1 = torch.where(cfg_mask, pred_1_cfg, pred_1_cond)
-
+        pred_1 = self.ema(x, z, ts, steps_slow)
         x_new = x - pred_1 * expand(dt_slow)
         ts_new = ts - dt_slow
 
-        pred_2_uncond = self.ema(x_new, torch.randn_like(z), ts_new, steps_slow)
-        pred_2_cond = self.ema(x_new, z, ts_new, steps_slow)
-        pred_2_cfg = pred_2_uncond + self.cfg_strength * (pred_2_cond - pred_2_uncond)
-        pred_2 = torch.where(cfg_mask, pred_2_cfg, pred_2_cond)
-
+        pred_2 = self.ema(x_new, z, ts_new, steps_slow)
         pred = 0.5 * (pred_1 + pred_2)
         return pred, steps_fast, ts
 
@@ -211,10 +196,7 @@ class DiffusionDecoder(nn.Module):
             lerpd = x * (1. - ts_exp) + ts_exp * eps
             target = eps - x
 
-        mask = torch.rand(len(z), device=z.device) < self.cfg_prob
-        z_masked = torch.where(mask.view(-1, 1, 1, 1), torch.randn_like(z), z)
-
-        pred = self.core(lerpd, z_masked, ts, steps)
+        pred = self.core(lerpd, z, ts, steps)
         diff_loss = F.mse_loss(pred, target)
         sc_loss = self.get_sc_loss(x_sc,z_sc)
 
