@@ -62,6 +62,8 @@ class Muon(torch.optim.Optimizer):
                 # Special case for single GPU
                 for p in params:
                     g = p.grad
+                    if g is None:
+                        continue
                     assert g is not None
                     state = self.state[p]
                     if "momentum_buffer" not in state:
