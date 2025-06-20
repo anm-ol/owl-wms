@@ -32,7 +32,7 @@ train:
   loss_weights:
     recon: 2.5
     stft: 1.5
-    kl: 1.0e-5
+    kl: 1.0e-6
     lr_ms_ratio: 0.5
     hubert: 0.0
     crt: 4.0
