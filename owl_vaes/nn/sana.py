@@ -23,7 +23,9 @@ class SpaceToChannel(nn.Module):
         # [c,2h,2w] -> [4c,h,w]
         x = F.pixel_unshuffle(x, downscale_factor=2)
         # [4c,h,w] -> [2c,h,w]
-        x = eo.reduce(x, 'b (reps c) h w -> b c h w', reps = self.reps, reduction = 'mean')
+        b, c, h, w = x.shape
+        x = x.view(b, self.reps, c//self.reps, h, w)
+        x = x.mean(dim=1)
         return x
 
 class ChannelToSpace(nn.Module):
@@ -38,7 +40,8 @@ class ChannelToSpace(nn.Module):
         # [4c, h, w] -> [c, 2h, 2w]
         x = F.pixel_shuffle(x, upscale_factor=2)
         # [c, 2h, 2w] -> [2c, 2h, 2w]
-        x = eo.repeat(x, 'b c h w -> b (reps c) h w', reps=self.reps)
+        b, c, h, w = x.shape
+        x = x.repeat(1, self.reps, 1, 1)
         return x
 
 class ResidualAttn(nn.Module):

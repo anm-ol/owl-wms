@@ -10,6 +10,7 @@ from ..nn.resnet import (
 )
 from ..nn.sana import ChannelToSpace, SpaceToChannel
 
+from torch.nn.utils.parametrizations import weight_norm
 from torch.utils.checkpoint import checkpoint
 
 def is_landscape(sample_size):
@@ -26,7 +27,7 @@ class Encoder(nn.Module):
         ch_0 = config.ch_0
         ch_max = config.ch_max
 
-        self.conv_in = nn.Conv2d(3, ch_0, 3, 1, 1, bias = False)
+        self.conv_in = weight_norm(nn.Conv2d(3, ch_0, 3, 1, 1))
         self.l_to_s = LandscapeToSquare(ch_0) if is_landscape(size) else nn.Sequential()
 
         blocks = []
@@ -47,10 +48,8 @@ class Encoder(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         self.residuals = nn.ModuleList(residuals)
 
-        self.final = SameBlock(ch_max, ch_max, blocks_per_stage[-1], total_blocks)
-
         self.avg_factor = ch // config.latent_channels
-        self.conv_out = nn.Conv2d(ch, config.latent_channels, 1, 1, 0, bias=False)
+        self.conv_out = weight_norm(nn.Conv2d(ch, config.latent_channels, 1, 1, 0))
 
     def forward(self, x):
         x = self.conv_in(x)
@@ -59,10 +58,11 @@ class Encoder(nn.Module):
             res = shortcut(x)
             x = block(x) + res
 
-        x = self.final(x) + x
-
         res = x.clone()
-        res = eo.reduce(res, 'b (rep c) h w -> b c h w', rep = self.avg_factor, reduction = 'mean')
+        # Replace einops reduce with reshape + mean
+        b, c, h, w = res.shape
+        res = res.reshape(b, self.avg_factor, c//self.avg_factor, h, w)
+        res = res.mean(dim=1)
         x = self.conv_out(x) + res
 
         return x
@@ -77,7 +77,7 @@ class Decoder(nn.Module):
         ch_max = config.ch_max
 
         self.rep_factor = ch_max // config.latent_channels
-        self.conv_in = nn.Conv2d(config.latent_channels, ch_max, 1, 1, 0, bias = False)
+        self.conv_in = weight_norm(nn.Conv2d(config.latent_channels, ch_max, 1, 1, 0))
 
         blocks = []
         residuals = []
@@ -85,8 +85,6 @@ class Decoder(nn.Module):
 
         blocks_per_stage = config.decoder_blocks_per_stage
         total_blocks = len(blocks_per_stage)
-
-        self.starter = SameBlock(ch_max, ch_max, blocks_per_stage[-1], total_blocks)
 
         for block_count in reversed(blocks_per_stage[:-1]):
             next_ch = min(ch*2, ch_max)
@@ -100,8 +98,7 @@ class Decoder(nn.Module):
         self.residuals = nn.ModuleList(list(reversed(residuals)))
 
         self.s_to_l = SquareToLandscape(ch_0) if is_landscape(size) else nn.Sequential()
-        self.conv_out = nn.Conv2d(ch_0, 3, 3, 1, 1, bias = False)
-        self.norm_out = GroupNorm(ch_0)
+        self.conv_out = weight_norm(nn.Conv2d(ch_0, 3, 3, 1, 1, bias = False))
         self.act_out = nn.SiLU()
 
         self.decoder_only = decoder_only
@@ -111,19 +108,16 @@ class Decoder(nn.Module):
     def forward(self, x):
         if self.decoder_only and self.noise_decoder_inputs > 0.0:
             x = x + torch.randn_like(x) * self.noise_decoder_inputs
-            
         res = x.clone()
-        res = eo.repeat(res, 'b c h w -> b (rep c) h w', rep = self.rep_factor)
+        res = res.repeat(1, self.rep_factor, 1, 1)
 
         x = self.conv_in(x) + res
-        x = self.starter(x) + x
 
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
         
         x = self.s_to_l(x)
-        x = self.norm_out(x)
         x = self.act_out(x)
         x = self.conv_out(x)
 
