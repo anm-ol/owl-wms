@@ -43,7 +43,7 @@ class RoPEEmbedding(nn.Module):
     def forward(self, q, k):
         # q k both [b,h,n,d]
         # k can be longer for caching
-        q,k = self.rotate_queries_with_cached_keys(q,k)
+        q,k = self.pos_emb.rotate_queries_with_cached_keys(q,k)
         return q,k
         
         return q, k

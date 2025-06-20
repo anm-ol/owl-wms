@@ -102,15 +102,11 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         x = self.conv_in(x)
-        print(x.shape)
         for block in self.blocks:
             x = block(x)
-            print(x.shape)
 
         x = self.final(x)
-        print(x.shape)
         x = self.conv_out(x)
-        print(x.shape)
         return x
 
 class Decoder(nn.Module):
