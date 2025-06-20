@@ -88,7 +88,7 @@ class Encoder(nn.Module):
         strides = config.strides
         total_blocks = len(strides)
 
-        for stride in strides[:-1]:
+        for stride in strides:
             next_ch = min(ch*2, ch_max)
             if stride > 1:
                 blocks.append(EncoderBlock(ch, next_ch, stride, total_blocks))
@@ -102,12 +102,15 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         x = self.conv_in(x)
-
+        print(x.shape)
         for block in self.blocks:
             x = block(x)
+            print(x.shape)
 
         x = self.final(x)
+        print(x.shape)
         x = self.conv_out(x)
+        print(x.shape)
         return x
 
 class Decoder(nn.Module):
@@ -126,7 +129,7 @@ class Decoder(nn.Module):
         total_blocks = len(strides)
 
         ch = ch_0
-        for stride in strides[:-1]:
+        for stride in strides:
             next_ch = min(ch*2, ch_max)
             blocks.append(DecoderBlock(next_ch, ch, stride, total_blocks))
             ch = next_ch
@@ -175,3 +178,18 @@ class OobleckVAE(nn.Module):
             return x_rec, z, (rec_1, rec_2)
         else:
             return x_rec, z
+
+
+if __name__ == "__main__":
+    from ..configs import Config
+
+    cfg = Config.from_yaml("configs/audio_ae.yml").model
+
+    model = OobleckVAE(cfg).bfloat16().cuda()
+
+    with torch.no_grad():
+        x = torch.randn(1, 2, 44100*2).bfloat16().cuda()
+        z = model.encoder(x)
+        print(z.shape)
+        rec = model.decoder(z)
+        print(rec.shape)
