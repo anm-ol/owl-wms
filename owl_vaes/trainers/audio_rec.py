@@ -229,6 +229,7 @@ class AudioRecTrainer(BaseTrainer):
         accum_steps = max(1, accum_steps)
         self.scaler = torch.GradScaler()
         ctx = torch.autocast(self.device, torch.bfloat16)
+        self.load()
 
         # Timer and metrics setup
         timer = Timer()
