@@ -108,8 +108,11 @@ class Encoder(nn.Module):
 
         x = self.final(x)
         mu = self.conv_out(x)
-        logvar = self.conv_out_logvar(x)
-        return mu, logvar
+        if self.training:
+            logvar = self.conv_out_logvar(x)
+            return mu, logvar
+        else:
+            return mu
 
 class Decoder(nn.Module):
     def __init__(self, config):
