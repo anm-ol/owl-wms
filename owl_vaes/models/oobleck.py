@@ -101,6 +101,11 @@ class Encoder(nn.Module):
         self.conv_out = weight_norm(nn.Conv1d(ch, config.latent_channels, 3, 1, 1))
         self.conv_out_logvar = weight_norm(nn.Conv1d(ch, config.latent_channels, 3, 1, 1))
 
+    @torch.no_grad()
+    def sample(self, x):
+        mu, logvar = self.forward(x)
+        return torch.randn_like(mu) * (logvar/2).exp() + mu
+        
     def forward(self, x):
         x = self.conv_in(x)
         for block in self.blocks:
