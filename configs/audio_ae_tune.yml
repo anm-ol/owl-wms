@@ -53,7 +53,10 @@ train:
     warmup_steps: 1500
     min_lr: 3.0e-6
 
-  checkpoint_dir: checkpoints/audio_ae
+  checkpoint_dir: checkpoints/audio_ae_tune
+  teacher_ckpt: checkpoints/audio_ae/step_5000.pt
+  teacher_cfg: configs/audio_ae.yml
+  
   resume_ckpt: null #checkpoints/audio_ae/step_70000.pt
 
   sample_interval: 500
