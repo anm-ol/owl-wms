@@ -36,6 +36,7 @@ def compute_losses(
     batch_rec: Tensor,
     batch: Tensor,
     z: Tensor,
+    logvar,
     recon_weight: float,
     stft_weight: float,
     kl_weight: float,
@@ -70,7 +71,7 @@ def compute_losses(
 
     # KL loss
     if kl_weight > 0 and z is not None:
-        kl_loss = latent_reg_loss(z) / accum_steps
+        kl_loss = latent_reg_loss(z,logvar) / accum_steps
         total_loss = total_loss + kl_loss * kl_weight
         metrics["kl_loss"] = kl_loss
 
@@ -118,7 +119,12 @@ class AudioRecTrainer(BaseTrainer):
 
         model_id = self.model_cfg.model_id
         self.model: nn.Module = get_model_cls(model_id)(self.model_cfg).to(self.device)
-
+        
+        #self.model.load_state_dict(
+        #    torch.load("200m_codaudio_70k_ema.pt", map_location='cpu', weights_only=False),
+        #    strict = False
+        #)
+        
         if self.rank == 0:
             param_count = sum(p.numel() for p in self.model.parameters())
             print(f"Total parameters: {param_count:,}")
@@ -152,11 +158,10 @@ class AudioRecTrainer(BaseTrainer):
         super().save(save_dict)
 
     def load(self):
-        if self.train_cfg.resume_ckpt is not None:
-            save_dict = super().load(self.train_cfg.resume_ckpt)
-        else:
+        if not hasattr(self.train_cfg, 'resume_ckpt') or self.train_cfg.resume_ckpt is None:
             return
-
+        
+        save_dict = super().load(self.train_cfg.resume_ckpt)
         self.model.load_state_dict(save_dict["model"])
         self.ema.load_state_dict(save_dict["ema"])
         self.opt.load_state_dict(save_dict["opt"])
@@ -229,7 +234,6 @@ class AudioRecTrainer(BaseTrainer):
         accum_steps = max(1, accum_steps)
         self.scaler = torch.GradScaler()
         ctx = torch.autocast(self.device, torch.bfloat16)
-        self.load()
 
         # Timer and metrics setup
         timer = Timer()
@@ -245,11 +249,12 @@ class AudioRecTrainer(BaseTrainer):
 
         local_step = 0
 
-        def loss_fn(batch_rec, batch, z=None):
+        def loss_fn(batch_rec, batch, z=None, logvar=None):
             return compute_losses(
                 batch_rec=batch_rec,
                 batch=batch,
                 z=z,
+                logvar=logvar,
                 recon_weight=recon_weight,
                 stft_weight=stft_weight,
                 kl_weight=kl_weight,
@@ -275,12 +280,12 @@ class AudioRecTrainer(BaseTrainer):
                 with ctx:
                     # Forward pass using compiled function
                     output = self.model(batch)
-                    if len(output) == 3:
-                        batch_rec, z, (rec_1, rec_2) = output
+                    if len(output) == 4:
+                        batch_rec, z, logvar, (rec_1, rec_2) = output
                     else:
-                        batch_rec, z = output
+                        batch_rec, z, logvar = output
 
-                    total_loss, loss_metrics = loss_fn(batch_rec, batch, z)
+                    total_loss, loss_metrics = loss_fn(batch_rec, batch, z, logvar)
                     if eq_weight > 0.0:
                         third_samples = batch.shape[-1] // 3
                         target_1 = batch[:,:,:third_samples*2]

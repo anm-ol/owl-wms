@@ -99,6 +99,7 @@ class Encoder(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         self.final = SnakeBeta(ch)
         self.conv_out = weight_norm(nn.Conv1d(ch, config.latent_channels, 3, 1, 1))
+        self.conv_out_logvar = weight_norm(nn.Conv1d(ch, config.latent_channels, 3, 1, 1))
 
     def forward(self, x):
         x = self.conv_in(x)
@@ -106,8 +107,9 @@ class Encoder(nn.Module):
             x = block(x)
 
         x = self.final(x)
-        x = self.conv_out(x)
-        return x
+        mu = self.conv_out(x)
+        logvar = self.conv_out_logvar(x)
+        return mu, logvar
 
 class Decoder(nn.Module):
     def __init__(self, config):
@@ -162,8 +164,11 @@ class OobleckVAE(nn.Module):
         return self.decoder(z)
         
     def forward(self, x):
-        z = self.encode(x)
-        x_rec = self.decode(z)
+        z, logvar = self.encode(x)
+
+        z_noisy = torch.randn_like(z) * (logvar/2).exp() + z
+
+        x_rec = self.decode(z_noisy)
         if self.eq:
             n = z.shape[-1]
             n = n // 3
@@ -171,9 +176,9 @@ class OobleckVAE(nn.Module):
             z_2 = z[:,:,n:] # Last 2/3
             rec_1 = self.decode(z_1)
             rec_2 = self.decode(z_2)
-            return x_rec, z, (rec_1, rec_2)
+            return x_rec, z, logvar, (rec_1, rec_2)
         else:
-            return x_rec, z
+            return x_rec, z, logvar
 
 
 if __name__ == "__main__":

@@ -32,10 +32,10 @@ train:
   loss_weights:
     recon: 2.5
     stft: 1.5
-    kl: 1.0e-6
     lr_ms_ratio: 0.5
     hubert: 0.0
     crt: 4.0
+    eq: 0.25
 
   sample_rate: 44100
   n_fft_list: [2048, 1024, 512, 256, 128, 64, 32]
@@ -46,10 +46,10 @@ train:
     min_lr: 3.0e-6
 
   checkpoint_dir: checkpoints/audio_ae
+  resume_ckpt: null #checkpoints/audio_ae/step_70000.pt
+
   sample_interval: 500
   save_interval: 5000
-
-  resume_ckpt: null
 
 wandb:
   name: ${env:WANDB_USER_NAME}
