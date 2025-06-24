@@ -159,10 +159,13 @@ class SameBlock(nn.Module):
         return x
     
 class LandscapeToSquare(nn.Module):
-    def __init__(self, ch):
+    def __init__(self, ch, ch_out = None):
         super().__init__()
 
-        self.proj = weight_norm(nn.Conv2d(ch, ch, 3, 1, 1, bias = False))
+        if ch_out is None:
+            ch_out = ch
+
+        self.proj = weight_norm(nn.Conv2d(ch, ch_out, 3, 1, 1, bias = False))
     
     def forward(self, x):
         # x is [9, 16]

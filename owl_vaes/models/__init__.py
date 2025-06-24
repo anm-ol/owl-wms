@@ -19,6 +19,9 @@ def get_model_cls(model_id: str) -> Any:
     if model_id == "dcae_decoder":
         from .dcae import Decoder
         return Decoder
+    if model_id == "diff_dec":
+        from .diffdec import DiffusionDecoder
+        return DiffusionDecoder
     if model_id == "audio_ae":
         from .oobleck import OobleckVAE
         return OobleckVAE
