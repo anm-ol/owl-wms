@@ -27,8 +27,7 @@ class Encoder(nn.Module):
         ch_0 = config.ch_0
         ch_max = config.ch_max
 
-        self.conv_in = weight_norm(nn.Conv2d(3, ch_0, 3, 1, 1))
-        self.l_to_s = LandscapeToSquare(ch_0) if is_landscape(size) else nn.Sequential()
+        self.conv_in = LandscapeToSquare(config.channels, ch_0) if is_landscape(size) else weight_norm(nn.Conv2d(config.channels, ch_0, 3, 1, 1))
 
         blocks = []
         residuals = []
@@ -50,10 +49,15 @@ class Encoder(nn.Module):
 
         self.avg_factor = ch // config.latent_channels
         self.conv_out = weight_norm(nn.Conv2d(ch, config.latent_channels, 1, 1, 0))
+        self.conv_out_logvar = weight_norm(nn.Conv2d(ch, config.latent_channels, 1, 1, 0))
+
+    @torch.no_grad()
+    def sample(self, x):
+        mu, logvar = self.forward(x)
+        return mu + (logvar/2).exp() * torch.randn_like(mu)
 
     def forward(self, x):
         x = self.conv_in(x)
-        x = self.l_to_s(x)
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
@@ -63,9 +67,10 @@ class Encoder(nn.Module):
         b, c, h, w = res.shape
         res = res.reshape(b, self.avg_factor, c//self.avg_factor, h, w)
         res = res.mean(dim=1)
-        x = self.conv_out(x) + res
+        mu = self.conv_out(x) + res
+        logvar = self.conv_out_logvar(x)
 
-        return x
+        return mu, logvar
 
 class Decoder(nn.Module):
     def __init__(self, config : 'ResNetConfig', decoder_only = False):
@@ -97,17 +102,12 @@ class Decoder(nn.Module):
         self.blocks = nn.ModuleList(list(reversed(blocks)))
         self.residuals = nn.ModuleList(list(reversed(residuals)))
 
-        self.s_to_l = SquareToLandscape(ch_0) if is_landscape(size) else nn.Sequential()
-        self.conv_out = weight_norm(nn.Conv2d(ch_0, 3, 3, 1, 1, bias = False))
+        self.conv_out = SquareToLandscape(ch_0, config.channels) if is_landscape(size) else weight_norm(nn.Conv2d(ch_0, config.channels, 3, 1, 1, bias = False))
         self.act_out = nn.SiLU()
 
         self.decoder_only = decoder_only
-        self.noise_decoder_inputs = config.noise_decoder_inputs
-
 
     def forward(self, x):
-        if self.decoder_only and self.noise_decoder_inputs > 0.0:
-            x = x + torch.randn_like(x) * self.noise_decoder_inputs
         res = x.clone()
         res = res.repeat(1, self.rep_factor, 1, 1)
 
@@ -116,8 +116,7 @@ class Decoder(nn.Module):
         for (block, shortcut) in zip(self.blocks, self.residuals):
             res = shortcut(x)
             x = block(x) + res
-        
-        x = self.s_to_l(x)
+
         x = self.act_out(x)
         x = self.conv_out(x)
 
@@ -136,14 +135,10 @@ class DCAE(nn.Module):
         self.config = config
 
     def forward(self, x):
-        z = self.encoder(x)
-        if self.config.noise_decoder_inputs > 0.0:
-            dec_input = z + torch.randn_like(z) * self.config.noise_decoder_inputs
-        else:
-            dec_input = z.clone()
-
-        rec = self.decoder(dec_input)
-        return rec, z
+        mu, logvar = self.encoder(x)
+        z = torch.randn_like(mu) * (logvar/2).exp() + mu
+        rec = self.decoder(z)
+        return rec, mu, logvar
 
 def dcae_test():
     from ..configs import ResNetConfig

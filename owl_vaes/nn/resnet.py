@@ -1,6 +1,7 @@
 from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
+import torch
 
 from .normalization import RMSNorm2d, GroupNorm
 from torch.nn.utils.parametrizations import weight_norm
@@ -157,22 +158,56 @@ class SameBlock(nn.Module):
         for block in self.blocks:
             x = block(x)
         return x
+
+def find_nearest_square(h, w):
+    # Assuming h,w are 9:16, find nearest square 1:1 that is a power of 2
+    # Keep area roughly the same
+    area = h * w
+    side = round((area)**0.5)
+    # Find nearest power of 2
+    power = round(torch.log2(torch.tensor(side)).item())
+    side = 2**power
+    return side, side
+
+def find_nearest_landscape(h, w):
+    # Assuming h,w are 1:1, find nearest landscape 9:16
+    # Only use common 9:16 resolutions
+    area = h * w
+    
+    # Define common 9:16 resolutions
+    resolutions = [
+        (360, 640),
+        (720, 1280), 
+        (1080, 1920)
+    ]
+    
+    # Find closest resolution by area
+    min_diff = float('inf')
+    h_new, w_new = resolutions[0]
+    
+    for res_h, res_w in resolutions:
+        res_area = res_h * res_w
+        diff = abs(area - res_area)
+        if diff < min_diff:
+            min_diff = diff
+            h_new, w_new = res_h, res_w
+            
+    return h_new, w_new
     
 class LandscapeToSquare(nn.Module):
     def __init__(self, ch, ch_out = None):
         super().__init__()
 
-        if ch_out is None:
-            ch_out = ch
-
+        if ch_out is None: ch_out = ch
         self.proj = weight_norm(nn.Conv2d(ch, ch_out, 3, 1, 1, bias = False))
     
     def forward(self, x):
         # x is [9, 16]
         _,_,h,w = x.shape
 
-        h_mult = (512/360)
-        w_mult = (512/640)
+        h_new, w_new = find_nearest_square(h,w)
+        h_mult = (h_new/h)
+        w_mult = (w_new/w)
 
         new_h = round(h * h_mult)
         new_w = round(w * w_mult)
@@ -186,11 +221,12 @@ class SquareToLandscape(LandscapeToSquare):
         # x is [1,1]
         _,_,h,w = x.shape
 
-        h_mult = (360/512)
-        w_mult = (640/512)
+        h_new, w_new = find_nearest_landscape(h,w)
+        h_mult = (h_new/h)
+        w_mult = (w_new/w)
 
-        new_h = round(h*h_mult)
-        new_w = round(w*w_mult)
+        new_h = round(h * h_mult)
+        new_w = round(w * w_mult)
 
         x = self.proj(x)
         x = F.interpolate(x, (new_h, new_w), mode='bicubic')

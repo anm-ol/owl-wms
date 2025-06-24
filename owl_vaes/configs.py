@@ -44,6 +44,7 @@ class TransformerConfig(VAEConfig):
     patch_size : int = 1
     causal: bool = False
     mimetic_init: bool = True
+    block_size : int = 1
 
     # Proxy stuff
     proxy_patch_size : int = 1
