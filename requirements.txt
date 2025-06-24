@@ -15,3 +15,4 @@ git+https://github.com/sypsyp97/convnext_perceptual_loss
 wandb[media]
 rotary-embedding-torch
 boto3
+diffusers
