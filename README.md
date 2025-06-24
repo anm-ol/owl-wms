@@ -14,29 +14,77 @@
 
 To get setup just run `pip install -r requirements.txt`.
 
-- Set an **environment variable** for the `WANDB_USER_NAME` to sync correctly w/ Wandb.
-- Set an envvar for the `DEVICE_TYPE` to use non-cuda device.
-  To launch training run: setup a config yaml file, then run `python -m train /path/to/config.yaml` (or `torchrun`).
+- Set an **environment variable** for the `WANDB_USER_NAME` to sync correctly w/ Wandb
+- To launch training run: `python -m train --config_path /path/to/config.yaml` (or `torchrun`)
 
-Before commiting, we recommend running installing and running the `pre-commit` hooks:
+## Note for Contributors
 
-```bash
-pre-commit install # one-time command
-pre-commit run --all-files
-```
+This codebase is optimized for remote training on Nvidia GPU clusters while maintaining extensibility and readability. We aim to:
 
-## How Do I Create A New Model?
+- Keep dependencies minimal to enable quick setup on new instances
+- Focus on core CUDA functionality, avoiding extra code for infrequent use-cases
+- Avoid over-optimization that doesn't meaningfully improve training throughput
+- Maintain only tested, functional code by removing failed experiments
+- Replace deprecated architectures when better alternatives are found
 
-- add your new model to `owl_vaes/models/{name}.py`
-- add any new building blocks you need under `owl_vaes/nn`
-- add your model to `owl_vaes/models/__init__.py` and give it an ID
+In tables below: 🟥 = needs updates, 🟨 = usable but dated, 🟩 = production ready
 
-## How Do I Create A New Trainer
+## Configuration
 
-- Review `owl_vaes/trainers/base.py` and `owl_vaes/trainers/rec.py` to see general formatting
-- Implement your trainer in `owl_vaes/trainers/{name}.py`
-- Add to `owl_vaes/trainers/__init__.py` and give it an ID
+Configs are YAML files under the `configs/` directory. See existing configs for examples. Config structure is defined in `owl_vaes/configs.py` which specifies model, training and logging parameters.
 
-## How Do I Set Up A New Config?
+## Models
 
-- See existing configs under `configs` directory for examples.
+Models implement VAE architectures (encoder+decoder+vae). Found in `owl_vaes/models/`. Common building blocks go in `owl_vaes/nn/`. Model implementations should be clean and specific.
+
+| Name | Description | model_id | Status | Example Config |
+|------|-------------|----------|---------|----------------|
+| DCAE | Basic convolutional AE | dcae | 🟨 | TBD |
+| TiToKVAE | Transformer VAE | titok | 🟨 | TBD |
+| TiToKVQVAE | VQ version of TiToK | titok_vq | 🟨 | TBD |
+| DCVQVAE | VQ version of DCAE | dcae_vq | 🟨 | TBD |
+| ProxyTiToKVAE | Proxy version of TiToK | proxy_titok | 🟨 | TBD |
+| OobleckVAE | Audio VAE | audio_ae | 🟩 | TBD |
+| AudioTransformerDecoder | Transformer audio decoder | tdec | 🟩 | TBD |
+
+## Trainers
+
+Trainers implement specific training approaches. Found in `owl_vaes/trainers/`.
+
+| Name | Description | trainer_id | Status | Example Config |
+|------|-------------|------------|---------|----------------|
+| RecTrainer | Basic reconstruction | rec | 🟩 | TBD |
+| ProxyTrainer | Proxy-based training | proxy | 🟨 | TBD |
+| AudioRecTrainer | Audio reconstruction | audio_rec | 🟩 | TBD |
+| DecTuneTrainer | Decoder tuning | dec_tune | 🟩 | TBD |
+| AudDecTuneTrainer | Audio decoder tuning | audio_dec_tune | 🟩 | TBD |
+
+## Discriminators 
+
+Discriminators for adversarial training. Found in `owl_vaes/discriminators/`.
+
+| Name | Description | model_id | Status | Example Config |
+|------|-------------|----------|---------|----------------|
+| R3GANDiscriminator | R3 GAN discriminator | r3gan | 🟨 | TBD |
+| EncodecDiscriminator | Encodec discriminator | encodec | 🟩 | TBD |
+
+## Data
+
+Data loaders take batch_size and optional kwargs. Found in `owl_vaes/data/`.
+
+| Name | Description | data_id | Status | Example Config |
+|------|-------------|---------|---------|----------------|
+| MNIST | Basic MNIST | mnist | 🟨 | TBD |
+| Local ImageNet | Local 256px ImageNet | local_imagenet_256 | 🟨 | TBD |
+| S3 ImageNet | S3-stored ImageNet | s3_imagenet | 🟨 | TBD |
+| Local CoD | Local CoD dataset | local_cod | 🟨 | TBD |
+| Audio Loader | Generic audio loading | audio_loader | 🟩 | TBD |
+| S3 CoD | S3-stored CoD dataset | s3_cod | 🟩 | TBD |
+| Local CoD Audio | Local CoD audio | local_cod_audio | 🟩 | TBD |
+| S3 CoD Audio | S3-stored CoD audio | s3_cod_audio | 🟩 | TBD |
+
+## Additional Components
+
+- **Losses**: Basic loss functions in `owl_vaes/losses/`
+- **Sampling**: Wandb/logging utilities in `owl_vaes/utils/logging.py`
+- **Loading**: General utilities in `owl_vaes/utils/__init__.py`
