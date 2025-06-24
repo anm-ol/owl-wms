@@ -15,7 +15,7 @@ from ..muon import init_muon
 from ..nn.lpips import get_lpips_cls
 from ..schedulers import get_scheduler_cls
 from ..utils import Timer, freeze
-from ..utils.logging import LogHelper, to_wandb
+from ..utils.logging import LogHelper, to_wandb, to_wandb_depth, to_wandb_flow
 from .base import BaseTrainer
 from ..losses.basic import latent_reg_loss
 
@@ -181,6 +181,26 @@ class RecTrainer(BaseTrainer):
                                 batch_rec.detach().contiguous().bfloat16(),
                                 gather = False
                             )
+                            
+                            # Log depth maps if present (4 or 7 channels)
+                            if batch.shape[1] >= 4:
+                                depth_samples = to_wandb_depth(
+                                    batch.detach().contiguous().bfloat16(),
+                                    batch_rec.detach().contiguous().bfloat16(),
+                                    gather = False
+                                )
+                                if depth_samples:
+                                    wandb_dict['depth_samples'] = depth_samples
+                            
+                            # Log optical flow if present (7 channels)
+                            if batch.shape[1] >= 7:
+                                flow_samples = to_wandb_flow(
+                                    batch.detach().contiguous().bfloat16(),
+                                    batch_rec.detach().contiguous().bfloat16(),
+                                    gather = False
+                                )
+                                if flow_samples:
+                                    wandb_dict['flow_samples'] = flow_samples
                         if self.rank == 0:
                             wandb.log(wandb_dict)
 
