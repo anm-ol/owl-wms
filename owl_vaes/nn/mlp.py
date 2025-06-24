@@ -13,3 +13,19 @@ class MLP(nn.Module):
         x = F.silu(x)
         x = self.fc2(x)
         return x
+
+class MLPSimple(nn.Module):
+    def __init__(self, dim_in, dim_middle=None, dim_out=None):
+        super().__init__()
+        
+        dim_out = dim_out if dim_out is not None else dim_in
+        dim_middle = dim_middle if dim_middle is not None else dim_out * 4
+
+        self.fc_uv = nn.Linear(dim_in, dim_middle)
+        self.fc_vw = nn.Linear(dim_middle, dim_out)
+
+    def forward(self, x):
+        x = self.fc_uv(x)
+        x = F.silu(x)
+        x = self.fc_vw(x)
+        return x
