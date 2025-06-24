@@ -4,13 +4,14 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint as torch_checkpoint
 from torch.nn.utils.parametrizations import weight_norm
 
 import einops as eo
 import math
 
 from torchaudio.transforms import Spectrogram
+
+from .resnet import checkpoint
 
 def make_pad(k, d = (1,1)):
     return (
@@ -82,6 +83,6 @@ class MultiSTFTDiscriminator(nn.Module):
             score, h = disc(x)
             
             scores.append(score.clone())
-            hs.append(h.clone())
+            hs.append(h)
 
         return scores, hs

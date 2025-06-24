@@ -5,7 +5,7 @@ model:
     ch: 64
     channels: 2
     n_ffts: [2048,1024,512,256,128]
-    hop_lengths: [512,256,128,64,32],
+    hop_lengths: [512,256,128,64,32]
     win_lengths: [2048,1024,512,256,128]
 
   channels: 2
@@ -26,7 +26,7 @@ train:
     window_length: 88200
 
   target_batch_size: 32
-  batch_size: 4
+  batch_size: 2
   epochs: 100
 
   opt: AdamW
@@ -37,9 +37,7 @@ train:
     weight_decay: 1.0e-4
 
   loss_weights:
-    recon: 2.5
     stft: 1.5
-    kl: 1.0e-6
     lr_ms_ratio: 0.5
     hubert: 0.0
     gan: 0.1
@@ -56,7 +54,7 @@ train:
   checkpoint_dir: checkpoints/audio_ae_tune
   teacher_ckpt: checkpoints/audio_ae/step_5000.pt
   teacher_cfg: configs/audio_ae.yml
-  
+
   resume_ckpt: null #checkpoints/audio_ae/step_70000.pt
 
   sample_interval: 500
@@ -64,6 +62,8 @@ train:
 
   delay_adv: 5000
   warmup_adv: 5000
+  use_teacher_decoder: true
+  latent_scale: 1.0
 
 wandb:
   name: ${env:WANDB_USER_NAME}

@@ -16,9 +16,11 @@ from ..muon import init_muon
 from ..nn.lpips import get_lpips_cls
 from ..schedulers import get_scheduler_cls
 from ..utils import Timer, freeze, unfreeze, versatile_load
-from ..utils.logging import LogHelper, to_wandb
+from ..utils.logging import LogHelper, log_audio_to_wandb
 from .base import BaseTrainer
 from ..configs import Config
+from ..losses.audio import stft_loss, compute_ms_loss
+from torch import Tensor 
 
 def compute_losses(
     batch_rec: Tensor,
@@ -59,7 +61,6 @@ def compute_losses(
 class AudDecTuneTrainer(BaseTrainer):
     """
     Trainer for only the decoder, with frozen encoder.
-    Does L2 + LPIPS + GAN
 
     :param train_cfg: Configuration for training
     :param logging_cfg: Configuration for logging
@@ -147,6 +148,10 @@ class AudDecTuneTrainer(BaseTrainer):
         )  # L/R weight relative to M/S
         gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
         feature_matching_weight = self.train_cfg.loss_weights.get('feature_matching', 5.0)
+
+        # Audio-specific config
+        sample_rate = getattr(self.train_cfg, "sample_rate", 44100)
+        n_fft_list = getattr(self.train_cfg, "n_fft_list", [1024, 2048, 512])
 
         # Prepare model, lpips, ema
         self.model = self.model.to(self.device).train()
@@ -271,14 +276,15 @@ class AudDecTuneTrainer(BaseTrainer):
                     total_loss, loss_metrics = rec_loss(batch_rec, batch)
                     metrics.log_dict(loss_metrics)
 
-                    gan_loss, fm_loss = g_loss(self.discriminator, batch_rec, batch.detach())
-                    gan_loss = gan_loss / accum_steps
-                    fm_loss = fm_loss / accum_steps
-                    metrics.log('g_loss', gan_loss)
-                    metrics.log('fm_loss', fm_loss)
+                    if self.total_step_counter > self.train_cfg.delay_adv:
+                        gan_loss, fm_loss = g_loss(self.discriminator, batch_rec, batch.detach())
+                        gan_loss = gan_loss / accum_steps
+                        fm_loss = fm_loss / accum_steps
+                        metrics.log('g_loss', gan_loss)
+                        metrics.log('fm_loss', fm_loss)
 
-                    total_loss += gan_weight * warmup_gan_weight()
-                    total_loss += feature_matching_weight * warmup_fm_weight()
+                        total_loss += gan_weight * warmup_gan_weight()
+                        total_loss += feature_matching_weight * warmup_fm_weight()
                 
                 self.scaler.scale(total_loss).backward()
 
@@ -310,14 +316,16 @@ class AudDecTuneTrainer(BaseTrainer):
                         wandb_dict['lr'] = self.opt.param_groups[0]['lr']
                         timer.reset()
 
+                        # Audio logging
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
-                            with ctx:
-                                ema_rec = self.ema.ema_model(teacher_z)
-                            wandb_dict['samples'] = to_wandb(
-                                batch.detach().contiguous().bfloat16(),
-                                ema_rec.detach().contiguous().bfloat16(),
-                                gather = False
+                            audio_logs = log_audio_to_wandb(
+                                batch.detach().contiguous().float(),
+                                batch_rec.detach().contiguous().float(),
+                                sample_rate=sample_rate,
+                                max_samples=2,
                             )
+                            wandb_dict.update(audio_logs)
+
                         if self.rank == 0:
                             wandb.log(wandb_dict)
 
