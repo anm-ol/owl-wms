@@ -76,9 +76,8 @@ class RecTrainer(BaseTrainer):
         torch.cuda.set_device(self.local_rank)
 
         # Loss weights
-        reg_weight =  self.train_cfg.loss_weights.get('latent_reg', 0.0)
+        kl_weight =  self.train_cfg.loss_weights.get('kl', 0.0)
         lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
-        se_reg_weight = self.train_cfg.loss_weights.get('se_reg', 0.0)
 
         # Prepare model, lpips, ema
         self.model = self.model.cuda().train()
@@ -122,44 +121,29 @@ class RecTrainer(BaseTrainer):
             wandb.watch(self.get_module(), log = 'all')
 
         # Dataset setup
-        loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size)
+        loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size, **self.train_cfg.data_kwargs)
 
         local_step = 0
         for _ in range(self.train_cfg.epochs):
             for batch in loader:
                 total_loss = 0.
-                batch = batch.to('cuda').bfloat16()
+                batch = batch.to(self.device).bfloat16()
                 with ctx:
-                    out = self.model(batch)
-                    if len(out) == 2:
-                        batch_rec, z = out
-                    elif len(out) == 3:
-                        batch_rec, z, down_rec = out
-                if reg_weight > 0:
-                    reg_loss = latent_reg_loss(z) / accum_steps
-                    total_loss += reg_loss * reg_weight
-                    metrics.log('reg_loss', reg_loss)
+                    batch_rec, mu, logvar = self.model(batch)
+                    z = mu # For logging
+                    if kl_weight > 0:
+                        reg_loss = latent_reg_loss(mu, logvar) / accum_steps
+                        total_loss += reg_loss * kl_weight
+                        metrics.log('kl_loss', reg_loss)
 
-                if se_reg_weight > 0:
-                    with torch.no_grad():
-                        down_batch = F.interpolate(batch, scale_factor=.5, mode = 'bilinear')
-                    se_loss = F.mse_loss(down_rec, down_batch) / accum_steps
+                    mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
+                    total_loss += mse_loss
+                    metrics.log('mse_loss', mse_loss)
+
                     if lpips_weight > 0.0:
-                        se_loss += lpips_weight * lpips(down_rec, down_batch) / accum_steps
-
-                    total_loss += se_reg_weight * se_loss
-                    metrics.log('se_loss', se_loss)
-
-
-                mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
-                total_loss += mse_loss
-                metrics.log('mse_loss', mse_loss)
-
-                if lpips_weight > 0.0:
-                    with ctx:
-                        lpips_loss = lpips(batch_rec, batch) / accum_steps
-                    total_loss += lpips_loss
-                    metrics.log('lpips_loss', lpips_loss)
+                        lpips_loss = lpips(batch_rec[:,:3], batch[:,:3]) / accum_steps
+                        total_loss += lpips_loss
+                        metrics.log('lpips_loss', lpips_loss)
 
                 self.scaler.scale(total_loss).backward()
 

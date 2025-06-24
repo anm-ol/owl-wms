@@ -24,3 +24,6 @@ def get_loader(data_id: str, batch_size: int, **data_kwargs):
     if data_id == "s3_cod_audio":
         from .s3_audio import get_loader
         return get_loader(batch_size, **data_kwargs)
+    if data_id == "s3_cod_features":
+        from .s3_cod_features import get_loader
+        return get_loader(batch_size, **data_kwargs)

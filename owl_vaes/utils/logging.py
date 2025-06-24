@@ -58,6 +58,7 @@ class LogHelper:
 def to_wandb(x1, x2, gather = False):
     # x1, x2 both is [b,c,h,w]
     x = torch.cat([x1,x2], dim = -1) # side to side
+    x = x[:,:3] # Limit to RGB when theres extra channels
     x = x.clamp(-1, 1)
 
     if dist.is_initialized() and gather:
