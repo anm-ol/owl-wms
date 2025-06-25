@@ -36,7 +36,7 @@ class Encoder(nn.Module):
         blocks_per_stage = config.encoder_blocks_per_stage
         total_blocks = len(blocks_per_stage)
 
-        for block_count in blocks_per_stage[:-1]:
+        for block_count in blocks_per_stage:
             next_ch = min(ch*2, ch_max)
 
             blocks.append(DownBlock(ch, next_ch, block_count, total_blocks))
@@ -94,7 +94,7 @@ class Decoder(nn.Module):
         blocks_per_stage = config.decoder_blocks_per_stage
         total_blocks = len(blocks_per_stage)
 
-        for block_count in reversed(blocks_per_stage[:-1]):
+        for block_count in reversed(blocks_per_stage):
             next_ch = min(ch*2, ch_max)
 
             blocks.append(UpBlock(next_ch, ch, block_count, total_blocks))
