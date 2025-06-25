@@ -195,39 +195,32 @@ def find_nearest_landscape(h, w):
     return h_new, w_new
     
 class LandscapeToSquare(nn.Module):
-    def __init__(self, ch, ch_out = None):
+    def __init__(self, landscape_size, ch, ch_out = None):
         super().__init__()
+
+        h,w = landscape_size
+        self.target = find_nearest_square(h,w)
 
         if ch_out is None: ch_out = ch
         self.proj = weight_norm(nn.Conv2d(ch, ch_out, 3, 1, 1, bias = False))
     
     def forward(self, x):
         # x is [9, 16]
-        _,_,h,w = x.shape
-
-        h_new, w_new = find_nearest_square(h,w)
-        h_mult = (h_new/h)
-        w_mult = (w_new/w)
-
-        new_h = round(h * h_mult)
-        new_w = round(w * w_mult)
-
-        x = F.interpolate(x, (new_h, new_w), mode='bicubic')
+        x = F.interpolate(x, self.target, mode='bicubic')
         x = self.proj(x)
         return x
 
-class SquareToLandscape(LandscapeToSquare):
+class SquareToLandscape(nn.Module):
+    def __init__(self, landscape_size, ch, ch_out = None):
+        super().__init__()
+
+        self.target = tuple(landscape_size)
+
+        if ch_out is None: ch_out = ch
+        self.proj = weight_norm(nn.Conv2d(ch, ch_out, 3, 1, 1, bias = False))
+
     def forward(self, x):
         # x is [1,1]
-        _,_,h,w = x.shape
-
-        h_new, w_new = find_nearest_landscape(h,w)
-        h_mult = (h_new/h)
-        w_mult = (w_new/w)
-
-        new_h = round(h * h_mult)
-        new_w = round(w * w_mult)
-
         x = self.proj(x)
-        x = F.interpolate(x, (new_h, new_w), mode='bicubic')
+        x = F.interpolate(x, self.target, mode='bicubic')
         return x

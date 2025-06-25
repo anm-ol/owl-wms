@@ -27,7 +27,7 @@ class Encoder(nn.Module):
         ch_0 = config.ch_0
         ch_max = config.ch_max
 
-        self.conv_in = LandscapeToSquare(config.channels, ch_0) if is_landscape(size) else weight_norm(nn.Conv2d(config.channels, ch_0, 3, 1, 1))
+        self.conv_in = LandscapeToSquare(size, config.channels, ch_0) if is_landscape(size) else weight_norm(nn.Conv2d(config.channels, ch_0, 3, 1, 1))
 
         blocks = []
         residuals = []
@@ -68,9 +68,12 @@ class Encoder(nn.Module):
         res = res.reshape(b, self.avg_factor, c//self.avg_factor, h, w)
         res = res.mean(dim=1)
         mu = self.conv_out(x) + res
-        logvar = self.conv_out_logvar(x)
+        if not self.training:
+            return mu
+        else:
+            logvar = self.conv_out_logvar(x)
 
-        return mu, logvar
+            return mu, logvar
 
 class Decoder(nn.Module):
     def __init__(self, config : 'ResNetConfig', decoder_only = False):
@@ -102,7 +105,7 @@ class Decoder(nn.Module):
         self.blocks = nn.ModuleList(list(reversed(blocks)))
         self.residuals = nn.ModuleList(list(reversed(residuals)))
 
-        self.conv_out = SquareToLandscape(ch_0, config.channels) if is_landscape(size) else weight_norm(nn.Conv2d(ch_0, config.channels, 3, 1, 1, bias = False))
+        self.conv_out = SquareToLandscape(size, ch_0, config.channels) if is_landscape(size) else weight_norm(nn.Conv2d(ch_0, config.channels, 3, 1, 1, bias = False))
         self.act_out = nn.SiLU()
 
         self.decoder_only = decoder_only
