@@ -17,19 +17,25 @@ def stft_loss(
     x_rec = x_rec.to(torch.float32)
     x_target = x_target.to(torch.float32)
 
+    x_rec = x_rec.contiguous()
+    x_target = x_target.contiguous()
+
     for n_fft in n_fft_list:
         hop_length = int(n_fft * hop_length_ratio)
+        window = torch.hann_window(n_fft, device=x_rec.device, dtype=x_rec.dtype)
 
         stft_rec = torch.stft(
             x_rec.view(-1, x_rec.size(-1)),
             n_fft=n_fft,
             hop_length=hop_length,
+            window=window,
             return_complex=True,
         )
         stft_target = torch.stft(
             x_target.view(-1, x_target.size(-1)),
             n_fft=n_fft,
             hop_length=hop_length,
+            window=window,
             return_complex=True,
         )
 

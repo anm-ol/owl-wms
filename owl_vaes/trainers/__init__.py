@@ -16,6 +16,9 @@ def get_trainer_cls(trainer_id: Literal["rec", "proxy", "audio_rec"]):
             return AudioRecTrainer
         case "dec_tune":
             return DecTuneTrainer
+        case "audio_dec_tune":
+            from .audio_decoder_tune import AudDecTuneTrainer
+            return AudDecTuneTrainer
         case "diff_dec":
             return DiffusionDecoderTrainer
         case _:

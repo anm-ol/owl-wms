@@ -16,14 +16,51 @@ from ..muon import init_muon
 from ..nn.lpips import get_lpips_cls
 from ..schedulers import get_scheduler_cls
 from ..utils import Timer, freeze, unfreeze, versatile_load
-from ..utils.logging import LogHelper, to_wandb
+from ..utils.logging import LogHelper, log_audio_to_wandb
 from .base import BaseTrainer
 from ..configs import Config
+from ..losses.audio import stft_loss, compute_ms_loss
+from torch import Tensor 
 
-class DecTuneTrainer(BaseTrainer):
+def compute_losses(
+    batch_rec: Tensor,
+    batch: Tensor,
+    recon_weight: float,
+    stft_weight: float,
+    lr_ms_ratio: float,
+    accum_steps: int,
+    n_fft_list: list[int],
+):
+    """
+    Compiled loss computation function
+    """
+    total_loss = torch.tensor(0.0, device=batch.device)
+    metrics = {}
+
+    # Reconstruction loss
+    if recon_weight > 0:
+        recon_loss = F.mse_loss(batch_rec, batch) / accum_steps
+        total_loss = total_loss + recon_loss * recon_weight
+        metrics["recon_loss"] = recon_loss
+
+    # STFT loss
+    if stft_weight > 0:
+        stft_l = stft_loss(batch_rec, batch, n_fft_list=n_fft_list) / accum_steps
+        total_loss = total_loss + stft_l * stft_weight
+        metrics["stft_loss"] = stft_l
+
+    # M/S loss for stereo audio
+    if lr_ms_ratio < 1.0 and batch.size(1) == 2:
+        ms_loss = compute_ms_loss(batch_rec, batch) / accum_steps
+        ms_weight = (1.0 + lr_ms_ratio) / 2.0
+        total_loss = total_loss + ms_loss * ms_weight * recon_weight
+        metrics["ms_loss"] = ms_loss
+
+    return total_loss, metrics
+
+class AudDecTuneTrainer(BaseTrainer):
     """
     Trainer for only the decoder, with frozen encoder.
-    Does L2 + LPIPS + GAN
 
     :param train_cfg: Configuration for training
     :param logging_cfg: Configuration for logging
@@ -87,11 +124,10 @@ class DecTuneTrainer(BaseTrainer):
         super().save(save_dict)
 
     def load(self):
-        if self.train_cfg.resume_ckpt is not None:
-            save_dict = super().load(self.train_cfg.resume_ckpt)
-        else:
+        if not hasattr(self.train_cfg, 'resume_ckpt') or self.train_cfg.resume_ckpt is None:
             return
-
+        
+        save_dict = super().load(self.train_cfg.resume_ckpt)
         self.model.load_state_dict(save_dict['model'])
         self.discriminator.load_state_dict(save_dict['discriminator'])
         self.ema.load_state_dict(save_dict['ema'])
@@ -105,9 +141,17 @@ class DecTuneTrainer(BaseTrainer):
         torch.cuda.set_device(self.local_rank)
 
         # Loss weights
-        lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
+        recon_weight = self.train_cfg.loss_weights.get("recon", 1.0)
+        stft_weight = self.train_cfg.loss_weights.get("stft", 1.0)
+        lr_ms_ratio = self.train_cfg.loss_weights.get(
+            "lr_ms_ratio", 0.5
+        )  # L/R weight relative to M/S
         gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
-        r12_weight = self.train_cfg.loss_weights.get('r12', 0.0)
+        feature_matching_weight = self.train_cfg.loss_weights.get('feature_matching', 5.0)
+
+        # Audio-specific config
+        sample_rate = getattr(self.train_cfg, "sample_rate", 44100)
+        n_fft_list = getattr(self.train_cfg, "n_fft_list", [1024, 2048, 512])
 
         # Prepare model, lpips, ema
         self.model = self.model.to(self.device).train()
@@ -119,16 +163,10 @@ class DecTuneTrainer(BaseTrainer):
             self.discriminator = DDP(self.discriminator)
         freeze(self.discriminator)
 
-        lpips = None
-        if lpips_weight > 0.0:
-            lpips = get_lpips_cls(self.train_cfg.lpips_id)(self.device).to(self.device).eval()
-            freeze(lpips)
-
-        self.encoder = self.encoder.to(self.device).bfloat16().eval()
+        self.encoder = self.encoder.to(self.device).bfloat16()
         freeze(self.encoder)
 
-        self.encoder = torch.compile(self.encoder)
-        #self.lpips.model = torch.compile(self.lpips.model)
+        self.encoder = torch.compile(self.encoder, mode='max-autotune', fullgraph=True)
 
         self.ema = EMA(
             self.model,
@@ -138,13 +176,9 @@ class DecTuneTrainer(BaseTrainer):
         )
 
         # Set up optimizer and scheduler
-        if self.train_cfg.opt.lower() == "muon":
-            self.opt = init_muon(self.model, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
-            self.d_opt = init_muon(self.discriminator, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
-        else:
-            opt_cls = getattr(torch.optim, self.train_cfg.opt)
-            self.opt = opt_cls(self.model.parameters(), **self.train_cfg.opt_kwargs)
-            self.d_opt = opt_cls(self.discriminator.parameters(), **self.train_cfg.opt_kwargs)
+        opt_cls = getattr(torch.optim, self.train_cfg.opt)
+        self.opt = opt_cls(self.model.parameters(), **self.train_cfg.opt_kwargs)
+        self.d_opt = opt_cls(self.discriminator.parameters(), **self.train_cfg.opt_kwargs)
 
         if self.train_cfg.scheduler is not None:
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
@@ -168,7 +202,7 @@ class DecTuneTrainer(BaseTrainer):
         # Dataset setup
         loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size)
 
-        def warmup_gan_weight():
+        def warmup_weight():
             if self.total_step_counter < self.train_cfg.delay_adv:
                 return 0.0
             else:
@@ -176,41 +210,47 @@ class DecTuneTrainer(BaseTrainer):
                 x = max(0.0, min(1.0, x))
                 # Cosine annealing from 0 to 1
                 ramp = 0.5 * (1 - torch.cos(torch.tensor(x * torch.pi)).item())
-                return ramp * gan_weight  
+                return ramp
+                
+        def warmup_gan_weight(): return warmup_weight() * gan_weight
+        def warmup_fm_weight(): return warmup_weight() * feature_matching_weight
 
-        def r_loss(d, x, sigma = 0.01):
-            z = sigma * torch.randn_like(x)
-            d_clean = d(x.detach())
-            d_noisy = d(x.detach() + z)
-
-            return ((d_clean - d_noisy).pow(2).mean())
-        
+        # Hardcoded for encodec
         def d_loss(d, x_fake, x_real):
-            fake_out = d(x_fake)
-            real_out = d(x_real)
+            fake_outs,_ = d(x_fake)
+            real_outs,_ = d(x_real)
 
-            fake_loss = F.relu(1+fake_out).mean()
-            real_loss = F.relu(1-real_out).mean()
+            disc_loss = 0.
+            for (fake_out, real_out) in zip(fake_outs, real_outs):
+                disc_loss += torch.relu(1 - real_out).mean() + torch.relu(1 + fake_out).mean() 
+            
+            return disc_loss / len(fake_outs)
 
-            return fake_loss + real_loss
+        def fm_reduce(x, y):
+            return abs(x - y).mean()
 
-        def g_loss(d, x_fake):
-            return -d(x_fake).mean()
+        def g_loss(d, x_fake, x_real):
+            fake_outs, hs_fake = d(x_fake)
+            _, hs_real = d(x_real)
 
-        def merged_d_losses(d, x_fake, x_real, sigma=0.01):
-            fake_out = d(x_fake.detach())
-            real_out = d(x_real.detach())
+            gan_loss = 0.
+            fm_loss = 0.
+            for (fake_out, h_fake, h_real) in zip(fake_outs, hs_fake, hs_real):
+                gan_loss += -fake_out.mean()
+                fm_loss += sum(map(fm_reduce, h_real, h_fake)) / len(h_real)
+            
+            return gan_loss / len(fake_outs), fm_loss / len(fake_outs)
 
-            fake_out_noisy = d((x_fake + sigma*torch.randn_like(x_fake)).detach())
-            real_out_noisy = d((x_real + sigma*torch.randn_like(x_real)).detach())
-
-            r1_penalty = (fake_out_noisy - fake_out).pow(2).mean()
-            r2_penalty = (real_out_noisy - real_out).pow(2).mean()
-
-            fake_loss = F.relu(1 + fake_out).mean()
-            real_loss = F.relu(1 - real_out).mean()
-
-            return r1_penalty, r2_penalty, (fake_loss + real_loss)
+        def rec_loss(batch_rec, batch):
+            return compute_losses(
+                batch_rec,
+                batch,
+                recon_weight=recon_weight,
+                stft_weight=stft_weight,
+                lr_ms_ratio=lr_ms_ratio,
+                accum_steps=accum_steps,
+                n_fft_list=n_fft_list,  
+            )
 
         local_step = 0
         for _ in range(self.train_cfg.epochs):
@@ -219,55 +259,33 @@ class DecTuneTrainer(BaseTrainer):
                 batch = batch.to(self.device).bfloat16()
 
                 with torch.no_grad():
-                    teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
-                    teacher_z = F.interpolate(teacher_z, scale_factor=.5)
-                    batch = F.interpolate(batch, scale_factor=.5)
+                    teacher_z = self.encoder.sample(batch) / self.train_cfg.latent_scale
                 with ctx:
                     batch_rec = self.model(teacher_z)
 
                 # Discriminator training 
                 unfreeze(self.discriminator)
                 with ctx:
-                    if r12_weight == 0.0:
-                        disc_loss = d_loss(self.discriminator, batch_rec.detach(), batch.detach()) / accum_steps
-                        metrics.log('disc_loss', disc_loss)
-                    else:
-                        r1_penalty, r2_penalty, d_loss = merged_d_losses(
-                            self.discriminator, 
-                            batch_rec.detach(), 
-                            batch.detach()
-                        )
-                        r1_penalty = r1_penalty / accum_steps
-                        r2_penalty = r2_penalty / accum_steps
-                        d_loss = d_loss / accum_steps
-
-                        metrics.log('r1_penalty', r1_penalty)
-                        metrics.log('r2_penalty', r2_penalty)
-                        metrics.log('disc_loss', d_loss)
-
-                        disc_loss = d_loss + (r1_penalty + r2_penalty) * 0.5 * r12_weight
-
+                    disc_loss = d_loss(self.discriminator, batch_rec.detach(), batch.detach()) / accum_steps
+                    metrics.log('disc_loss', disc_loss)
 
                 self.scaler.scale(disc_loss).backward()
                 freeze(self.discriminator)
 
-                mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
-                total_loss += mse_loss
-                metrics.log('mse_loss', mse_loss)
+                with ctx:
+                    total_loss, loss_metrics = rec_loss(batch_rec, batch)
+                    metrics.log_dict(loss_metrics)
 
-                if lpips_weight > 0.0:
-                    with ctx:
-                        lpips_loss = lpips(batch_rec, batch) / accum_steps
-                    total_loss += lpips_loss
-                    metrics.log('lpips_loss', lpips_loss)
+                    if self.total_step_counter > self.train_cfg.delay_adv:
+                        gan_loss, fm_loss = g_loss(self.discriminator, batch_rec, batch.detach())
+                        gan_loss = gan_loss / accum_steps
+                        fm_loss = fm_loss / accum_steps
+                        metrics.log('g_loss', gan_loss)
+                        metrics.log('fm_loss', fm_loss)
+
+                        total_loss += gan_weight * warmup_gan_weight()
+                        total_loss += feature_matching_weight * warmup_fm_weight()
                 
-                crnt_gan_weight = warmup_gan_weight()
-                if crnt_gan_weight > 0.0:
-                    with ctx:
-                        gan_loss = g_loss(self.discriminator, batch_rec) / accum_steps
-                    metrics.log('gan_loss', gan_loss)
-                    total_loss += crnt_gan_weight * gan_loss
-
                 self.scaler.scale(total_loss).backward()
 
                 local_step += 1
@@ -298,14 +316,16 @@ class DecTuneTrainer(BaseTrainer):
                         wandb_dict['lr'] = self.opt.param_groups[0]['lr']
                         timer.reset()
 
+                        # Audio logging
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
-                            with ctx:
-                                ema_rec = self.ema.ema_model(teacher_z)
-                            wandb_dict['samples'] = to_wandb(
-                                batch.detach().contiguous().bfloat16(),
-                                ema_rec.detach().contiguous().bfloat16(),
-                                gather = False
+                            audio_logs = log_audio_to_wandb(
+                                batch.detach().contiguous().float(),
+                                batch_rec.detach().contiguous().float(),
+                                sample_rate=sample_rate,
+                                max_samples=2,
                             )
+                            wandb_dict.update(audio_logs)
+
                         if self.rank == 0:
                             wandb.log(wandb_dict)
 

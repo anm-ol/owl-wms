@@ -8,8 +8,26 @@ from owl_vaes.configs import TransformerConfig
 from .mimetic import mimetic_init
 from .mlp import MLP
 from .normalization import LayerNorm, QKNorm
+from .embeddings import RoPEEmbedding
 
 torch.backends.cuda.enable_flash_sdp(enabled=True)
+
+from einops._torch_specific import allow_ops_in_compiled_graph
+allow_ops_in_compiled_graph()
+
+def create_block_causal_mask(tokens, tokens_per_block):
+    frames = tokens // tokens_per_block
+    
+    # Create base causal mask, nothing is masked
+    mask = torch.zeros(tokens, tokens).bool()
+    
+    # Allow attention within each frame
+    for i in range(frames):
+        start = i * tokens_per_block
+        end = (i + 1) * tokens_per_block
+        mask[start:end, end:] = True # It can't see anything after its end
+        
+    return mask
 
 class Attn(nn.Module):
     def __init__(self, config : TransformerConfig):
@@ -21,16 +39,41 @@ class Attn(nn.Module):
         self.out = nn.Linear(config.d_model, config.d_model)
 
         self.qk_norm = QKNorm(config.d_model // config.n_heads)
-
-        if config.mimetic_init:
-            mimetic_init(self.qkv, self.out, config)
+        self.rope = RoPEEmbedding(config)
         self.causal = config.causal
 
-    def forward(self, x):
+        self.layer_ind = None
+        self.block_size = config.block_size
+
+    def forward(self, x, kv_cache = None):
 
         q,k,v = eo.rearrange(self.qkv(x), 'b n (three h d) -> three b h n d', three = 3, h = self.n_heads)
         q,k = self.qk_norm(q,k)
-        x = F.scaled_dot_product_attention(q,k,v,is_causal=self.causal)
+
+        if not self.causal or (kv_cache is not None and len(kv_cache) > 0):
+            mask = None # Note that if KV cache is being used, masks are pointless
+        else:
+            mask = create_block_causal_mask(q.shape[2], self.block_size)
+            mask = mask.to(device=x.device,dtype=torch.bool)
+            mask = mask.unsqueeze(0).repeat(x.shape[0],1,1)
+            mask = mask.unsqueeze(1) # [b,h,n,d]
+        
+        if kv_cache is not None:
+            old_k, old_v = kv_cache.get(self.layer_ind)
+            len_k = old_k.shape[2]
+            new_k = torch.cat([old_k,k],dim=2).contiguous()
+            new_v = torch.cat([old_v,v],dim=2).contiguous()
+
+            q,new_k=self.rope(q,new_k)
+            if kv_cache.should_update:
+                kv_cache.update(new_k,new_v,self.layer_ind)
+            
+            x = F.scaled_dot_product_attention(q,new_k,new_v,attn_mask=mask)
+            x = x[:,:,-q.shape[2]:]
+        else:
+            q,k=self.rope(q,k)
+            x = F.scaled_dot_product_attention(q,k,v,attn_mask=mask)
+        
         x = eo.rearrange(x, 'b h n d -> b n (h d)')
         x = self.out(x)
         return x
@@ -93,10 +136,10 @@ class Transformer(nn.Module):
         self.attn = Attn(config)
         self.mlp = MLP(config)
 
-    def forward(self, x):
+    def forward(self, x, kv_cache = None):
         res1 = x.clone()
         x = self.norm1(x)
-        x = self.attn(x)
+        x = self.attn(x, kv_cache)
         x = res1 + x
 
         res2 = x.clone()
@@ -111,13 +154,14 @@ class StackedTransformer(nn.Module):
         super().__init__()
 
         blocks = []
-        for _ in range(config.n_layers):
+        for i in range(config.n_layers):
             blocks.append(Transformer(config))
+            blocks[i].attn.layer_ind = i
         self.blocks = nn.ModuleList(blocks)
 
-    def forward(self, x):
+    def forward(self, x, kv_cache = None):
         for block in self.blocks:
-            x = block(x)
+            x = block(x, kv_cache)
 
         return x
 

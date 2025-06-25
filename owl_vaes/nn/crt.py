@@ -4,17 +4,17 @@ from torch import Tensor, nn
 from ..configs import TransformerConfig
 from .attn import StackedTransformer
 
-
 class CRT(nn.Module):
     def __init__(self, dim, config: TransformerConfig | None = None):
         super().__init__()
 
         if config is None:
             config = TransformerConfig(
-                n_layers=6,
-                n_heads=3,
+                n_layers=2,
+                n_heads=6,
                 d_model=384,
-                causal=True
+                causal=True,
+                block_size=1
             )
 
         self.core = StackedTransformer(config)
