@@ -17,7 +17,7 @@ from ..muon import init_muon
 from ..nn.lpips import get_lpips_cls
 from ..schedulers import get_scheduler_cls
 from ..utils import Timer, freeze, unfreeze, versatile_load
-from ..utils.logging import LogHelper, to_wandb
+from ..utils.logging import LogHelper, to_wandb, to_wandb_depth, to_wandb_flow
 from .base import BaseTrainer
 from ..configs import Config
 
@@ -128,7 +128,7 @@ class DecTuneV2Trainer(BaseTrainer):
         self.encoder = self.encoder.to(self.device).bfloat16().eval()
         freeze(self.encoder)
 
-        self.encoder = torch.compile(self.encoder)
+        self.encoder = torch.compile(self.encoder, mode='max-autotune',dynamic=False,fullgraph=True)
 
         self.ema = EMA(
             self.model,
@@ -166,7 +166,7 @@ class DecTuneV2Trainer(BaseTrainer):
             wandb.watch(self.get_module(), log = 'all')
 
         # Dataset setup
-        loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size)
+        loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size, **self.train_cfg.data_kwargs)
 
         def warmup_weight():
             if self.total_step_counter < self.train_cfg.delay_adv:
@@ -232,24 +232,22 @@ class DecTuneV2Trainer(BaseTrainer):
                 total_loss = 0.
                 batch = batch.to(self.device).bfloat16()
 
-                with torch.no_grad():
-                    teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
-                    teacher_z = F.interpolate(teacher_z, scale_factor=.5)
-                    batch = F.interpolate(batch, scale_factor=.5)
                 with ctx:
+                    with torch.no_grad():
+                        teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
+                        teahcer_z = teacher_z + torch.randn_like(teacher_z) * 0.01
                     batch_rec = self.model(teacher_z)
 
-                # Discriminator training 
-                unfreeze(self.discriminator)
-                with ctx:
+                    # Discriminator training - RGB only
+                    unfreeze(self.discriminator)
                     if r12_weight == 0.0:
-                        disc_loss = d_loss(self.discriminator, batch_rec.detach(), batch.detach()) / accum_steps
+                        disc_loss = d_loss(self.discriminator, batch_rec[:,:3].detach(), batch[:,:3].detach()) / accum_steps
                         metrics.log('disc_loss', disc_loss)
                     else:
                         r1_penalty, r2_penalty, d_loss = merged_d_losses(
                             self.discriminator, 
-                            batch_rec.detach(), 
-                            batch.detach()
+                            batch_rec[:,:3].detach(), 
+                            batch[:,:3].detach()
                         )
                         r1_penalty = r1_penalty / accum_steps
                         r2_penalty = r2_penalty / accum_steps
@@ -261,31 +259,31 @@ class DecTuneV2Trainer(BaseTrainer):
 
                         disc_loss = d_loss + (r1_penalty + r2_penalty) * 0.5 * r12_weight
 
-                self.scaler.scale(disc_loss).backward()
-                freeze(self.discriminator)
+                    self.scaler.scale(disc_loss).backward()
+                    freeze(self.discriminator)
 
-                mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
-                total_loss += mse_loss
-                metrics.log('mse_loss', mse_loss)
+                    mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
+                    total_loss += mse_loss
+                    metrics.log('mse_loss', mse_loss)
 
-                if lpips_weight > 0.0:
-                    with ctx:
-                        lpips_loss = lpips(batch_rec, batch) / accum_steps
-                    total_loss += lpips_loss * lpips_weight
-                    metrics.log('lpips_loss', lpips_loss)
-                
-                crnt_gan_weight = warmup_gan_weight()
-                crnt_fm_weight = warmup_fm_weight()
-                if crnt_gan_weight > 0.0:
-                    with ctx:
-                        gan_loss, fm_loss = g_loss(self.discriminator, batch_rec, batch)
-                        gan_loss = gan_loss / accum_steps
-                        fm_loss = fm_loss / accum_steps
-                    metrics.log('gan_loss', gan_loss)
-                    metrics.log('fm_loss', fm_loss)
-                    total_loss += crnt_gan_weight * gan_loss + crnt_fm_weight * fm_loss
+                    if lpips_weight > 0.0:
+                        with ctx:
+                            lpips_loss = lpips(batch_rec[:,:3], batch[:,:3]) / accum_steps
+                        total_loss += lpips_loss * lpips_weight
+                        metrics.log('lpips_loss', lpips_loss)
+                    
+                    crnt_gan_weight = warmup_gan_weight()
+                    crnt_fm_weight = warmup_fm_weight()
+                    if crnt_gan_weight > 0.0:
+                        with ctx:
+                            gan_loss, fm_loss = g_loss(self.discriminator, batch_rec[:,:3], batch[:,:3])
+                            gan_loss = gan_loss / accum_steps
+                            fm_loss = fm_loss / accum_steps
+                        metrics.log('gan_loss', gan_loss)
+                        metrics.log('fm_loss', fm_loss)
+                        total_loss += crnt_gan_weight * gan_loss + crnt_fm_weight * fm_loss
 
-                self.scaler.scale(total_loss).backward()
+                    self.scaler.scale(total_loss).backward()
 
                 local_step += 1
                 if local_step % accum_steps == 0:
@@ -323,6 +321,27 @@ class DecTuneV2Trainer(BaseTrainer):
                                 ema_rec.detach().contiguous().bfloat16(),
                                 gather = False
                             )
+
+                            # Log depth maps if present (4 or 7 channels)
+                            if batch.shape[1] >= 4:
+                                depth_samples = to_wandb_depth(
+                                    batch.detach().contiguous().bfloat16(),
+                                    ema_rec.detach().contiguous().bfloat16(),
+                                    gather = False
+                                )
+                                if depth_samples:
+                                    wandb_dict['depth_samples'] = depth_samples
+                            
+                            # Log optical flow if present (7 channels)
+                            if batch.shape[1] >= 7:
+                                flow_samples = to_wandb_flow(
+                                    batch.detach().contiguous().bfloat16(),
+                                    ema_rec.detach().contiguous().bfloat16(),
+                                    gather = False
+                                )
+                                if flow_samples:
+                                    wandb_dict['flow_samples'] = flow_samples
+
                         if self.rank == 0:
                             wandb.log(wandb_dict)
 

@@ -23,7 +23,8 @@ train:
   data_id: s3_cod
   data_kwargs:
     bucket_name: cod-raw-360p-30fs
-    prefix: raw
+    prefix: raw/01
+    
   target_batch_size: 32
   batch_size: 4
 
@@ -40,8 +41,8 @@ train:
   loss_weights:
     lpips: 10.0
     gan: 0.1
-    feature_matching: 5.0
-    r12: 0.0
+    feature_matching: 1.0
+    r12: 10.0
 
   scheduler: LinearWarmup
   scheduler_kwargs:
@@ -51,7 +52,7 @@ train:
   checkpoint_dir: checkpoints/cod_128x_tune
   teacher_ckpt: checkpoints/cod_128x/step_120000.pt
   teacher_cfg: configs/cod_128x.yml
-  resume_ckpt: null
+  resume_ckpt: null #checkpoints/cod_128x_tune/step_5000.pt
 
   sample_interval: 500
   save_interval: 5000
