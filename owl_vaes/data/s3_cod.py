@@ -29,17 +29,14 @@ class RandomizedQueue:
         idx = random.randint(0, len(self.items) - 1)
         return self.items.pop(idx)
 
-TOTAL_SHARDS = 2
-NUM_SUBDIRS=1
-NUM_TARS=30
-BUCKET_NAME="cod-raw-360p-30fs"
-
 class S3CoDDataset(IterableDataset):
-    def __init__(self, rank=0, world_size=1):
+    def __init__(self, bucket_name="cod-raw-360p-30fs", prefix="", rank=0, world_size=1):
         super().__init__()
         
         self.rank = rank
         self.world_size = world_size
+        self.bucket_name = bucket_name
+        self.prefix = prefix
 
         # Queue parameters
         self.max_tars = 2
@@ -58,21 +55,29 @@ class S3CoDDataset(IterableDataset):
             region_name=os.environ['AWS_REGION'],
         )
 
+        self.tar_files = self.list_all_tars()
+        random.shuffle(self.tar_files)
+
         # Start background threads
         self.tar_thread = threading.Thread(target=self.background_download_tars, daemon=True)
         self.data_thread = threading.Thread(target=self.background_load_data, daemon=True)
         self.tar_thread.start()
         self.data_thread.start()
 
+    def list_all_tars(self):
+        """List all tar files in the bucket under the specified prefix"""
+        tar_files = []
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=self.bucket_name, Prefix=self.prefix):
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    if obj['Key'].endswith('.tar'):
+                        tar_files.append(obj['Key'])
+        return tar_files
+
     def random_sample_prefix(self):
-        # For now just 2 shards (00, 01)
-        #shard = random.randint(0, TOTAL_SHARDS-1)
-        shard = 1
-        # Each shard has 1000 subdirs
-        subdir = random.randint(0, NUM_SUBDIRS-1)
-        # Each subdir has multiple tars
-        tar_num = random.randint(0, NUM_TARS-1)
-        return f"{shard:02d}/{subdir:04d}/{tar_num:04d}.tar"
+        """Randomly select a tar file from the available tar files"""
+        return random.choice(self.tar_files)
 
     def background_download_tars(self):
         while True:
@@ -80,7 +85,7 @@ class S3CoDDataset(IterableDataset):
                 tar_path = self.random_sample_prefix()
                 try:
                     # Download tar directly to memory
-                    response = self.s3_client.get_object(Bucket=BUCKET_NAME, Key=tar_path)
+                    response = self.s3_client.get_object(Bucket=self.bucket_name, Key=tar_path)
                     tar_data = response['Body'].read()
                     self.tar_queue.add(tar_data)
                 except Exception as e:
@@ -158,7 +163,7 @@ def get_loader(batch_size, **data_kwargs):
 
 if __name__ == "__main__":
     import time
-    loader = get_loader(4)
+    loader = get_loader(4, prefix='raw/00')
 
     start = time.time()
     batch = next(iter(loader))
