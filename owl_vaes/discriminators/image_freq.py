@@ -8,11 +8,12 @@ import einops as eo
 from copy import deepcopy
 
 from .res import R3GANDiscriminator
+from .patch import PatchDiscriminator
 
 torch.autograd.set_detect_anomaly(True)
 
 class WaveletDecomp(nn.Module):
-    def __init__(self, levels = 3):
+    def __init__(self, levels = 2):
         super().__init__()
 
         self.levels = levels
@@ -63,14 +64,13 @@ class FreqDiscriminator(nn.Module):
         dct_cfg.channels = 3
 
         self.wavelet_discs = nn.ModuleList([
-            R3GANDiscriminator(wv_cfg),
-            R3GANDiscriminator(wv_cfg),
-            R3GANDiscriminator(wv_cfg)
+            PatchDiscriminator(wv_cfg),
+            PatchDiscriminator(wv_cfg)
         ])
 
-        self.dct_disc = R3GANDiscriminator(dct_cfg)
+        self.dct_disc = PatchDiscriminator(dct_cfg)
 
-        self.wavelet = WaveletDecomp()
+        self.wavelet = WaveletDecomp(levels=2)
         self.dct = DCTDecomp()
 
     def forward(self, x):

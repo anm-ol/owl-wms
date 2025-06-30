@@ -23,7 +23,7 @@ train:
   data_id: s3_cod
   data_kwargs:
     bucket_name: cod-raw-360p-30fs
-    prefix: raw/01
+    prefix: raw
     
   target_batch_size: 32
   batch_size: 4
@@ -42,7 +42,7 @@ train:
     lpips: 10.0
     gan: 0.1
     feature_matching: 1.0
-    r12: 10.0
+    r12: 0.0
 
   scheduler: LinearWarmup
   scheduler_kwargs:
@@ -61,6 +61,7 @@ train:
   warmup_adv: 5000
   use_teacher_decoder: true
   latent_scale: 1.0
+  skip_ind: 5
 
 wandb:
   name: ${env:WANDB_USER_NAME}

@@ -79,6 +79,8 @@ class Decoder(nn.Module):
     def __init__(self, config : 'ResNetConfig', decoder_only = False):
         super().__init__()
 
+        self.config = config
+
         size = config.sample_size
         latent_size = config.latent_size
         ch_0 = config.ch_0
@@ -112,13 +114,13 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         res = x.clone()
-        res = res.repeat(1, self.rep_factor, 1, 1)
+        rep_res = res.repeat(1, self.rep_factor, 1, 1)
 
-        x = self.conv_in(x) + res
+        x = self.conv_in(x)
+        x = x + rep_res
 
         for (block, shortcut) in zip(self.blocks, self.residuals):
-            res = shortcut(x)
-            x = block(x) + res
+            x = block(x) + shortcut(x)
 
         x = self.act_out(x)
         x = self.conv_out(x)

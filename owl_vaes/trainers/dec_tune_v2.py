@@ -21,6 +21,8 @@ from ..utils.logging import LogHelper, to_wandb, to_wandb_depth, to_wandb_flow
 from .base import BaseTrainer
 from ..configs import Config
 
+from ..models.decoder_tune import create_split_decoder
+
 class DecTuneV2Trainer(BaseTrainer):
     """
     Trainer for only the decoder, with frozen encoder.
@@ -109,8 +111,10 @@ class DecTuneV2Trainer(BaseTrainer):
         gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
         r12_weight = self.train_cfg.loss_weights.get('r12', 0.0)
         feature_matching_weight = self.train_cfg.loss_weights.get('feature_matching', 5.0)
+        skip_ind = self.train_cfg.skip_ind
 
         # Prepare model, lpips, ema
+        self.early, self.model = create_split_decoder(self.model)
         self.model = self.model.to(self.device).train()
         if self.world_size > 1:
             self.model = DDP(self.model)
@@ -127,8 +131,10 @@ class DecTuneV2Trainer(BaseTrainer):
 
         self.encoder = self.encoder.to(self.device).bfloat16().eval()
         freeze(self.encoder)
-
         self.encoder = torch.compile(self.encoder, mode='max-autotune',dynamic=False,fullgraph=True)
+
+        self.early = self.early.to(self.device).eval()
+        self.early = torch.compile(self.early, mode='max-autotune',dynamic=False,fullgraph=True)
 
         self.ema = EMA(
             self.model,
@@ -138,13 +144,10 @@ class DecTuneV2Trainer(BaseTrainer):
         )
 
         # Set up optimizer and scheduler
-        if self.train_cfg.opt.lower() == "muon":
-            self.opt = init_muon(self.model, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
-            self.d_opt = init_muon(self.discriminator, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
-        else:
-            opt_cls = getattr(torch.optim, self.train_cfg.opt)
-            self.opt = opt_cls(self.model.parameters(), **self.train_cfg.opt_kwargs)
-            self.d_opt = opt_cls(self.discriminator.parameters(), **self.train_cfg.opt_kwargs)
+        opt_cls = getattr(torch.optim, self.train_cfg.opt)
+
+        self.opt = opt_cls(self.model.parameters(), **self.train_cfg.opt_kwargs)
+        self.d_opt = opt_cls(self.discriminator.parameters(), **self.train_cfg.opt_kwargs)
 
         if self.train_cfg.scheduler is not None:
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
@@ -208,6 +211,17 @@ class DecTuneV2Trainer(BaseTrainer):
             disc_loss = disc_loss / len(fake_scores)
 
             return r1_penalty, r2_penalty, disc_loss
+        
+        def d_loss(d, x_fake, x_real):
+            fake_scores, _ = d(x_fake.detach())
+            real_scores, _ = d(x_real.detach())
+
+            disc_loss = 0.
+            for fake_out, real_out in zip(fake_scores, real_scores):
+                disc_loss += F.relu(1 + fake_out).mean() + F.relu(1 - real_out).mean()
+
+            disc_loss = disc_loss / len(fake_scores)
+            return disc_loss
 
         def g_loss(d, x_fake, x_real):
             fake_scores, fake_features = d(x_fake)
@@ -235,8 +249,10 @@ class DecTuneV2Trainer(BaseTrainer):
                 with ctx:
                     with torch.no_grad():
                         teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
-                        teahcer_z = teacher_z + torch.randn_like(teacher_z) * 0.01
-                    batch_rec = self.model(teacher_z)
+                        teacher_z = teacher_z + torch.randn_like(teacher_z) * 0.01
+                        decoder_input = self.early(teacher_z)
+
+                    batch_rec = self.model(decoder_input)
 
                     # Discriminator training - RGB only
                     unfreeze(self.discriminator)
@@ -315,7 +331,7 @@ class DecTuneV2Trainer(BaseTrainer):
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
-                                ema_rec = self.ema.ema_model(teacher_z)
+                                ema_rec = self.ema.ema_model(decoder_input)
                             wandb_dict['samples'] = to_wandb(
                                 batch.detach().contiguous().bfloat16(),
                                 ema_rec.detach().contiguous().bfloat16(),
