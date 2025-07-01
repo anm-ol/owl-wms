@@ -44,6 +44,7 @@ train:
     min_lr: 3.0e-6
 
   checkpoint_dir: checkpoints/cod_128x_feats
+  output_path: mnt/data/checkpoints/owl-vaes/cod_128x_feats
   resume_ckpt: null #checkpoints/2d_64x/step_10000.pt
 
   sample_interval: 1000

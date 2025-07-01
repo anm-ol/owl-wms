@@ -58,38 +58,57 @@ class FreqDiscriminator(nn.Module):
         super().__init__()
 
         wv_cfg = deepcopy(config)
-        wv_cfg.channels = 9
+        wv_cfg.channels = 12
 
-        dct_cfg = deepcopy(config)
-        dct_cfg.channels = 3
-
-        self.wavelet_discs = nn.ModuleList([
-            PatchDiscriminator(wv_cfg),
-            PatchDiscriminator(wv_cfg)
-        ])
-
-        self.dct_disc = PatchDiscriminator(dct_cfg)
-
-        self.wavelet = WaveletDecomp(levels=2)
-        self.dct = DCTDecomp()
+        self.core = R3GANDiscriminator(wv_cfg)
+        self.wavelet = WaveletDecomp(levels=1)
 
     def forward(self, x):
         # Get wavelet decompositions
         wavelet_scores = []
         wavelet_features = []
 
-        wv_out = self.wavelet(x)
-        for disc, wv in zip(self.wavelet_discs, wv_out):
-            score, features = disc(wv, output_hidden_states=True)
-            wavelet_scores.append(score)
-            wavelet_features.append(features)
+        wv_out = self.wavelet(x)[0]
+        x = torch.cat([x, wv_out], dim = 1)
+        score, features = self.core(x, output_hidden_states=True)
 
-        # Get DCT decomposition scores and features
-        dct_out = self.dct(x)
-        dct_score, dct_features = self.dct_disc(dct_out, output_hidden_states=True)
+        return score, features
 
-        # Combine all scores and features
-        scores = wavelet_scores + [dct_score]
-        features = wavelet_features + [dct_features]
+from dataclasses import dataclass
 
-        return scores, features
+@dataclass
+class DummyConfig:
+    ch_0: int = 64
+    ch_max: int = 1024
+    channels: int = 3
+    sample_size: tuple = (360, 640)
+    blocks_per_stage: int = 1
+
+def test_freq_discriminator():
+    # Create dummy config and model
+    config = DummyConfig()
+    disc = FreqDiscriminator(config)
+    
+    # Create dummy input tensor
+    batch_size = 2
+    x = torch.randn(batch_size, config.channels, *config.sample_size)
+    
+    # Run forward pass
+    scores, features = disc(x)
+    
+    # Basic assertions
+    assert len(scores) == 3  # 2 wavelet + 1 DCT discriminator
+    assert len(features) == 3
+    
+    # Check output shapes
+    for score in scores:
+        assert score.shape[0] == batch_size
+        assert score.shape[1] == 1  # Single channel output
+        
+    for feature_list in features:
+        assert len(feature_list) > 0
+        for feature in feature_list:
+            assert feature.shape[0] == batch_size
+
+if __name__ == "__main__":
+    test_freq_discriminator()

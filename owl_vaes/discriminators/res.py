@@ -44,7 +44,7 @@ class R3GANDiscriminator(nn.Module):
 
         self.final = weight_norm(nn.Conv2d(ch_max, 1, 4, 1, 0))
 
-    def forward(self, x, output_hidden_states = False):
+    def forward(self, x, output_hidden_states = True):
         # Forward on single sample
         h = []
         x = self.conv_in(x)

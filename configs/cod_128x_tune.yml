@@ -1,11 +1,12 @@
 model:
   model_id: dcae
   discriminator:
-    model_id: freq
+    model_id: r3gan
     ch_0: 96
     ch_max: 1536
     sample_size: [360, 640]
     blocks_per_stage: 1
+    channels: 3
 
   sample_size: [360,640]
   channels: 3
@@ -40,9 +41,10 @@ train:
   lpips_id: convnext
   loss_weights:
     lpips: 10.0
-    gan: 0.1
-    feature_matching: 1.0
-    r12: 0.0
+    gan: 0.5
+    feature_matching: 0.0
+    r12: 10.0
+    dwt: 1.0
 
   scheduler: LinearWarmup
   scheduler_kwargs:
@@ -66,4 +68,4 @@ train:
 wandb:
   name: ${env:WANDB_USER_NAME}
   project: new_vaes
-  run_name: 128x_cod_tune
+  run_name: r3gan_disc_no_noise

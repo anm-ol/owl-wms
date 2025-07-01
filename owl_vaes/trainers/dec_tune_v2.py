@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import wandb
 from ema_pytorch import EMA
 from torch.nn.parallel import DistributedDataParallel as DDP
+from copy import deepcopy
 
 from ..data import get_loader
 from ..models import get_model_cls
@@ -20,6 +21,7 @@ from ..utils import Timer, freeze, unfreeze, versatile_load
 from ..utils.logging import LogHelper, to_wandb, to_wandb_depth, to_wandb_flow
 from .base import BaseTrainer
 from ..configs import Config
+from ..losses.dwt import dwt_loss_fn
 
 from ..models.decoder_tune import create_split_decoder
 
@@ -111,10 +113,14 @@ class DecTuneV2Trainer(BaseTrainer):
         gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
         r12_weight = self.train_cfg.loss_weights.get('r12', 0.0)
         feature_matching_weight = self.train_cfg.loss_weights.get('feature_matching', 5.0)
+        dwt_weight = self.train_cfg.loss_weights.get('dwt_weight', 1.0)
+        
         skip_ind = self.train_cfg.skip_ind
 
         # Prepare model, lpips, ema
         self.early, self.model = create_split_decoder(self.model)
+        self.teacher_late = deepcopy(self.model)
+
         self.model = self.model.to(self.device).train()
         if self.world_size > 1:
             self.model = DDP(self.model)
@@ -133,8 +139,11 @@ class DecTuneV2Trainer(BaseTrainer):
         freeze(self.encoder)
         self.encoder = torch.compile(self.encoder, mode='max-autotune',dynamic=False,fullgraph=True)
 
-        self.early = self.early.to(self.device).eval()
+        freeze(self.early)
+        self.early = self.early.to(self.device).bfloat16().eval()
         self.early = torch.compile(self.early, mode='max-autotune',dynamic=False,fullgraph=True)
+        freeze(self.teacher_late)
+        self.teacher_late = self.teacher_late.to(self.device).bfloat16().eval()
 
         self.ema = EMA(
             self.model,
@@ -249,7 +258,7 @@ class DecTuneV2Trainer(BaseTrainer):
                 with ctx:
                     with torch.no_grad():
                         teacher_z = self.encoder(batch) / self.train_cfg.latent_scale
-                        teacher_z = teacher_z + torch.randn_like(teacher_z) * 0.01
+                        #teacher_z = teacher_z + torch.randn_like(teacher_z) * 0.01
                         decoder_input = self.early(teacher_z)
 
                     batch_rec = self.model(decoder_input)
@@ -287,6 +296,12 @@ class DecTuneV2Trainer(BaseTrainer):
                             lpips_loss = lpips(batch_rec[:,:3], batch[:,:3]) / accum_steps
                         total_loss += lpips_loss * lpips_weight
                         metrics.log('lpips_loss', lpips_loss)
+                    
+                    if dwt_weight > 0.0:
+                        with ctx:
+                            dwt_loss = dwt_loss_fn(batch_rec[:,:3], batch[:,:3]) / accum_steps
+                        total_loss += dwt_loss * dwt_weight
+                        metrics.log('dwt_loss', dwt_loss)
                     
                     crnt_gan_weight = warmup_gan_weight()
                     crnt_fm_weight = warmup_fm_weight()
@@ -332,8 +347,10 @@ class DecTuneV2Trainer(BaseTrainer):
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
                                 ema_rec = self.ema.ema_model(decoder_input)
+                                teacher_rec = self.teacher_late(decoder_input)
+
                             wandb_dict['samples'] = to_wandb(
-                                batch.detach().contiguous().bfloat16(),
+                                teacher_rec.detach().contiguous().bfloat16(),
                                 ema_rec.detach().contiguous().bfloat16(),
                                 gather = False
                             )
@@ -341,7 +358,7 @@ class DecTuneV2Trainer(BaseTrainer):
                             # Log depth maps if present (4 or 7 channels)
                             if batch.shape[1] >= 4:
                                 depth_samples = to_wandb_depth(
-                                    batch.detach().contiguous().bfloat16(),
+                                    teacher_rec.detach().contiguous().bfloat16(),
                                     ema_rec.detach().contiguous().bfloat16(),
                                     gather = False
                                 )
@@ -351,7 +368,7 @@ class DecTuneV2Trainer(BaseTrainer):
                             # Log optical flow if present (7 channels)
                             if batch.shape[1] >= 7:
                                 flow_samples = to_wandb_flow(
-                                    batch.detach().contiguous().bfloat16(),
+                                    teacher_rec.detach().contiguous().bfloat16(),
                                     ema_rec.detach().contiguous().bfloat16(),
                                     gather = False
                                 )
