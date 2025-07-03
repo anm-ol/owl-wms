@@ -3,14 +3,16 @@ model:
   model_id: dcae
   sample_size: [360,640]
   channels: 7
-  latent_size: 4
+  latent_size: 8
   latent_channels: 128
 
   ch_0: 256
   ch_max: 2048
 
-  encoder_blocks_per_stage: [4, 4, 4, 4, 4, 4, 4]
-  decoder_blocks_per_stage: [4, 4, 4, 4, 4, 4, 4]
+  encoder_blocks_per_stage: [4, 4, 4, 4, 4, 4]
+  decoder_blocks_per_stage: [4, 4, 4, 4, 4, 4]
+
+  use_middle_block: false
 
 train:
   trainer_id: rec
@@ -35,17 +37,20 @@ train:
 
   lpips_type: convnext
   loss_weights:
-    kl: 1.0e-16
+    kl: 1.0e-6
     lpips: 10.0
+    dwt: 0.0
+    l1: 0.0
+    l2: 1.0
 
   scheduler: LinearWarmup
   scheduler_kwargs:
     warmup_steps: 3000
     min_lr: 3.0e-6
 
-  checkpoint_dir: checkpoints/cod_128x_feats
-  output_path: mnt/data/checkpoints/owl-vaes/cod_128x_feats
-  resume_ckpt: null #checkpoints/2d_64x/step_10000.pt
+  checkpoint_dir: checkpoints/cod_128x_feats_middle
+  output_path: /mnt/data/checkpoints/owl-vaes/cod_128x_feats
+  resume_ckpt: null # checkpoints/cod_128x_feats_50k.pt
 
   sample_interval: 1000
   save_interval: 5000

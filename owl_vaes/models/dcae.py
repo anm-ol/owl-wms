@@ -44,6 +44,9 @@ class Encoder(nn.Module):
 
             ch = next_ch
 
+        self.use_middle_block = config.use_middle_block
+        self.middle_block = SameBlock(ch_max, ch_max, blocks_per_stage[-1], total_blocks) if self.use_middle_block else None
+
         self.blocks = nn.ModuleList(blocks)
         self.residuals = nn.ModuleList(residuals)
 
@@ -67,7 +70,11 @@ class Encoder(nn.Module):
         b, c, h, w = res.shape
         res = res.reshape(b, self.avg_factor, c//self.avg_factor, h, w)
         res = res.mean(dim=1)
+        
+        if self.use_middle_block:
+            x = self.middle_block(x)
         mu = self.conv_out(x) + res
+
         if not self.training:
             return mu
         else:
@@ -96,6 +103,9 @@ class Decoder(nn.Module):
         blocks_per_stage = config.decoder_blocks_per_stage
         total_blocks = len(blocks_per_stage)
 
+        self.use_middle_block = config.use_middle_block
+        self.middle_block = SameBlock(ch_max, ch_max, blocks_per_stage[-1], total_blocks) if self.use_middle_block else None
+
         for block_count in reversed(blocks_per_stage):
             next_ch = min(ch*2, ch_max)
 
@@ -118,6 +128,9 @@ class Decoder(nn.Module):
 
         x = self.conv_in(x)
         x = x + rep_res
+
+        if self.use_middle_block:
+            x = self.middle_block(x)
 
         for (block, shortcut) in zip(self.blocks, self.residuals):
             x = block(x) + shortcut(x)
