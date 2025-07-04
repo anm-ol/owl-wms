@@ -75,30 +75,32 @@ class Upsample(nn.Module):
     """
     Bilinear upsample + project layer
     """
-    def __init__(self, ch_in, ch_out):
+    def __init__(self, ch_in, ch_out, stride = 2):
         super().__init__()
 
         self.proj = nn.Sequential() if ch_in == ch_out else weight_norm(nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False))
+        self.stride = stride
 
     def forward(self, x):
         x = self.proj(x)
-        x = F.interpolate(x, scale_factor = 2,  mode = 'bicubic')
+        x = F.interpolate(x, scale_factor = self.stride,  mode = 'bicubic')
         return x
 
 class Downsample(nn.Module):
     """
     Bilinear downsample + project layer
     """
-    def __init__(self, ch_in, ch_out):
+    def __init__(self, ch_in, ch_out, stride = 2):
         super().__init__()
 
         self.proj = weight_norm(nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False))
+        self.stride = stride
 
     def forward(self, x):
-        x = F.interpolate(x, scale_factor = .5, mode = 'bicubic')
+        x = F.interpolate(x, scale_factor = 1./self.stride, mode = 'bicubic')
         x = self.proj(x)
         return x
-
+        
 class UpBlock(nn.Module):
     """
     General upsampling stage block

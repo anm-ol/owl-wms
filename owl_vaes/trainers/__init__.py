@@ -27,5 +27,8 @@ def get_trainer_cls(trainer_id: Literal["rec", "proxy", "audio_rec"]):
         case "distill_dec":
             from .distill_dec import DistillDecTrainer
             return DistillDecTrainer
+        case "distill_enc":
+            from .distill_enc import DistillEncTrainer
+            return DistillEncTrainer
         case _:
             raise NotImplementedError
