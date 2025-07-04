@@ -48,12 +48,15 @@ train:
     warmup_steps: 3000
     min_lr: 3.0e-6
 
-  checkpoint_dir: checkpoints/cod_128x_feats_middle
-  output_path: /mnt/data/checkpoints/owl-vaes/cod_128x_feats
-  resume_ckpt: null # checkpoints/cod_128x_feats_50k.pt
+  checkpoint_dir: /mnt/data/checkpoints/owl_vaes/cod_128x_feats
+  output_path: /mnt/data/checkpoints/owl_vaes/cod_128x_feats_output
+  resume_ckpt: /mnt/data/checkpoints/owl_vaes/cod_128x_feats/cod_128x_feats_75k_train.pt
 
   sample_interval: 1000
   save_interval: 5000
+
+  teacher_cfg: configs/cod_128x_feats.yml
+  teacher_ckpt: /mnt/data/checkpoints/owl_vaes/cod_128x_feats/cod_128x_feats/cod_128x_feats_160k_ema.pt
 
 wandb:
   name: ${env:WANDB_USER_NAME}

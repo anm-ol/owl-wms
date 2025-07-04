@@ -31,7 +31,7 @@ class PatchDiscriminator(nn.Module):
         ])
         self.conv_out = make_conv(ch*16,1)
 
-    def forward(self, x, output_hidden_states = False):
+    def forward(self, x, output_hidden_states = True):
         h = []
         
         x = self.conv_in(x)
