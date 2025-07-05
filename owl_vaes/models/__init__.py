@@ -25,7 +25,7 @@ def get_model_cls(model_id: str) -> Any:
     if model_id == "tdec":
         from .audio_tdec import AudioTransformerDecoder
         return AudioTransformerDecoder
-    if model_id == "distill_enc":
+    if model_id == "distill_vae":
         from .distill_vae import DistillVAE
         return DistillVAE
     return None

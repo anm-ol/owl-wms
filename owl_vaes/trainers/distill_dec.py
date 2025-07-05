@@ -55,14 +55,22 @@ class DistillDecTrainer(BaseTrainer):
         del model.encoder
         self.model = model.decoder
 
-        disc_cfg = self.model_cfg.discriminator
-        self.discriminator = get_discriminator_cls(disc_cfg.model_id)(disc_cfg)
+        # Only create discriminator if GAN or feature matching is used
+        gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
+        feature_matching_weight = self.train_cfg.loss_weights.get('feature_matching', 5.0)
+        
+        if gan_weight > 0.0 or feature_matching_weight > 0.0:
+            disc_cfg = self.model_cfg.discriminator
+            self.discriminator = get_discriminator_cls(disc_cfg.model_id)(disc_cfg)
+        else:
+            self.discriminator = None
 
         if self.rank == 0:
             model_params = sum(p.numel() for p in self.model.parameters())
-            disc_params = sum(p.numel() for p in self.discriminator.parameters())
             print(f"Model parameters: {model_params:,}")
-            print(f"Discriminator parameters: {disc_params:,}")
+            if self.discriminator is not None:
+                disc_params = sum(p.numel() for p in self.discriminator.parameters())
+                print(f"Discriminator parameters: {disc_params:,}")
 
         self.ema = None
         self.opt = None
@@ -75,12 +83,13 @@ class DistillDecTrainer(BaseTrainer):
     def save(self):
         save_dict = {
             'model' : self.model.state_dict(),
-            'discriminator': self.discriminator.state_dict(),
             'ema' : self.ema.state_dict(),
             'opt' : self.opt.state_dict(),
             'scaler' : self.scaler.state_dict(),
             'steps': self.total_step_counter
         }
+        if self.discriminator is not None:
+            save_dict['discriminator'] = self.discriminator.state_dict()
         if self.scheduler is not None:
             save_dict['scheduler'] = self.scheduler.state_dict()
         super().save(save_dict)
@@ -91,7 +100,8 @@ class DistillDecTrainer(BaseTrainer):
         
         save_dict = super().load(self.train_cfg.resume_ckpt)
         self.model.load_state_dict(save_dict['model'])
-        self.discriminator.load_state_dict(save_dict['discriminator'])
+        if self.discriminator is not None and 'discriminator' in save_dict:
+            self.discriminator.load_state_dict(save_dict['discriminator'])
         self.ema.load_state_dict(save_dict['ema'])
         self.opt.load_state_dict(save_dict['opt'])
         if self.scheduler is not None and 'scheduler' in save_dict:
@@ -115,10 +125,12 @@ class DistillDecTrainer(BaseTrainer):
         if self.world_size > 1:
             self.model = DDP(self.model)
         
-        self.discriminator = self.discriminator.to(self.device).train()
-        if self.world_size > 1:
-            self.discriminator = DDP(self.discriminator)
-        freeze(self.discriminator)
+        # Only setup discriminator if needed
+        if self.discriminator is not None:
+            self.discriminator = self.discriminator.to(self.device).train()
+            if self.world_size > 1:
+                self.discriminator = DDP(self.discriminator)
+            freeze(self.discriminator)
 
         lpips = None
         if lpips_weight > 0.0:
@@ -142,7 +154,8 @@ class DistillDecTrainer(BaseTrainer):
         opt_cls = getattr(torch.optim, self.train_cfg.opt)
 
         self.opt = opt_cls(self.model.parameters(), **self.train_cfg.opt_kwargs)
-        self.d_opt = opt_cls(self.discriminator.parameters(), **self.train_cfg.opt_kwargs)
+        if self.discriminator is not None:
+            self.d_opt = opt_cls(self.discriminator.parameters(), **self.train_cfg.opt_kwargs)
 
         if self.train_cfg.scheduler is not None:
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
@@ -251,28 +264,29 @@ class DistillDecTrainer(BaseTrainer):
                     batch_rec = self.model(teacher_z)
 
                     # Discriminator training - RGB only
-                    unfreeze(self.discriminator)
-                    if r12_weight == 0.0:
-                        disc_loss = d_loss(self.discriminator, batch_rec[:,:3].detach(), batch[:,:3].detach()) / accum_steps
-                        metrics.log('disc_loss', disc_loss)
-                    else:
-                        r1_penalty, r2_penalty, d_loss = merged_d_losses(
-                            self.discriminator, 
-                            batch_rec[:,:3].detach(), 
-                            batch[:,:3].detach()
-                        )
-                        r1_penalty = r1_penalty / accum_steps
-                        r2_penalty = r2_penalty / accum_steps
-                        d_loss = d_loss / accum_steps
+                    if self.discriminator is not None:
+                        unfreeze(self.discriminator)
+                        if r12_weight == 0.0:
+                            disc_loss = d_loss(self.discriminator, batch_rec[:,:3].detach(), batch[:,:3].detach()) / accum_steps
+                            metrics.log('disc_loss', disc_loss)
+                        else:
+                            r1_penalty, r2_penalty, d_loss = merged_d_losses(
+                                self.discriminator, 
+                                batch_rec[:,:3].detach(), 
+                                batch[:,:3].detach()
+                            )
+                            r1_penalty = r1_penalty / accum_steps
+                            r2_penalty = r2_penalty / accum_steps
+                            d_loss = d_loss / accum_steps
 
-                        metrics.log('r1_penalty', r1_penalty)
-                        metrics.log('r2_penalty', r2_penalty)
-                        metrics.log('disc_loss', d_loss)
+                            metrics.log('r1_penalty', r1_penalty)
+                            metrics.log('r2_penalty', r2_penalty)
+                            metrics.log('disc_loss', d_loss)
 
-                        disc_loss = d_loss + (r1_penalty + r2_penalty) * 0.5 * r12_weight
+                            disc_loss = d_loss + (r1_penalty + r2_penalty) * 0.5 * r12_weight
 
-                    self.scaler.scale(disc_loss).backward()
-                    freeze(self.discriminator)
+                        self.scaler.scale(disc_loss).backward()
+                        freeze(self.discriminator)
 
                     mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
                     total_loss += mse_loss
@@ -290,16 +304,17 @@ class DistillDecTrainer(BaseTrainer):
                         total_loss += dwt_loss * dwt_weight
                         metrics.log('dwt_loss', dwt_loss)
                     
-                    crnt_gan_weight = warmup_gan_weight()
-                    crnt_fm_weight = warmup_fm_weight()
-                    if crnt_gan_weight > 0.0:
-                        with ctx:
-                            gan_loss, fm_loss = g_loss(self.discriminator, batch_rec[:,:3], batch[:,:3])
-                            gan_loss = gan_loss / accum_steps
-                            fm_loss = fm_loss / accum_steps
-                        metrics.log('gan_loss', gan_loss)
-                        metrics.log('fm_loss', fm_loss)
-                        total_loss += crnt_gan_weight * gan_loss + crnt_fm_weight * fm_loss
+                    if self.discriminator is not None:
+                        crnt_gan_weight = warmup_gan_weight()
+                        crnt_fm_weight = warmup_fm_weight()
+                        if crnt_gan_weight > 0.0:
+                            with ctx:
+                                gan_loss, fm_loss = g_loss(self.discriminator, batch_rec[:,:3], batch[:,:3])
+                                gan_loss = gan_loss / accum_steps
+                                fm_loss = fm_loss / accum_steps
+                            metrics.log('gan_loss', gan_loss)
+                            metrics.log('fm_loss', fm_loss)
+                            total_loss += crnt_gan_weight * gan_loss + crnt_fm_weight * fm_loss
 
                     self.scaler.scale(total_loss).backward()
 
@@ -309,14 +324,16 @@ class DistillDecTrainer(BaseTrainer):
                     self.scaler.unscale_(self.opt)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
-                    self.scaler.unscale_(self.d_opt)
-                    torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), max_norm=1.0)
+                    if self.discriminator is not None:
+                        self.scaler.unscale_(self.d_opt)
+                        torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), max_norm=1.0)
 
                     self.scaler.step(self.opt)
                     self.opt.zero_grad(set_to_none=True)
 
-                    self.scaler.step(self.d_opt)
-                    self.d_opt.zero_grad(set_to_none=True)
+                    if self.discriminator is not None:
+                        self.scaler.step(self.d_opt)
+                        self.d_opt.zero_grad(set_to_none=True)
                     
                     self.scaler.update()
 

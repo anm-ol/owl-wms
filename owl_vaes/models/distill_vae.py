@@ -79,7 +79,7 @@ class DistillDecoder(nn.Module):
             res(4)
         ])
 
-        self.conv_out = weight_norm(nn.Conv2d(ch(4), config.channels, 3, 1, 1, bias = False))
+        self.conv_out = SquareToLandscape(config.sample_size, config.ch_0, config.channels) if is_landscape(config.sample_size) else weight_norm(nn.Conv2d(ch(4), config.channels, 3, 1, 1, bias = False))
         
     def forward(self, x):
         x = self.conv_in(x)

@@ -1,5 +1,5 @@
 model:
-  model_id: distill_enc
+  model_id: distill_vae
   sample_size: [360,640]
   channels: 7
   latent_size: 8
@@ -8,13 +8,13 @@ model:
   ch_0: 96
   ch_max: 1536
 
-  encoder_blocks_per_stage: [1, 1, 1, 1, 1, 1]
-  decoder_blocks_per_stage: [1, 1, 1, 1, 1, 1]
+  encoder_blocks_per_stage: [1, 1, 1, 1, 1]
+  decoder_blocks_per_stage: [1, 1, 1, 1, 1]
 
   use_middle_block: false
 
 train:
-  trainer_id: distill_enc
+  trainer_id: distill_vae
   data_id: s3_cod_features
   data_kwargs:
     bucket_name: cod-raw-360p-30fs
