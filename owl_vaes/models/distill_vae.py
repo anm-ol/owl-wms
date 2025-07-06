@@ -52,34 +52,32 @@ class DistillDecoder(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        self.conv_in = weight_norm(nn.Conv2d(config.latent_channels, config.ch_0, 3, 1, 1, bias = False))
+        self.conv_in = weight_norm(nn.Conv2d(config.latent_channels, config.ch_max, 3, 1, 1, bias = False))
 
         total_blocks = len(config.decoder_blocks_per_stage)
 
-        def ch(idx):
-            idx = max(0, idx)
-            return min(config.ch_0 * 2**idx, config.ch_max)
+        def res(ch):
+            return ResBlock(ch, total_blocks)
 
-        def res(idx):
-            return ResBlock(ch(idx), total_blocks)
+        def up(ch, next_ch, stride):
+            return Upsample(ch, next_ch, stride)
 
-        def up(idx, stride):
-            return Upsample(ch(idx), ch(idx+1), stride)
+        ndf = config.ch_0
         
         self.blocks = nn.Sequential(*[
-            up(-1, 2), # -> 16
-            res(0),
-            up(0, 4), # -> 64
-            res(1),
-            up(1, 2), # -> 128
-            res(2),
-            up(2, 2), # -> 256
-            res(3),
-            up(3, 2), # -> 512
-            res(4)
+            up(ndf*16, ndf*16, 2), # -> 16
+            res(ndf*16),
+            up(ndf*16,ndf*8, 4), # -> 64
+            res(ndf*8),
+            up(ndf*8,ndf*4, 2), # -> 128
+            res(ndf*4),
+            up(ndf*4,ndf*2, 2), # -> 256
+            res(ndf*2),
+            up(ndf*2, ndf, 2), # -> 512
+            res(ndf)
         ])
 
-        self.conv_out = SquareToLandscape(config.sample_size, config.ch_0, config.channels) if is_landscape(config.sample_size) else weight_norm(nn.Conv2d(ch(4), config.channels, 3, 1, 1, bias = False))
+        self.conv_out = SquareToLandscape(config.sample_size, ndf, config.channels) if is_landscape(config.sample_size) else weight_norm(nn.Conv2d(ndf, config.channels, 3, 1, 1, bias = False))
         
     def forward(self, x):
         x = self.conv_in(x)
