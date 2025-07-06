@@ -43,7 +43,7 @@ class Attn(nn.Module):
         self.causal = config.causal
 
         self.layer_ind = None
-        self.block_size = config.block_size
+        if self.causal: self.block_size = config.block_size
 
     def forward(self, x, kv_cache = None):
 
