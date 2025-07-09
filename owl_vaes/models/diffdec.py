@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-import einops as eo
 import math
 
 from copy import deepcopy
@@ -57,15 +56,17 @@ class DiffusionDecoderCore(nn.Module):
 
         cond = self.ts_embed(ts)
 
-        x = eo.rearrange(
-            x,
-            'b c (n_p_y p_y) (n_p_x p_x) -> b (n_p_y n_p_x) (p_y p_x c)',
-            p_y=self.p,p_x=self.p
-        )
+        # Convert from image format [b,c,h,w] to patches [b,n_patches,patch_size*patch_size*c]
+        b, c, h, w = x.shape
+        x = x.view(b, c, self.n_p_y, self.p, self.n_p_x, self.p)
+        x = x.permute(0, 2, 4, 3, 5, 1).contiguous()
+        x = x.view(b, self.n_p_y * self.n_p_x, self.p * self.p * c)
         x = self.proj_in(x) # -> [b,n,d]
         x = self.pos_enc_x(x)
 
-        z = eo.rearrange(z, 'b c h w -> b (h w) c')
+        # Flatten spatial dimensions: [b,c,h,w] -> [b,h*w,c]
+        b, c, h, w = z.shape
+        z = z.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
         z = self.proj_in_z(z)
         z = self.pos_enc_z(z)
         
@@ -77,12 +78,12 @@ class DiffusionDecoderCore(nn.Module):
 
         x = self.final(x, cond)
         x = self.proj_out(x)
-        x = eo.rearrange(
-            x,
-            'b (n_p_y n_p_x) (p_y p_x c) -> b c (n_p_y p_y) (n_p_x p_x)',
-            p_y = self.p, p_x = self.p,
-            n_p_y = self.n_p_y, n_p_x = self.n_p_x
-        )
+        # Convert from patches back to image format [b,n_patches,patch_size*patch_size*c] -> [b,c,h,w]
+        b, n_patches, patch_dim = x.shape
+        c = patch_dim // (self.p * self.p)
+        x = x.view(b, self.n_p_y, self.n_p_x, self.p, self.p, c)
+        x = x.permute(0, 5, 1, 3, 2, 4).contiguous()
+        x = x.view(b, c, self.n_p_y * self.p, self.n_p_x * self.p)
 
         return x
 

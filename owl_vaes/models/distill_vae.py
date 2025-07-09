@@ -40,12 +40,14 @@ class DistillEncoder(nn.Module):
             down(4, 2), # -> 8
         ])
 
+        self.channels = config.channels
         self.conv_out = weight_norm(nn.Conv2d(ch(4), config.latent_channels, 3, 1, 1, bias = False))
 
     def forward(self, x):
+        x = x[:, :self.channels]
         x = self.conv_in(x)
         x = self.blocks(x)
-        x = self.conv_out(x)
+        x = self.conv_out(x).clamp(-10,10) # It causes nans for some reason otherwise
         return x
 
 class DistillDecoder(nn.Module):
