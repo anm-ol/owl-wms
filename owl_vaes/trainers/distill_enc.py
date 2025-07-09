@@ -5,7 +5,11 @@ Trainer for distilling encoder with simplified loss
 import torch
 import torch.nn.functional as F
 import wandb
+
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DataParallel as DP
+
+from ema_pytorch import EMA
 
 from ..data import get_loader
 from ..models import get_model_cls
@@ -55,13 +59,15 @@ class DistillEncTrainer(BaseTrainer):
         self.scheduler = None
         self.scaler = None
         self.total_step_counter = 0
+        self.ema = None
 
     def save(self):
         save_dict = {
             'model' : self.model.state_dict(),
             'opt' : self.opt.state_dict(),
             'scaler' : self.scaler.state_dict(),
-            'steps': self.total_step_counter
+            'steps': self.total_step_counter,
+            'ema' : self.ema.state_dict()
         }
         if self.scheduler is not None:
             save_dict['scheduler'] = self.scheduler.state_dict()
@@ -78,6 +84,8 @@ class DistillEncTrainer(BaseTrainer):
             self.scheduler.state_dict(save_dict['scheduler'])
         self.scaler.load_state_dict(save_dict['scaler'])
         self.total_step_counter = save_dict['steps']
+        if self.ema is not None:
+            self.ema.load_state_dict(save_dict['ema'])
 
     def train(self):
         torch.cuda.set_device(self.local_rank)
@@ -97,6 +105,13 @@ class DistillEncTrainer(BaseTrainer):
         
         self.teacher_decoder = self.teacher_decoder.to(self.device).bfloat16().eval()
         freeze(self.teacher_decoder)
+
+        self.ema = EMA(
+            self.model,
+            beta = 0.9999,
+            update_after_step = 0,
+            update_every = 1
+        )
 
         # Set up optimizer and scheduler
         opt_cls = getattr(torch.optim, self.train_cfg.opt)
@@ -152,6 +167,9 @@ class DistillEncTrainer(BaseTrainer):
 
                 local_step += 1
                 if local_step % accum_steps == 0:
+                    if self.ema is not None:
+                        self.ema.update()
+
                     # Updates
                     self.scaler.unscale_(self.opt)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -173,8 +191,8 @@ class DistillEncTrainer(BaseTrainer):
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
-                                teacher_latent = self.teacher_encoder(batch) / self.train_cfg.latent_scale
-                                student_latent = self.model(batch) / self.train_cfg.latent_scale
+                                teacher_latent = self.teacher_encoder(batch)
+                                student_latent = self.ema.ema_model(batch) * self.train_cfg.latent_scale
                                 
                                 teacher_rec = self.teacher_decoder(teacher_latent)[:,:3]
                                 student_rec = self.teacher_decoder(student_latent)[:,:3]

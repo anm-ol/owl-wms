@@ -46,37 +46,47 @@ class Attn(nn.Module):
         if self.causal: self.block_size = config.block_size
 
     def forward(self, x, kv_cache = None):
+        # x: [b, n, d_model]
+        b, n, d_model = x.shape
+        h = self.n_heads
+        d = d_model // h
 
-        q,k,v = eo.rearrange(self.qkv(x), 'b n (three h d) -> three b h n d', three = 3, h = self.n_heads)
-        q,k = self.qk_norm(q,k)
+        # Linear projection and split into q, k, v
+        qkv = self.qkv(x)  # [b, n, 3 * d_model]
+        qkv = qkv.view(b, n, 3, h, d)  # [b, n, 3, h, d]
+        qkv = qkv.permute(2, 0, 3, 1, 4)  # [3, b, h, n, d]
+        q, k, v = qkv[0], qkv[1], qkv[2]  # each [b, h, n, d]
+
+        q, k = self.qk_norm(q, k)
 
         if not self.causal or (kv_cache is not None and len(kv_cache) > 0):
-            mask = None # Note that if KV cache is being used, masks are pointless
+            mask = None  # Note that if KV cache is being used, masks are pointless
         else:
             mask = create_block_causal_mask(q.shape[2], self.block_size)
-            mask = mask.to(device=x.device,dtype=torch.bool)
-            mask = mask.unsqueeze(0).repeat(x.shape[0],1,1)
-            mask = mask.unsqueeze(1) # [b,h,n,d]
-        
+            mask = mask.to(device=x.device, dtype=torch.bool)
+            mask = mask.unsqueeze(0).repeat(b, 1, 1)
+            mask = mask.unsqueeze(1)  # [b,1,n,n]
+
         if kv_cache is not None:
             old_k, old_v = kv_cache.get(self.layer_ind)
             len_k = old_k.shape[2]
-            new_k = torch.cat([old_k,k],dim=2).contiguous()
-            new_v = torch.cat([old_v,v],dim=2).contiguous()
+            new_k = torch.cat([old_k, k], dim=2).contiguous()
+            new_v = torch.cat([old_v, v], dim=2).contiguous()
 
-            q,new_k=self.rope(q,new_k)
+            q, new_k = self.rope(q, new_k)
             if kv_cache.should_update:
-                kv_cache.update(new_k,new_v,self.layer_ind)
-            
-            x = F.scaled_dot_product_attention(q,new_k,new_v,attn_mask=mask)
-            x = x[:,:,-q.shape[2]:]
+                kv_cache.update(new_k, new_v, self.layer_ind)
+
+            x_out = F.scaled_dot_product_attention(q, new_k, new_v, attn_mask=mask)
+            x_out = x_out[:, :, -q.shape[2]:]
         else:
-            q,k=self.rope(q,k)
-            x = F.scaled_dot_product_attention(q,k,v,attn_mask=mask)
-        
-        x = eo.rearrange(x, 'b h n d -> b n (h d)')
-        x = self.out(x)
-        return x
+            q, k = self.rope(q, k)
+            x_out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+
+        # Rearrange from [b, h, n, d] -> [b, n, h * d]
+        x_out = x_out.permute(0, 2, 1, 3).contiguous().view(b, n, h * d)
+        x_out = self.out(x_out)
+        return x_out
 
 class MMAttn(nn.Module):
     """
