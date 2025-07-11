@@ -172,7 +172,7 @@ class DiffDecODETrainer(BaseTrainer):
         freeze(self.dcae)
         freeze(self.teacher_diff)
         self.encoder = torch.compile(self.encoder, mode='max-autotune', dynamic=False, fullgraph=True)
-        self.teacher_diff = torch.compile(self.teacher_diff, mode='max-autotune', dynamic=False, fullgraph=True)
+        #self.teacher_diff = torch.compile(self.teacher_diff, mode='max-autotune', dynamic=False, fullgraph=True)
 
         self.ema = EMA(
             self.student,
@@ -237,10 +237,10 @@ class DiffDecODETrainer(BaseTrainer):
             for dt in dt_list:
                 pred = self.teacher_diff(noisy, z, t)
 
-                inputs.append(noisy)
-                outputs.append(pred)
-                ts.append(t)
-                zs.append(z)
+                inputs.append(noisy.clone())
+                outputs.append(pred.clone())
+                ts.append(t.clone())
+                zs.append(z.clone())
 
                 noisy = noisy - dt * pred
                 t = t - dt

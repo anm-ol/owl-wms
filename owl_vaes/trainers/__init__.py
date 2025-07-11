@@ -33,5 +33,8 @@ def get_trainer_cls(trainer_id: Literal["rec", "proxy", "audio_rec"]):
         case "diffdec_ode_tune":
             from .diffdec_ode_tune import DiffDecODETrainer
             return DiffDecODETrainer
+        case "diffdec_dmd":
+            from .diffdec_dmd_trainer import DiffDMDTrainer
+            return DiffDMDTrainer
         case _:
             raise NotImplementedError

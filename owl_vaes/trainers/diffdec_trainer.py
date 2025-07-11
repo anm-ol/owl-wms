@@ -40,7 +40,10 @@ class DiffusionDecoderTrainer(BaseTrainer):
         teacher_cfg = Config.from_yaml(teacher_cfg_path).model
 
         teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
-        teacher.load_state_dict(teacher_ckpt)
+        try:
+            teacher.load_state_dict(teacher_ckpt)
+        except Exception as e:
+            teacher.encoder.load_state_dict(teacher_ckpt)
 
         self.encoder = teacher.encoder
         del teacher.decoder
