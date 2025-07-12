@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import math
-import einops as eo
 from rotary_embedding_torch import (
     RotaryEmbedding,
     apply_rotary_emb
@@ -27,7 +26,7 @@ class LearnedPosEnc(nn.Module):
 
     def forward(self, x):
         b,n,d = x.shape
-        p = eo.repeat(self.p, 'n d -> b n d', b = b)
+        p = self.p.unsqueeze(0).expand(b, -1, -1)
         return x + p
 
 class RoPEEmbedding(nn.Module):
@@ -57,8 +56,7 @@ class SinCosEmbedding(nn.Module):
         self.mult = mult
 
     def forward(self, t):
-        if not isinstance(t, torch.Tensor):
-            t = torch.tensor(t)
+        # Assume t is already a tensor for compilation
         if t.ndim == 0:
             t = t.unsqueeze(0)
 
@@ -82,11 +80,10 @@ class TimestepEmbedding(nn.Module):
         self.sincos = SinCosEmbedding(d_in, theta=300, mult=mult)
 
     def forward(self, t):
-        if not isinstance(t, torch.Tensor):
-            t = torch.tensor(t, device=self.mlp.fc_uv.weight.device, dtype=self.mlp.fc_uv.weight.dtype)
+        # Assume t is already a tensor for compilation
         if t.ndim == 0:
             t = t.unsqueeze(0)
-        assert torch.all((t >= 0) & (t <= 1)), f"Timesteps must be in [0,1], got {t.min():.3f} to {t.max():.3f}"
+        # Remove assert for compilation compatibility
 
         embs = self.sincos(t)
         return self.mlp(embs)
@@ -101,8 +98,7 @@ class StepEmbedding(nn.Module):
         self.sincos = SinCosEmbedding(d_in, theta=300, mult=mult)
 
     def forward(self, steps):
-        if not isinstance(steps, torch.Tensor):
-            steps = torch.tensor(steps, device=self.mlp.fc_uv.weight.device, dtype=self.mlp.fc_uv.weight.dtype)
+        # Assume steps is already a tensor for compilation
         if steps.ndim == 0:
             steps = steps.unsqueeze(0)
 

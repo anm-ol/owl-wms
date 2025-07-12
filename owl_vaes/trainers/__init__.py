@@ -21,5 +21,20 @@ def get_trainer_cls(trainer_id: Literal["rec", "proxy", "audio_rec"]):
             return AudDecTuneTrainer
         case "diff_dec":
             return DiffusionDecoderTrainer
+        case "dec_tune_v2":
+            from .dec_tune_v2 import DecTuneV2Trainer
+            return DecTuneV2Trainer
+        case "distill_dec":
+            from .distill_dec import DistillDecTrainer
+            return DistillDecTrainer
+        case "distill_enc":
+            from .distill_enc import DistillEncTrainer
+            return DistillEncTrainer
+        case "diffdec_ode_tune":
+            from .diffdec_ode_tune import DiffDecODETrainer
+            return DiffDecODETrainer
+        case "diffdec_dmd":
+            from .diffdec_dmd_trainer import DiffDMDTrainer
+            return DiffDMDTrainer
         case _:
             raise NotImplementedError

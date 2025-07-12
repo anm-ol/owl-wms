@@ -54,8 +54,6 @@ class ResBlock(nn.Module):
         nn.init.zeros_(self.conv3.weight)
 
     def forward(self, x):
-        res = x.clone()
-
         def _inner(x):
             x = self.conv1(x)
             #x = self.norm1(x)
@@ -67,40 +65,42 @@ class ResBlock(nn.Module):
             return x
 
         if self.training:
-            x = checkpoint(_inner, x)
+            x = checkpoint(_inner, x) + x.clone()
         else:
-            x = _inner(x)
+            x = _inner(x) + x.clone()
 
-        return x + res
+        return x
 
 class Upsample(nn.Module):
     """
     Bilinear upsample + project layer
     """
-    def __init__(self, ch_in, ch_out):
+    def __init__(self, ch_in, ch_out, stride = 2):
         super().__init__()
 
         self.proj = nn.Sequential() if ch_in == ch_out else weight_norm(nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False))
+        self.stride = stride
 
     def forward(self, x):
         x = self.proj(x)
-        x = F.interpolate(x, scale_factor = 2,  mode = 'bicubic')
+        x = F.interpolate(x, scale_factor = self.stride,  mode = 'bicubic')
         return x
 
 class Downsample(nn.Module):
     """
     Bilinear downsample + project layer
     """
-    def __init__(self, ch_in, ch_out):
+    def __init__(self, ch_in, ch_out, stride = 2):
         super().__init__()
 
         self.proj = weight_norm(nn.Conv2d(ch_in, ch_out, 1, 1, 0, bias=False))
+        self.stride = stride
 
     def forward(self, x):
-        x = F.interpolate(x, scale_factor = .5, mode = 'bicubic')
+        x = F.interpolate(x, scale_factor = 1./self.stride, mode = 'bicubic')
         x = self.proj(x)
         return x
-
+        
 class UpBlock(nn.Module):
     """
     General upsampling stage block

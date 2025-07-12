@@ -16,9 +16,6 @@ def get_model_cls(model_id: str) -> Any:
     if model_id == "proxy_titok":
         from .proxy_titok import ProxyTiToKVAE
         return ProxyTiToKVAE
-    if model_id == "dcae_decoder":
-        from .dcae import Decoder
-        return Decoder
     if model_id == "diff_dec":
         from .diffdec import DiffusionDecoder
         return DiffusionDecoder
@@ -28,4 +25,7 @@ def get_model_cls(model_id: str) -> Any:
     if model_id == "tdec":
         from .audio_tdec import AudioTransformerDecoder
         return AudioTransformerDecoder
+    if model_id == "distill_vae":
+        from .distill_vae import DistillVAE
+        return DistillVAE
     return None

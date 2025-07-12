@@ -1,27 +1,28 @@
-import einops as eo
+"""
+Trainer for distilling encoder with simplified loss
+"""
+
 import torch
 import torch.nn.functional as F
 import wandb
-from ema_pytorch import EMA
+
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DataParallel as DP
+
+from ema_pytorch import EMA
 
 from ..data import get_loader
 from ..models import get_model_cls
 from ..muon import init_muon
-from ..schedulers import get_scheduler_cls
-from ..utils import Timer, freeze, unfreeze, versatile_load
-from ..utils.logging import LogHelper, to_wandb
+from ..utils import Timer, freeze, versatile_load
+from ..utils.logging import LogHelper, to_wandb, to_wandb_depth, to_wandb_flow
 from .base import BaseTrainer
 from ..configs import Config
 
-from ..sampling import flow_sample
-
-from diffusers import AutoencoderTiny, AutoencoderDC
-
-class DiffusionDecoderTrainer(BaseTrainer):
+class DistillEncTrainer(BaseTrainer):
     """
-    Trainer for diffusion decoder with frozen encoder.
-    Does diffusion loss
+    Trainer for distilling the encoder, with frozen decoder.
+    Does L1/L2 regression on latents
 
     :param train_cfg: Configuration for training
     :param logging_cfg: Configuration for logging
@@ -40,79 +41,70 @@ class DiffusionDecoderTrainer(BaseTrainer):
         teacher_cfg = Config.from_yaml(teacher_cfg_path).model
 
         teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
-        try:
-            teacher.load_state_dict(teacher_ckpt)
-        except Exception as e:
-            teacher.encoder.load_state_dict(teacher_ckpt)
+        teacher.load_state_dict(teacher_ckpt)
 
-        self.encoder = teacher.encoder
-        del teacher.decoder
+        self.teacher_encoder = teacher.encoder
+        self.teacher_decoder = teacher.decoder
 
         model_id = self.model_cfg.model_id
-        self.model = get_model_cls(model_id)(self.model_cfg)
+        model = get_model_cls(model_id)(self.model_cfg)
+        del model.decoder
+        self.model = model.encoder
 
         if self.rank == 0:
             model_params = sum(p.numel() for p in self.model.parameters())
             print(f"Model parameters: {model_params:,}")
 
-        self.ema = None
         self.opt = None
         self.scheduler = None
         self.scaler = None
-
         self.total_step_counter = 0
-
-    def get_ema_core(self):
-        if self.world_size > 1:
-            return self.ema.ema_model.module.core
-        return self.ema.ema_model.core
+        self.ema = None
 
     def save(self):
         save_dict = {
             'model' : self.model.state_dict(),
-            'ema' : self.ema.state_dict(),
             'opt' : self.opt.state_dict(),
             'scaler' : self.scaler.state_dict(),
-            'steps': self.total_step_counter
+            'steps': self.total_step_counter,
+            'ema' : self.ema.state_dict()
         }
         if self.scheduler is not None:
             save_dict['scheduler'] = self.scheduler.state_dict()
         super().save(save_dict)
 
     def load(self):
-        resume_ckpt = getattr(self.train_cfg, 'resume_ckpt', None)
-        if resume_ckpt is None:
+        if not hasattr(self.train_cfg, 'resume_ckpt') or self.train_cfg.resume_ckpt is None:
             return
-        save_dict = super().load(resume_ckpt)
-
-        self.model.load_state_dict(save_dict['model'], strict=False)
-        self.ema.load_state_dict(save_dict['ema'])
+        
+        save_dict = super().load(self.train_cfg.resume_ckpt)
+        self.model.load_state_dict(save_dict['model'])
         self.opt.load_state_dict(save_dict['opt'])
         if self.scheduler is not None and 'scheduler' in save_dict:
-            self.scheduler.load_state_dict(save_dict['scheduler'])
+            self.scheduler.state_dict(save_dict['scheduler'])
         self.scaler.load_state_dict(save_dict['scaler'])
         self.total_step_counter = save_dict['steps']
+        if self.ema is not None:
+            self.ema.load_state_dict(save_dict['ema'])
 
     def train(self):
         torch.cuda.set_device(self.local_rank)
 
-        # Prepare model, ema
+        # Loss weights
+        l1_weight = self.train_cfg.loss_weights.get('l1', 0.0)
+        l2_weight = self.train_cfg.loss_weights.get('l2', 1.0)
+
+        # Prepare model
         self.model = self.model.to(self.device).train()
         if self.world_size > 1:
             self.model = DDP(self.model)
 
-        self.encoder = self.encoder.to(self.device).bfloat16().eval()
-        #self.flux_vae = AutoencoderTiny.from_pretrained("madebyollin/taef1").bfloat16().cuda().eval()
-        path = "mit-han-lab/dc-ae-f32c32-mix-1.0-diffusers"
-        self.flux_vae = AutoencoderDC.from_pretrained(path).bfloat16().cuda().eval()
-        self.flux_vae.decoder.to(self.device)
-        self.flux_vae.decoder.eval()
-        self.flux_vae.decoder.to(self.device)
+        self.teacher_encoder = self.teacher_encoder.to(self.device).bfloat16().eval()
+        freeze(self.teacher_encoder)
+        self.teacher_encoder = torch.compile(self.teacher_encoder, mode='max-autotune', dynamic=False, fullgraph=True)
         
-        freeze(self.encoder)
-        freeze(self.flux_vae)
-        self.encoder = torch.compile(self.encoder, dynamic=False,fullgraph=True)
-        self.flux_vae.encoder = torch.compile(self.flux_vae.encoder, dynamic=False,fullgraph=True)
+        self.teacher_decoder = self.teacher_decoder.to(self.device).bfloat16().eval()
+        freeze(self.teacher_decoder)
 
         self.ema = EMA(
             self.model,
@@ -122,13 +114,11 @@ class DiffusionDecoderTrainer(BaseTrainer):
         )
 
         # Set up optimizer and scheduler
-        if self.train_cfg.opt.lower() == "muon":
-            self.opt = init_muon(self.model, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
-        else:
-            opt_cls = getattr(torch.optim, self.train_cfg.opt)
-            self.opt = opt_cls(self.model.parameters(), **self.train_cfg.opt_kwargs)
+        opt_cls = getattr(torch.optim, self.train_cfg.opt)
+        self.opt = opt_cls(self.model.parameters(), **self.train_cfg.opt_kwargs)
 
         if self.train_cfg.scheduler is not None:
+            from ..schedulers import get_scheduler_cls
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
 
         # Grad accum setup and scaler
@@ -153,25 +143,33 @@ class DiffusionDecoderTrainer(BaseTrainer):
         local_step = 0
         for _ in range(self.train_cfg.epochs):
             for batch in loader:
+                total_loss = 0.
                 batch = batch.to(self.device).bfloat16()
-                teacher_enc_input = batch.clone()
-                batch = batch[:,:3]
 
-                with torch.no_grad():
-                    teacher_z = self.encoder(teacher_enc_input) / self.train_cfg.latent_scale
-                    batch = F.interpolate(batch, size=(512,512), mode='bilinear', align_corners=False)
-                    latent_batch = self.flux_vae.encoder(batch) / self.train_cfg.ldm_scale # [b,16,45,80]
-                
                 with ctx:
-                    diff_loss = self.model(latent_batch, teacher_z)
-                    diff_loss = diff_loss / accum_steps
+                    with torch.no_grad():
+                        teacher_z = self.teacher_encoder(batch) / self.train_cfg.latent_scale
+                    
+                    student_z = self.model(batch) / self.train_cfg.latent_scale
 
-                metrics.log('diff_loss', diff_loss)
+                    # Loss computation
+                    if l2_weight > 0.0:
+                        l2_loss = F.mse_loss(student_z, teacher_z) / accum_steps
+                        total_loss += l2_loss * l2_weight
+                        metrics.log('l2_loss', l2_loss)
+                    
+                    if l1_weight > 0.0:
+                        l1_loss = F.l1_loss(student_z, teacher_z) / accum_steps
+                        total_loss += l1_loss * l1_weight
+                        metrics.log('l1_loss', l1_loss)
 
-                self.scaler.scale(diff_loss).backward()
+                    self.scaler.scale(total_loss).backward()
 
                 local_step += 1
                 if local_step % accum_steps == 0:
+                    if self.ema is not None:
+                        self.ema.update()
+
                     # Updates
                     self.scaler.unscale_(self.opt)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -183,7 +181,6 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
                     if self.scheduler is not None:
                         self.scheduler.step()
-                    self.ema.update()
 
                     # Do logging stuff with sampling stuff in the middle
                     with torch.no_grad():
@@ -194,13 +191,37 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
-                                ema_rec = flow_sample(self.get_ema_core(), latent_batch, teacher_z, 20, self.flux_vae.decoder, scaling_factor = self.train_cfg.ldm_scale)
+                                teacher_latent = self.teacher_encoder(batch)
+                                student_latent = self.ema.ema_model(batch) * self.train_cfg.latent_scale
+                                
+                                teacher_rec = self.teacher_decoder(teacher_latent)[:,:3]
+                                student_rec = self.teacher_decoder(student_latent)[:,:3]
 
                             wandb_dict['samples'] = to_wandb(
-                                batch.detach().contiguous().bfloat16(),
-                                ema_rec.detach().contiguous().bfloat16(),
+                                teacher_rec.detach().contiguous().bfloat16(),
+                                student_rec.detach().contiguous().bfloat16(),
                                 gather = False
                             )
+
+                            # Log depth maps if present (4 or 7 channels)
+                            if batch.shape[1] >= 4:
+                                depth_samples = to_wandb_depth(
+                                    teacher_rec.detach().contiguous().bfloat16(),
+                                    student_rec.detach().contiguous().bfloat16(),
+                                    gather = False
+                                )
+                                if depth_samples:
+                                    wandb_dict['depth_samples'] = depth_samples
+                            
+                            # Log optical flow if present (7 channels)
+                            if batch.shape[1] >= 7:
+                                flow_samples = to_wandb_flow(
+                                    teacher_rec.detach().contiguous().bfloat16(),
+                                    student_rec.detach().contiguous().bfloat16(),
+                                    gather = False
+                                )
+                                if flow_samples:
+                                    wandb_dict['flow_samples'] = flow_samples
 
                         if self.rank == 0:
                             wandb.log(wandb_dict)
