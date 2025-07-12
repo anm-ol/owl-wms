@@ -21,7 +21,7 @@ from diffusers import AutoencoderTiny, AutoencoderDC
 class DiffusionDecoderTrainer(BaseTrainer):
     """
     Trainer for diffusion decoder with frozen encoder.
-    Does diffusion loss + shortcut loss
+    Does diffusion loss
 
     :param train_cfg: Configuration for training
     :param logging_cfg: Configuration for logging

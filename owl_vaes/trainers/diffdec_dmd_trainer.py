@@ -39,7 +39,12 @@ class DiffDMDTrainer(BaseTrainer):
         teacher_vae_ckpt = versatile_load(teacher_vae_ckpt_path)
         teacher_vae_cfg = Config.from_yaml(teacher_vae_cfg_path).model
         teacher_vae = get_model_cls(teacher_vae_cfg.model_id)(teacher_vae_cfg)
-        teacher_vae.load_state_dict(teacher_vae_ckpt)
+
+        try:
+            teacher_vae.load_state_dict(teacher_vae_ckpt)
+        except Exception as e:
+            teacher_vae.encoder.load_state_dict(teacher_vae_ckpt)
+
         self.encoder = teacher_vae.encoder.to(self.device).bfloat16().eval()
 
         # --- DCAE ---
