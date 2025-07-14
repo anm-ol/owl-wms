@@ -6,6 +6,7 @@ import einops as eo
 import torch
 import torch.nn.functional as F
 import wandb
+import numpy as np
 from ema_pytorch import EMA
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -14,11 +15,13 @@ from ..models import get_model_cls
 from ..muon import init_muon
 from ..nn.lpips import get_lpips_cls
 from ..schedulers import get_scheduler_cls
-from ..utils import Timer, freeze
+from ..utils import Timer, freeze, unfreeze
 from ..utils.logging import LogHelper, to_wandb, to_wandb_depth, to_wandb_flow
 from .base import BaseTrainer
 from ..losses.basic import latent_reg_loss
 from ..losses.dwt import dwt_loss_fn
+
+from ..nn.crt import CRT
 
 class RecTrainer(BaseTrainer):
     """
@@ -49,6 +52,10 @@ class RecTrainer(BaseTrainer):
 
         self.total_step_counter = 0
 
+        if self.train_cfg.loss_weights.get('crt', 0.0) > 0.0:
+            self.crt = CRT(self.model_cfg.latent_channels)
+            self.crt_opt = None
+
     def save(self):
         save_dict = {
             'model' : self.model.state_dict(),
@@ -58,6 +65,10 @@ class RecTrainer(BaseTrainer):
             'scaler' : self.scaler.state_dict(),
             'steps': self.total_step_counter
         }
+        if self.crt is not None:
+            save_dict['crt'] = self.crt.state_dict()
+            save_dict['crt_opt'] = self.crt_opt.state_dict()
+
         super().save(save_dict)
 
     def load(self):
@@ -73,6 +84,10 @@ class RecTrainer(BaseTrainer):
         self.scaler.load_state_dict(save_dict['scaler'])
         self.total_step_counter = save_dict['steps']
 
+        if self.crt is not None:
+            self.crt.load_state_dict(save_dict['crt'])
+            self.crt_opt.load_state_dict(save_dict['crt_opt'])
+
     def train(self):
         torch.cuda.set_device(self.local_rank)
 
@@ -82,11 +97,24 @@ class RecTrainer(BaseTrainer):
         dwt_weight = self.train_cfg.loss_weights.get('dwt', 1.0)
         l1_weight = self.train_cfg.loss_weights.get('l1', 0.0)
         l2_weight = self.train_cfg.loss_weights.get('l2', 0.0)
+        crt_weight = self.train_cfg.loss_weights.get('crt', 0.0)
+
+        def warmup_crt_weight():
+            if self.total_step_counter >= 1000:
+                return crt_weight
+            progress = self.total_step_counter / 1000
+            progress = min(1.0, max(0.0, progress))
+            return crt_weight * (1 - np.cos(progress * np.pi)) / 2
 
         # Prepare model, lpips, ema
         self.model = self.model.cuda().train()
+        if self.crt is not None:
+            self.crt = self.crt.cuda().train()
         if self.world_size > 1:
-            self.model = DDP(self.model)
+            self.model = DDP(self.model, find_unused_parameters=True)
+            if self.crt is not None:
+                self.crt = DDP(self.crt, find_unused_parameters=True)
+                freeze(self.crt)
 
         lpips = None
         if lpips_weight > 0.0:
@@ -105,6 +133,9 @@ class RecTrainer(BaseTrainer):
             self.opt = init_muon(self.model, rank=self.rank,world_size=self.world_size,**self.train_cfg.opt_kwargs)
         else:
             self.opt = getattr(torch.optim, self.train_cfg.opt)(self.model.parameters(), **self.train_cfg.opt_kwargs)
+
+        if self.crt is not None:
+            self.crt_opt = getattr(torch.optim, self.train_cfg.opt)(self.crt.parameters(), **self.train_cfg.opt_kwargs)
 
         if self.train_cfg.scheduler is not None:
             self.scheduler = get_scheduler_cls(self.train_cfg.scheduler)(self.opt, **self.train_cfg.scheduler_kwargs)
@@ -135,6 +166,17 @@ class RecTrainer(BaseTrainer):
                 with ctx:
                     batch_rec, mu, logvar = self.model(batch)
                     z = mu # For logging
+
+                    if self.crt is not None:
+                        # z is [b,c,h,w], we want [b,hw,c]
+                        z_flat = eo.rearrange(z, 'b c h w -> b (h w) c')
+                        unfreeze(self.crt)
+                        crt_loss_local = self.crt(z_flat.detach()) / accum_steps
+                        self.scaler.scale(crt_loss_local).backward()
+                        freeze(self.crt)
+                        crt_loss = self.crt(z_flat) / accum_steps
+                        metrics.log('crt_loss', crt_loss)
+                        total_loss += warmup_crt_weight() * crt_loss
  
                     if kl_weight > 0.0:
                         reg_loss = latent_reg_loss(mu, logvar) / accum_steps
@@ -174,10 +216,15 @@ class RecTrainer(BaseTrainer):
                 if local_step % accum_steps == 0:
                     # Updates
                     self.scaler.unscale_(self.opt)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
                     self.scaler.step(self.opt)
                     self.opt.zero_grad(set_to_none=True)
+
+                    if self.crt is not None:
+                        self.scaler.unscale_(self.crt_opt)
+                        torch.nn.utils.clip_grad_norm_(self.crt.parameters(), max_norm=10.0)
+                        self.scaler.step(self.crt_opt)
+                        self.crt_opt.zero_grad(set_to_none=True)
 
                     self.scaler.update()
 
