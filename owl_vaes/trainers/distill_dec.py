@@ -116,9 +116,10 @@ class DistillDecTrainer(BaseTrainer):
         lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
         gan_weight = self.train_cfg.loss_weights.get('gan', 0.1)
         r12_weight = self.train_cfg.loss_weights.get('r12', 0.0)
-        feature_matching_weight = self.train_cfg.loss_weights.get('feature_matching', 5.0)
-        dwt_weight = self.train_cfg.loss_weights.get('dwt', 1.0)
-        l1_weight = self.train_cfg.loss_weights.get('l1', 1.0)
+        feature_matching_weight = self.train_cfg.loss_weights.get('feature_matching', 0.0)
+        dwt_weight = self.train_cfg.loss_weights.get('dwt', 0.0)
+        l1_weight = self.train_cfg.loss_weights.get('l1', 0.0)
+        l2_weight = self.train_cfg.loss_weights.get('l2', 0.0)
 
         # Prepare model, lpips, ema
         self.model = self.model.to(self.device).train()
@@ -134,7 +135,7 @@ class DistillDecTrainer(BaseTrainer):
 
         lpips = None
         if lpips_weight > 0.0:
-            lpips = get_lpips_cls(self.train_cfg.lpips_id)(self.device).to(self.device).eval()
+            lpips = get_lpips_cls(self.train_cfg.lpips_type)(self.device).to(self.device).eval()
             freeze(lpips)
 
         self.encoder = self.encoder.to(self.device).bfloat16().eval()
@@ -288,9 +289,10 @@ class DistillDecTrainer(BaseTrainer):
                         self.scaler.scale(disc_loss).backward()
                         freeze(self.discriminator)
 
-                    mse_loss = F.mse_loss(batch_rec, batch) / accum_steps
-                    total_loss += mse_loss
-                    metrics.log('mse_loss', mse_loss)
+                    if l2_weight > 0.0:
+                        l2_loss = F.mse_loss(batch_rec, batch) / accum_steps
+                        total_loss += l2_loss * l2_weight
+                        metrics.log('l2_loss', l2_loss)
 
                     if lpips_weight > 0.0:
                         with ctx:
