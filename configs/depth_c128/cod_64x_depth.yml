@@ -3,17 +3,17 @@ model:
   model_id: dcae
   sample_size: [360,640]
   channels: 4
-  latent_size: 4
+  latent_size: 8
   latent_channels: 128
 
   noise_decoder_inputs: 0.0
   ch_0: 256
   ch_max: 2048
 
-  encoder_blocks_per_stage: [3, 3, 3, 3, 3, 3, 3]
-  decoder_blocks_per_stage: [3, 3, 3, 3, 3, 3, 3]
+  encoder_blocks_per_stage: [3, 3, 3, 3, 3, 3]
+  decoder_blocks_per_stage: [3, 3, 3, 3, 3, 3]
 
-  checkpoint_grads: true
+  use_middle_block: false
 
 train:
   trainer_id: rec
