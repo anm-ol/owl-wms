@@ -37,15 +37,15 @@ train:
   loss_weights:
     kl: 1.0e-6
     lpips: 12.0
-    l1: 1.0
-    dwt: 0.5
+    l2: 1.0
+    dwt: 0.0
 
   scheduler: LinearWarmup
   scheduler_kwargs:
     warmup_steps: 3000
     min_lr: 3.0e-6
 
-  checkpoint_dir: checkpoints/cod_128x_depth
+  checkpoint_dir: checkpoints/cod_128x_depth_l2only
   resume_ckpt: checkpoints/cod_128x_depth/step_65000.pt
 
   sample_interval: 1000
@@ -54,4 +54,4 @@ train:
 wandb:
   name: ${env:WANDB_USER_NAME}
   project: new_vaes
-  run_name: 64x_depth_c64
+  run_name: 64x_depth_c64_l2_nodwt
