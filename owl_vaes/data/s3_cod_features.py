@@ -105,7 +105,8 @@ class S3CoDDataset(IterableDataset):
                 if self.target_size is not None:
                     image = image.resize((self.target_size[1],self.target_size[0]), Image.Resampling.LANCZOS)
                 return image
-        except:
+        except Exception as e:
+            print(f"Failed to process image {image_name}: {e}")
             return None
         return None
 
@@ -122,6 +123,9 @@ class S3CoDDataset(IterableDataset):
                     with tarfile.open(fileobj=tar_file) as tar:
                         members = tar.getmembers()
                         
+                        # Collect all available files for efficient lookup
+                        available_files = {member.name for member in members}
+                        
                         # Process all jpg files
                         for member in members:
                             if member.name.endswith('.jpg') and not member.name.endswith(('.depth.jpg', '.flow.jpg')):
@@ -132,19 +136,35 @@ class S3CoDDataset(IterableDataset):
                                 result = [image]
                                 
                                 if self.include_depth:
+                                    # Try both naming conventions for depth files
                                     depth_name = member.name.replace('.jpg', '.depth.jpg')
-                                    depth_image = self.process_image_file(tar, depth_name)
-                                    if depth_image is None:
-                                        continue
-                                    result.append(depth_image)
+                                    if depth_name not in available_files:
+                                        # Fallback to the malformed naming convention
+                                        depth_name = member.name + '.depth.jpg'
                                     
+                                    if depth_name in available_files:
+                                        depth_image = self.process_image_file(tar, depth_name)
+                                        if depth_image is None:
+                                            continue
+                                        result.append(depth_image)
+                                    else:
+                                        continue  # Skip if no depth file found
+                                        
                                 if self.include_flow:
-                                    flow_name = member.name.replace('.jpg', '.flow.jpg') 
-                                    flow_image = self.process_image_file(tar, flow_name)
-                                    if flow_image is None:
-                                        continue
-                                    result.append(flow_image)
+                                    # Try both naming conventions for flow files
+                                    flow_name = member.name.replace('.jpg', '.flow.jpg')
+                                    if flow_name not in available_files:
+                                        # Fallback to the malformed naming convention
+                                        flow_name = member.name + '.flow.jpg'
                                     
+                                    if flow_name in available_files:
+                                        flow_image = self.process_image_file(tar, flow_name)
+                                        if flow_image is None:
+                                            continue
+                                        result.append(flow_image)
+                                    else:
+                                        continue  # Skip if no flow file found
+                                        
                                 if len(result) > 1:
                                     self.data_queue.add(tuple(result))
                                 else:
@@ -266,7 +286,10 @@ def get_loader(batch_size, **data_kwargs):
 
 if __name__ == "__main__":
     import time
-    loader = get_loader(4, include_depth = True, bucket_name='cod-raw-360p-30fs',prefix='depth-and-raw')
+    from ..configs import Config
+
+    cfg = Config.from_yaml('configs/gta/gta_64x_depth.yml')
+    loader = get_loader(cfg.train.target_batch_size, **cfg.train.data_kwargs)
 
     start = time.time()
     batch = next(iter(loader))

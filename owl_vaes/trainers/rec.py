@@ -52,6 +52,7 @@ class RecTrainer(BaseTrainer):
 
         self.total_step_counter = 0
 
+        self.crt = None
         if self.train_cfg.loss_weights.get('crt', 0.0) > 0.0:
             self.crt = CRT(self.model_cfg.latent_channels)
             self.crt_opt = None
@@ -94,7 +95,7 @@ class RecTrainer(BaseTrainer):
         # Loss weights
         kl_weight =  self.train_cfg.loss_weights.get('kl', 0.0)
         lpips_weight = self.train_cfg.loss_weights.get('lpips', 0.0)
-        dwt_weight = self.train_cfg.loss_weights.get('dwt', 1.0)
+        dwt_weight = self.train_cfg.loss_weights.get('dwt', 0.0)
         l1_weight = self.train_cfg.loss_weights.get('l1', 0.0)
         l2_weight = self.train_cfg.loss_weights.get('l2', 0.0)
         crt_weight = self.train_cfg.loss_weights.get('crt', 0.0)
