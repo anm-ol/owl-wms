@@ -173,8 +173,9 @@ class DiffusionDecoderTrainer(BaseTrainer):
                 local_step += 1
                 if local_step % accum_steps == 0:
                     # Updates
-                    self.scaler.unscale_(self.opt)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    if self.train_cfg.opt.lower() != "muon":
+                        self.scaler.unscale_(self.opt)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                     self.scaler.step(self.opt)
                     self.opt.zero_grad(set_to_none=True)
@@ -194,7 +195,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
-                                ema_rec = flow_sample(self.get_ema_core(), latent_batch, teacher_z, 20, self.flux_vae.decoder, scaling_factor = self.train_cfg.ldm_scale)
+                                ema_rec = flow_sample(self.get_ema_core(), latent_batch, teacher_z, self.train_cfg.sampling_steps, self.flux_vae.decoder, scaling_factor = self.train_cfg.ldm_scale)
 
                             wandb_dict['samples'] = to_wandb(
                                 batch.detach().contiguous().bfloat16(),
