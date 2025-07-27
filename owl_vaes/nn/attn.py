@@ -15,20 +15,6 @@ torch.backends.cuda.enable_flash_sdp(enabled=True)
 from einops._torch_specific import allow_ops_in_compiled_graph
 allow_ops_in_compiled_graph()
 
-def create_block_causal_mask(tokens, tokens_per_block):
-    frames = tokens // tokens_per_block
-    
-    # Create base causal mask, nothing is masked
-    mask = torch.zeros(tokens, tokens).bool()
-    
-    # Allow attention within each frame
-    for i in range(frames):
-        start = i * tokens_per_block
-        end = (i + 1) * tokens_per_block
-        mask[start:end, end:] = True # It can't see anything after its end
-        
-    return mask
-
 class Attn(nn.Module):
     def __init__(self, config : TransformerConfig):
         super().__init__()
@@ -39,11 +25,10 @@ class Attn(nn.Module):
         self.out = nn.Linear(config.d_model, config.d_model)
 
         self.qk_norm = QKNorm(config.d_model // config.n_heads)
-        self.rope = RoPEEmbedding(config)
+        #self.rope = RoPEEmbedding(config)
         self.causal = config.causal
 
         self.layer_ind = None
-        if self.causal: self.block_size = config.block_size
 
     def forward(self, x, kv_cache = None):
         # x: [b, n, d_model]
@@ -58,30 +43,9 @@ class Attn(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]  # each [b, h, n, d]
 
         q, k = self.qk_norm(q, k)
-
-        if not self.causal or (kv_cache is not None and len(kv_cache) > 0):
-            mask = None  # Note that if KV cache is being used, masks are pointless
-        else:
-            mask = create_block_causal_mask(q.shape[2], self.block_size)
-            mask = mask.to(device=x.device, dtype=torch.bool)
-            mask = mask.unsqueeze(0).repeat(b, 1, 1)
-            mask = mask.unsqueeze(1)  # [b,1,n,n]
-
-        if kv_cache is not None:
-            old_k, old_v = kv_cache.get(self.layer_ind)
-            len_k = old_k.shape[2]
-            new_k = torch.cat([old_k, k], dim=2).contiguous()
-            new_v = torch.cat([old_v, v], dim=2).contiguous()
-
-            q, new_k = self.rope(q, new_k)
-            if kv_cache.should_update:
-                kv_cache.update(new_k, new_v, self.layer_ind)
-
-            x_out = F.scaled_dot_product_attention(q, new_k, new_v, attn_mask=mask)
-            x_out = x_out[:, :, -q.shape[2]:]
-        else:
-            q, k = self.rope(q, k)
-            x_out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        #q, k = self.rope(q, k)
+        x_out = F.scaled_dot_product_attention(q, k, v)
+        x_out = x_out.to(x.dtype)
 
         # Rearrange from [b, h, n, d] -> [b, n, h * d]
         x_out = x_out.permute(0, 2, 1, 3).contiguous().view(b, n, h * d)

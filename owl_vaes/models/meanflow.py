@@ -88,7 +88,7 @@ class MeanFlowImage(nn.Module):
         self.core = MeanFlowImageCore(config)
         self.ts_mu = -0.4
         self.ts_sigma = 1.0
-        self.ts_ratio = 0.25  # percent to force r = t
+        self.ts_ratio = 0.75  # percent to force r = t
 
     @torch.no_grad()
     def sample_timesteps(self, b, device, dtype):
@@ -97,7 +97,7 @@ class MeanFlowImage(nn.Module):
         sigma = self.ts_sigma
         ratio = self.ts_ratio
 
-        eq_mask = torch.rand(b, device=device, dtype=dtype) < ratio
+        eq_mask = torch.rand(b, device=device, dtype=dtype) <= ratio
 
         t_both = torch.randn(b, 2, device=device, dtype=dtype)
         t_both = t_both * sigma + mu
@@ -136,9 +136,8 @@ class MeanFlowImage(nn.Module):
             v_eq = v[idx]
             z_eq = z[idx]
 
-            with sdpa_kernel(SDPBackend.MATH):
-                with torch.autocast(device_type='cuda', enabled=False):
-                    u_pred_eq = self.core(noisy_x_eq, z_eq, t_eq, r=r_eq)
+            u_pred_eq = self.core(noisy_x_eq, z_eq, t_eq, r=r_eq)
+
             u_pred[idx] = u_pred_eq
             u_targ[idx] = v_eq
 
@@ -153,21 +152,19 @@ class MeanFlowImage(nn.Module):
             z_neq = z[idx]
             ts_diff = (t_neq - r_neq)[:, None, None, None]
 
-            def fn(noisy_x_in, r_in, t_in, z_in):
-                return self.core(noisy_x_in, z_in, t_in, r=r_in)
+            def fn(noisy_x_in, r_in, t_in):
+                return self.core(noisy_x_in, z_neq.float(), t_in, r=r_in)
 
             # Convert to float32 for JVP computation to avoid type mismatch
             primals_f32 = (
                 noisy_x_neq.detach().float(), 
                 r_neq.float(), 
                 t_neq.float(), 
-                z_neq.detach().float()
             )
             tangents_f32 = (
                 v_neq.detach().float(), 
                 torch.zeros_like(r_neq).float(), 
-                torch.ones_like(t_neq).float(), 
-                torch.zeros_like(z_neq).float()
+                torch.ones_like(t_neq).float()
             )
             
             with sdpa_kernel(SDPBackend.MATH):
@@ -179,11 +176,29 @@ class MeanFlowImage(nn.Module):
             u_out = u_out_f32.to(x.dtype)
             dudt_out = dudt_out_f32.to(x.dtype)
             
-            
             u_pred[idx] = u_out
-            u_targ[idx] = (v_neq - dudt_out * ts_diff).detach()
+            u_targ[idx] = (v_neq - dudt_out * ts_diff)
 
-        return F.mse_loss(u_pred, u_targ)
+        # Debug: Print means, mins, maxes for u_targ and u_pred in both branches
+
+        # Branch 1: r == t
+        #if eq_mask.any():
+        #    print("Branch 1 (r == t):")
+        #    print("  u_targ (mean, min, max):", u_targ[eq_mask].mean().item(), u_targ[eq_mask].min().item(), u_targ[eq_mask].max().item())
+        #    print("  u_pred (mean, min, max):", u_pred[eq_mask].mean().item(), u_pred[eq_mask].min().item(), u_pred[eq_mask].max().item())
+
+        # Branch 2: r != t
+        #if neq_mask.any():
+        #    print("Branch 2 (r != t):")
+        #    print("  u_targ (mean, min, max):", u_targ[neq_mask].mean().item(), u_targ[neq_mask].min().item(), u_targ[neq_mask].max().item())
+        #    print("  u_pred (mean, min, max):", u_pred[neq_mask].mean().item(), u_pred[neq_mask].min().item(), u_pred[neq_mask].max().item())
+
+        #    # Print stats about v_neq, dudt_out, ts_diff
+        #    print("  v_neq (mean, min, max):", v_neq.mean().item(), v_neq.min().item(), v_neq.max().item())
+        #    print("  dudt_out (mean, min, max):", dudt_out.mean().item(), dudt_out.min().item(), dudt_out.max().item())
+        #    print("  ts_diff (mean, min, max):", ts_diff.mean().item(), ts_diff.min().item(), ts_diff.max().item())
+
+        return F.mse_loss(u_pred, u_targ.detach())
 
         #error = u_pred - u_targ
         #error_norm = torch.norm(error.reshape(b, -1), dim=1)

@@ -6,6 +6,7 @@ import einops as eo
 
 from .attn import Attn
 from ..configs import TransformerConfig
+from .normalization import LayerNorm
 
 """
 Building blocks for SANA modules and residuals
@@ -67,4 +68,43 @@ class ResidualAttn(nn.Module):
         x = self.norm(x)
         x = self.attn(x)
         x = res + self.layerscale * x
+        return x
+
+class SanaAttn(nn.Module):
+    def __init__(self, ch):
+        super().__init__()
+
+        config = TransformerConfig(
+            d_model = ch,
+            n_heads = ch // 64
+        )
+
+        self.norm1 = LayerNorm(ch)
+        self.norm2 = LayerNorm(ch)
+
+        self.attn = Attn(config)
+        self.mlp = nn.Sequential(
+            nn.Linear(ch, ch * 4),
+            nn.SiLU(),
+            nn.Linear(ch * 4, ch)
+        )
+
+    def forward(self, x):
+
+        b, c, h, w = x.shape
+        x = x.permute(0, 2, 3, 1).reshape(b, h * w, c)  # [b, c, h, w] -> [b, hw, c]
+
+        res = x.clone()
+
+        x = self.norm1(x)
+        x = self.attn(x)
+        x = res + x
+
+        res2 = x.clone()
+        x = self.norm2(x)
+        x = self.mlp(x)
+
+        x = x + res2
+
+        x = x.reshape(b, h, w, c).permute(0, 3, 1, 2)  # [b, hw, c] -> [b, c, h, w]
         return x
