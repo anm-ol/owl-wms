@@ -116,7 +116,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
         self.ema = EMA(
             self.model,
-            beta = 0.9999,
+            beta = 0.999,
             update_after_step = 0,
             update_every = 1
         )
