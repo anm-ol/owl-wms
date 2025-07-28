@@ -24,7 +24,7 @@ train:
     include_depth: true
 
   target_batch_size: 256
-  batch_size: 32
+  batch_size: 16
 
   epochs: 200
 
