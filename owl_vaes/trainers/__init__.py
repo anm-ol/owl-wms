@@ -4,7 +4,6 @@ from .audio_rec import AudioRecTrainer
 from .proxy import ProxyTrainer
 from .rec import RecTrainer
 from .decoder_tune import DecTuneTrainer
-from .diffdec_trainer import DiffusionDecoderTrainer
 
 def get_trainer_cls(trainer_id: Literal["rec", "proxy", "audio_rec"]):
     match trainer_id:
@@ -20,6 +19,7 @@ def get_trainer_cls(trainer_id: Literal["rec", "proxy", "audio_rec"]):
             from .audio_decoder_tune import AudDecTuneTrainer
             return AudDecTuneTrainer
         case "diff_dec":
+            from .diffdec_trainer import DiffusionDecoderTrainer
             return DiffusionDecoderTrainer
         case "dec_tune_v2":
             from .dec_tune_v2 import DecTuneV2Trainer
@@ -36,5 +36,8 @@ def get_trainer_cls(trainer_id: Literal["rec", "proxy", "audio_rec"]):
         case "diffdec_dmd":
             from .diffdec_dmd_trainer import DiffDMDTrainer
             return DiffDMDTrainer
+        case "dcae_tune":
+            from .distill_dcae_test import DCAETuneTrainer
+            return DCAETuneTrainer
         case _:
             raise NotImplementedError

@@ -3,7 +3,7 @@ import torch
 from tqdm import tqdm
 
 @torch.no_grad()
-def flow_sample(model, dummy, z, steps, decoder, scaling_factor = 1.0, progress_bar = True):
+def flow_sample(model, dummy, z, steps, decoder=None, scaling_factor = 1.0, progress_bar = True):
     x = torch.randn_like(dummy)
     ts = torch.ones(len(z), device = z.device, dtype = z.dtype)
 
@@ -15,8 +15,9 @@ def flow_sample(model, dummy, z, steps, decoder, scaling_factor = 1.0, progress_
     else:
         x = x - model(x, z, ts)
 
-    x = x.bfloat16() * scaling_factor
-    x = decoder(x)
+    if decoder is not None:
+        x = x.bfloat16() * scaling_factor
+        x = decoder(x)
     x = x.clamp(-1,1)
     
     return x
