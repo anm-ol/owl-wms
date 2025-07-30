@@ -7,10 +7,12 @@ class MLP(nn.Module):
 
         self.fc1 = nn.Linear(config.d_model, 4 * config.d_model)
         self.fc2 = nn.Linear(4 * config.d_model, config.d_model)
+        self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
         x = self.fc1(x)
         x = F.silu(x)
+        x = self.dropout(x)
         x = self.fc2(x)
         return x
 

@@ -93,6 +93,7 @@ class DistillEncTrainer(BaseTrainer):
         # Loss weights
         l1_weight = self.train_cfg.loss_weights.get('l1', 0.0)
         l2_weight = self.train_cfg.loss_weights.get('l2', 1.0)
+        student_ch = self.model_cfg.channels
 
         # Prepare model
         self.model = self.model.to(self.device).train()
@@ -150,7 +151,7 @@ class DistillEncTrainer(BaseTrainer):
                     with torch.no_grad():
                         teacher_z = self.teacher_encoder(batch) / self.train_cfg.latent_scale
                     
-                    student_z = self.model(batch) / self.train_cfg.latent_scale
+                    student_z = self.model(batch[:,:student_ch]) / self.train_cfg.latent_scale
 
                     # Loss computation
                     if l2_weight > 0.0:
@@ -194,8 +195,8 @@ class DistillEncTrainer(BaseTrainer):
                                 teacher_latent = self.teacher_encoder(batch)
                                 student_latent = self.ema.ema_model(batch) * self.train_cfg.latent_scale
                                 
-                                teacher_rec = self.teacher_decoder(teacher_latent)[:,:3]
-                                student_rec = self.teacher_decoder(student_latent)[:,:3]
+                                teacher_rec = self.teacher_decoder(teacher_latent)
+                                student_rec = self.teacher_decoder(student_latent)
 
                             wandb_dict['samples'] = to_wandb(
                                 teacher_rec.detach().contiguous().bfloat16(),

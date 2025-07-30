@@ -18,6 +18,14 @@ from ..sampling import flow_sample
 
 from diffusers import AutoencoderTiny, AutoencoderDC
 
+def get_vae(vae_id):
+    if vae_id == "taef1":
+        return AutoencoderTiny.from_pretrained("madebyollin/taef1")
+    elif vae_id == "dcae":
+        return AutoencoderDC.from_pretrained("mit-han-lab/dc-ae-f32c32-mix-1.0-diffusers")
+    else:
+        raise ValueError(f"VAE {vae_id} not found")
+
 class DiffusionDecoderTrainer(BaseTrainer):
     """
     Trainer for diffusion decoder with frozen encoder.
@@ -46,6 +54,8 @@ class DiffusionDecoderTrainer(BaseTrainer):
             teacher.encoder.load_state_dict(teacher_ckpt)
 
         self.encoder = teacher.encoder
+        self.teacher_cfg = teacher_cfg
+        self.teacher_size = teacher_cfg.sample_size
         del teacher.decoder
 
         model_id = self.model_cfg.model_id
@@ -101,10 +111,8 @@ class DiffusionDecoderTrainer(BaseTrainer):
         if self.world_size > 1:
             self.model = DDP(self.model)
 
-        self.encoder = self.encoder.to(self.device).bfloat16().eval()
-        #self.flux_vae = AutoencoderTiny.from_pretrained("madebyollin/taef1").bfloat16().cuda().eval()
-        path = "mit-han-lab/dc-ae-f32c32-mix-1.0-diffusers"
-        self.flux_vae = AutoencoderDC.from_pretrained(path).bfloat16().cuda().eval()
+        self.encoder = self.encoder.to(self.device).bfloat16().train()
+        self.flux_vae = get_vae(self.train_cfg.vae_id).bfloat16().cuda().eval()
         self.flux_vae.decoder.to(self.device)
         self.flux_vae.decoder.eval()
         self.flux_vae.decoder.to(self.device)
@@ -116,7 +124,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
         self.ema = EMA(
             self.model,
-            beta = 0.9999,
+            beta = 0.999,
             update_after_step = 0,
             update_every = 1
         )
@@ -158,8 +166,12 @@ class DiffusionDecoderTrainer(BaseTrainer):
                 batch = batch[:,:3]
 
                 with torch.no_grad():
-                    teacher_z = self.encoder(teacher_enc_input) / self.train_cfg.latent_scale
-                    batch = F.interpolate(batch, size=(512,512), mode='bilinear', align_corners=False)
+                    teacher_enc_input = F.interpolate(teacher_enc_input, size=tuple(self.teacher_size), mode='bilinear', align_corners=False)
+                    teacher_mu, teacher_logvar = self.encoder(teacher_enc_input)
+                    teacher_z = torch.randn_like(teacher_mu) * (teacher_logvar/2).exp() + teacher_mu
+                    teacher_z = teacher_z / self.train_cfg.latent_scale
+                    
+                    batch = F.interpolate(batch, size=tuple(self.train_cfg.vae_size), mode='bilinear', align_corners=False)
                     latent_batch = self.flux_vae.encoder(batch) / self.train_cfg.ldm_scale # [b,16,45,80]
                 
                 with ctx:
@@ -173,8 +185,9 @@ class DiffusionDecoderTrainer(BaseTrainer):
                 local_step += 1
                 if local_step % accum_steps == 0:
                     # Updates
-                    self.scaler.unscale_(self.opt)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    if self.train_cfg.opt.lower() != "muon":
+                        self.scaler.unscale_(self.opt)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                     self.scaler.step(self.opt)
                     self.opt.zero_grad(set_to_none=True)
@@ -194,7 +207,7 @@ class DiffusionDecoderTrainer(BaseTrainer):
 
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
-                                ema_rec = flow_sample(self.get_ema_core(), latent_batch, teacher_z, 20, self.flux_vae.decoder, scaling_factor = self.train_cfg.ldm_scale)
+                                ema_rec = flow_sample(self.get_ema_core(), latent_batch, teacher_z, self.train_cfg.sampling_steps, self.flux_vae.decoder, scaling_factor = self.train_cfg.ldm_scale)
 
                             wandb_dict['samples'] = to_wandb(
                                 batch.detach().contiguous().bfloat16(),
