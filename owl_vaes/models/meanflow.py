@@ -155,53 +155,54 @@ class MeanFlowImage(nn.Module):
             def fn(noisy_x_in, r_in, t_in):
                 return self.core(noisy_x_in, z_neq.float(), t_in, r=r_in)
 
+            u_pred_new = self.core(noisy_x_neq, z_neq, t_neq, r=r_neq)
+            u_pred[idx] = u_pred_new
+
             # Convert to float32 for JVP computation to avoid type mismatch
-            primals_f32 = (
-                noisy_x_neq.detach().float(), 
-                r_neq.float(), 
-                t_neq.float(), 
-            )
-            tangents_f32 = (
-                v_neq.detach().float(), 
-                torch.zeros_like(r_neq).float(), 
-                torch.ones_like(t_neq).float()
-            )
-            
-            with sdpa_kernel(SDPBackend.MATH):
-                # Temporarily disable autocast for JVP
-                with torch.autocast(device_type='cuda', enabled=False):
-                    (u_out_f32, dudt_out_f32) = torch.func.jvp(fn, primals_f32, tangents_f32)
-            
-            # Convert back to original dtype
-            u_out = u_out_f32.to(x.dtype)
-            dudt_out = dudt_out_f32.to(x.dtype)
-            
-            u_pred[idx] = u_out
-            u_targ[idx] = (v_neq - dudt_out * ts_diff)
+            with torch.no_grad():
+                primals_f32 = (
+                    noisy_x_neq.detach().float(), 
+                    r_neq.float(), 
+                    t_neq.float(), 
+                )
+                tangents_f32 = (
+                    v_neq.detach().float(),
+                    torch.zeros_like(r_neq).float(),
+                    torch.ones_like(t_neq).float()
+                )
+                
+                with sdpa_kernel(SDPBackend.MATH):
+                    # Temporarily disable autocast for JVP
+                    with torch.autocast(device_type='cuda', enabled=False):
+                        (u_out_f32, dudt_out_f32) = torch.func.jvp(fn, primals_f32, tangents_f32)
+                
+                dudt_out = dudt_out_f32.to(x.dtype)
+                u_targ[idx] = (v_neq - dudt_out * ts_diff)
 
         # Debug: Print means, mins, maxes for u_targ and u_pred in both branches
 
         # Branch 1: r == t
-        #if eq_mask.any():
-        #    print("Branch 1 (r == t):")
-        #    print("  u_targ (mean, min, max):", u_targ[eq_mask].mean().item(), u_targ[eq_mask].min().item(), u_targ[eq_mask].max().item())
-        #    print("  u_pred (mean, min, max):", u_pred[eq_mask].mean().item(), u_pred[eq_mask].min().item(), u_pred[eq_mask].max().item())
+        #with torch.no_grad():
+        #    if eq_mask.any():
+        #        print("Branch 1 (r == t):")
+        #        print("  u_targ (mean, min, max):", u_targ[eq_mask].mean().item(), u_targ[eq_mask].min().item(), u_targ[eq_mask].max().item())
+        #        print("  u_pred (mean, min, max):", u_pred[eq_mask].mean().item(), u_pred[eq_mask].min().item(), u_pred[eq_mask].max().item())
 
-        # Branch 2: r != t
-        #if neq_mask.any():
-        #    print("Branch 2 (r != t):")
-        #    print("  u_targ (mean, min, max):", u_targ[neq_mask].mean().item(), u_targ[neq_mask].min().item(), u_targ[neq_mask].max().item())
-        #    print("  u_pred (mean, min, max):", u_pred[neq_mask].mean().item(), u_pred[neq_mask].min().item(), u_pred[neq_mask].max().item())
+            # Branch 2: r != t
+        #    if neq_mask.any():
+        #        print("Branch 2 (r != t):")
+        #        print("  u_targ (mean, min, max):", u_targ[neq_mask].mean().item(), u_targ[neq_mask].min().item(), u_targ[neq_mask].max().item())
+        #        print("  u_pred (mean, min, max):", u_pred[neq_mask].mean().item(), u_pred[neq_mask].min().item(), u_pred[neq_mask].max().item())
 
-        #    # Print stats about v_neq, dudt_out, ts_diff
-        #    print("  v_neq (mean, min, max):", v_neq.mean().item(), v_neq.min().item(), v_neq.max().item())
-        #    print("  dudt_out (mean, min, max):", dudt_out.mean().item(), dudt_out.min().item(), dudt_out.max().item())
-        #    print("  ts_diff (mean, min, max):", ts_diff.mean().item(), ts_diff.min().item(), ts_diff.max().item())
+            #    # Print stats about v_neq, dudt_out, ts_diff
+        #        print("  v_neq (mean, min, max):", v_neq.mean().item(), v_neq.min().item(), v_neq.max().item())
+        #        print("  dudt_out (mean, min, max):", dudt_out.mean().item(), dudt_out.min().item(), dudt_out.max().item())
+        #        print("  ts_diff (mean, min, max):", ts_diff.mean().item(), ts_diff.min().item(), ts_diff.max().item())
 
-        return F.mse_loss(u_pred, u_targ.detach())
+        #return F.mse_loss(u_pred, u_targ.detach())
+        error = u_pred - u_targ
+        error_norm = torch.norm(error.reshape(b, -1), dim=1)
+        loss = error_norm ** 2
+        loss = torch.log(loss + 1e-8)
 
-        #error = u_pred - u_targ
-        #error_norm = torch.norm(error.reshape(b, -1), dim=1)
-        #loss = error_norm ** 2
-
-        #return loss.mean()
+        return loss.mean()
