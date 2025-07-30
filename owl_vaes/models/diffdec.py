@@ -10,6 +10,7 @@ from ..configs import TransformerConfig
 from ..nn.resnet import SquareToLandscape, LandscapeToSquare
 
 from ..nn.dit import DiT, FinalLayer
+
 from ..nn.embeddings import LearnedPosEnc
 from ..nn.embeddings import TimestepEmbedding, StepEmbedding
 
@@ -31,13 +32,13 @@ class DiffusionDecoderCore(nn.Module):
         n_tokens = size[0] // config.patch_size * size[1] // config.patch_size
 
         self.proj_in = nn.Linear(config.patch_size * config.patch_size * config.channels, config.d_model, bias = False)
-        self.pos_enc_x = LearnedPosEnc(n_tokens, config.d_model)
+        #self.pos_enc_x = LearnedPosEnc(n_tokens, config.d_model)
         self.proj_out = nn.Linear(config.d_model, config.patch_size * config.patch_size * config.channels, bias = False)
 
         self.ts_embed = TimestepEmbedding(config.d_model)
         
         self.proj_in_z = nn.Linear(config.latent_channels, config.d_model)
-        self.pos_enc_z = LearnedPosEnc(config.latent_size**2, config.d_model)
+        #self.pos_enc_z = LearnedPosEnc(config.latent_size**2, config.d_model)
         
         self.final = FinalLayer(config, skip_proj = True)
 
@@ -45,7 +46,11 @@ class DiffusionDecoderCore(nn.Module):
         self.n_p_y = config.sample_size[0] // self.p
         self.n_p_x = config.sample_size[1] // self.p
 
-        self.blocks = DiT(config)
+        if config.backbone == "dit":
+            self.blocks = DiT(config)
+        elif config.backbone == "hdit":
+            from ..nn.hdit import HDiT
+            self.blocks = HDiT(config)
         self.config = config
 
     def forward(self, x, z, ts):
@@ -62,13 +67,13 @@ class DiffusionDecoderCore(nn.Module):
         x = x.permute(0, 2, 4, 3, 5, 1).contiguous()
         x = x.view(b, self.n_p_y * self.n_p_x, self.p * self.p * c)
         x = self.proj_in(x) # -> [b,n,d]
-        x = self.pos_enc_x(x)
+        #x = self.pos_enc_x(x)
 
         # Flatten spatial dimensions: [b,c,h,w] -> [b,h*w,c]
         b, c, h, w = z.shape
         z = z.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
         z = self.proj_in_z(z)
-        z = self.pos_enc_z(z)
+        #z = self.pos_enc_z(z)
         
         n = x.shape[1]
         x = torch.cat([x,z],dim=1)
@@ -83,7 +88,7 @@ class DiffusionDecoderCore(nn.Module):
         c = patch_dim // (self.p * self.p)
         x = x.view(b, self.n_p_y, self.n_p_x, self.p, self.p, c)
         x = x.permute(0, 5, 1, 3, 2, 4).contiguous()
-        x = x.view(b, c, self.n_p_y * self.p, self.n_p_x * self.p)
+        x = x.view(b, c, self.n_p_y * self.p, self.n_p_x * self.p).contiguous()
 
         return x
 
@@ -92,10 +97,21 @@ class DiffusionDecoder(nn.Module):
         super().__init__()
 
         self.core = DiffusionDecoderCore(config)
-    
+
+        self.ts_mu = -0.4
+        self.ts_sigma = 1.0
+
+    @torch.no_grad()
+    def sample_timesteps(self, b, device, dtype):
+        # Sample ts in [0, 1] from a normal distribution, then sigmoid
+        ts = torch.randn(b, device=device, dtype=dtype)
+        ts = ts * self.ts_sigma + self.ts_mu
+        ts = ts.sigmoid()
+        return ts
+
     def forward(self, x, z):
         with torch.no_grad():
-            ts = torch.randn(len(x), device = x.device, dtype = x.dtype).sigmoid()
+            ts = self.sample_timesteps(len(x), x.device, x.dtype)
 
             eps = torch.randn_like(x)
             ts_exp = ts.view(-1, 1, 1, 1).expand_as(x)

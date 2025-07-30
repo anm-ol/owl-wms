@@ -34,7 +34,7 @@ class RMSNorm(nn.Module):
         rms = (x.float().pow(2).mean(-1,keepdim=True)+1.0e-6).rsqrt().to(x.dtype)
 
         return x * rms * gain
-
+        
 class RMSNorm2d(RMSNorm):
     def forward(self, x):
         # x is [b,c,h,w]
