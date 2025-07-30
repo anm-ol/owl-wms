@@ -13,7 +13,9 @@ model:
   causal: false
   mimetic_init: false
   block_size: null
-
+  backbone: dit
+  rope_impl: image+latent
+  
 train:
   trainer_id: diff_dec
   data_id: s3_cod_features
@@ -22,6 +24,7 @@ train:
     prefix: rgb-depth-flow
     include_flow: true
     include_depth: true
+    target_size: [512,512]
 
   target_batch_size: 256
   batch_size: 16
@@ -47,7 +50,9 @@ train:
 
   latent_scale: 0.63
   ldm_scale: 0.4552
+  vae_size: [512,512]
   sampling_steps: 1
+  vae_id: dcae
 
 wandb:
   name: ${env:WANDB_USER_NAME}
