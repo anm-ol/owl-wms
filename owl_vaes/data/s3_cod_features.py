@@ -288,7 +288,7 @@ if __name__ == "__main__":
     import time
     from ..configs import Config
 
-    cfg = Config.from_yaml('configs/gta/gta_64x_depth.yml')
+    cfg = Config.from_yaml('configs/cod_yt_v2/base.yml')
     loader = get_loader(cfg.train.target_batch_size, **cfg.train.data_kwargs)
 
     start = time.time()
