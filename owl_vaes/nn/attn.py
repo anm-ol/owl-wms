@@ -8,14 +8,58 @@ from owl_vaes.configs import TransformerConfig
 from .mimetic import mimetic_init
 from .mlp import MLP
 from .normalization import LayerNorm, QKNorm
-from .embeddings import RoPEEmbedding
+from .rope import ImageRoPEWithLatent
 
 torch.backends.cuda.enable_flash_sdp(enabled=True)
 
 from einops._torch_specific import allow_ops_in_compiled_graph
 allow_ops_in_compiled_graph()
 
+try:
+    from flash_cosine_sim_attention import flash_cosine_sim_attention
+except:
+    print("Warning: Failed to import Flash Cosine Attn. It's only needed for HDiT so you can ignore if not needed.")
+
 class Attn(nn.Module):
+    def __init__(self, config : TransformerConfig):
+        super().__init__()
+
+        self.n_heads = config.n_heads
+
+        self.qkv = nn.Linear(config.d_model, 3 * config.d_model, bias = False)
+        self.out = nn.Linear(config.d_model, config.d_model, bias = False)
+
+        self.qk_norm = QKNorm(config.d_model // config.n_heads)
+        self.rope = ImageRoPEWithLatent(config) if config.rope_impl == "image+latent" else ImageRoPE(config)
+        self.causal = config.causal
+
+        self.layer_ind = None
+
+        nn.init.zeros_(self.out.weight)
+
+    def forward(self, x, kv_cache = None):
+        # x: [b, n, d_model]
+        b, n, d_model = x.shape
+        h = self.n_heads
+        d = d_model // h
+
+        # Linear projection and split into q, k, v
+        qkv = self.qkv(x)  # [b, n, 3 * d_model]
+        qkv = qkv.view(b, n, 3, h, d)  # [b, n, 3, h, d]
+        qkv = qkv.permute(2, 0, 3, 1, 4)  # [3, b, h, n, d]
+        q, k, v = qkv[0], qkv[1], qkv[2]  # each [b, h, n, d]
+
+        q, k = self.qk_norm(q, k)
+        q, k = self.rope(q, k)
+        x_out = F.scaled_dot_product_attention(q, k, v)
+        x_out = x_out.to(x.dtype)
+
+        # Rearrange from [b, h, n, d] -> [b, n, h * d]
+        x_out = x_out.permute(0, 2, 1, 3).contiguous().view(b, n, h * d)
+        x_out = self.out(x_out)
+        return x_out
+
+class CosSimAttn(nn.Module):
     def __init__(self, config : TransformerConfig):
         super().__init__()
 
@@ -25,7 +69,7 @@ class Attn(nn.Module):
         self.out = nn.Linear(config.d_model, config.d_model)
 
         self.qk_norm = QKNorm(config.d_model // config.n_heads)
-        #self.rope = RoPEEmbedding(config)
+        self.rope = ImageRoPEWithLatent(config) if config.rope_impl == "image+latent" else ImageRoPE(config)
         self.causal = config.causal
 
         self.layer_ind = None
@@ -43,8 +87,8 @@ class Attn(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]  # each [b, h, n, d]
 
         q, k = self.qk_norm(q, k)
-        #q, k = self.rope(q, k)
-        x_out = F.scaled_dot_product_attention(q, k, v)
+        q, k = self.rope(q, k)
+        x_out = flash_cosine_sim_attention(q, k, v, causal = False)
         x_out = x_out.to(x.dtype)
 
         # Rearrange from [b, h, n, d] -> [b, n, h * d]
