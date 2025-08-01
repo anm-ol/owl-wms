@@ -26,6 +26,7 @@ class Encoder(nn.Module):
         latent_size = config.latent_size
         ch_0 = config.ch_0
         ch_max = config.ch_max
+        self.skip_logvar = getattr(config, "skip_logvar", False)
 
         self.conv_in = LandscapeToSquare(size, config.channels, ch_0) if is_landscape(size) else weight_norm(nn.Conv2d(config.channels, ch_0, 3, 1, 1))
 
@@ -52,7 +53,7 @@ class Encoder(nn.Module):
 
         self.avg_factor = ch // config.latent_channels
         self.conv_out = weight_norm(nn.Conv2d(ch, config.latent_channels, 1, 1, 0))
-        self.conv_out_logvar = weight_norm(nn.Conv2d(ch, config.latent_channels, 1, 1, 0))
+        self.conv_out_logvar = weight_norm(nn.Conv2d(ch, config.latent_channels, 1, 1, 0)) if not self.skip_logvar else None
 
     @torch.no_grad()
     def sample(self, x):
@@ -78,6 +79,9 @@ class Encoder(nn.Module):
         if not self.training:
             return mu
         else:
+            if self.skip_logvar:
+                return mu
+
             logvar = self.conv_out_logvar(x)
 
             return mu, logvar

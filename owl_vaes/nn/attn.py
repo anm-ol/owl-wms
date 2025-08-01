@@ -30,7 +30,13 @@ class Attn(nn.Module):
         self.out = nn.Linear(config.d_model, config.d_model, bias = False)
 
         self.qk_norm = QKNorm(config.d_model // config.n_heads)
-        self.rope = ImageRoPEWithLatent(config) if config.rope_impl == "image+latent" else ImageRoPE(config)
+        rope_impl = getattr(config, "rope_impl", None)
+        if rope_impl is None:
+            self.rope = None
+        elif rope_impl == "image+latent":
+            self.rope = ImageRoPEWithLatent(config)
+        else:
+            raise ValueError(f"Invalid rope implementation: {rope_impl}")
         self.causal = config.causal
 
         self.layer_ind = None
@@ -50,7 +56,8 @@ class Attn(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]  # each [b, h, n, d]
 
         q, k = self.qk_norm(q, k)
-        q, k = self.rope(q, k)
+        if self.rope is not None:
+            q, k = self.rope(q, k)
         x_out = F.scaled_dot_product_attention(q, k, v)
         x_out = x_out.to(x.dtype)
 

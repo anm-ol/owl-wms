@@ -32,13 +32,17 @@ class DiffusionDecoderCore(nn.Module):
         n_tokens = size[0] // config.patch_size * size[1] // config.patch_size
 
         self.proj_in = nn.Linear(config.patch_size * config.patch_size * config.channels, config.d_model, bias = False)
-        #self.pos_enc_x = LearnedPosEnc(n_tokens, config.d_model)
+
         self.proj_out = nn.Linear(config.d_model, config.patch_size * config.patch_size * config.channels, bias = False)
 
         self.ts_embed = TimestepEmbedding(config.d_model)
         
         self.proj_in_z = nn.Linear(config.latent_channels, config.d_model)
-        #self.pos_enc_z = LearnedPosEnc(config.latent_size**2, config.d_model)
+
+        self.rope_impl = getattr(config, "rope_impl", None)
+        if self.rope_impl is None:
+            self.pos_enc_x = LearnedPosEnc(n_tokens, config.d_model)
+            self.pos_enc_z = LearnedPosEnc(config.latent_size**2, config.d_model)
         
         self.final = FinalLayer(config, skip_proj = True)
 
@@ -53,6 +57,7 @@ class DiffusionDecoderCore(nn.Module):
             self.blocks = HDiT(config)
         self.config = config
 
+    @torch.compile
     def forward(self, x, z, ts):
         # x is [b,c,h,w]
         # z is [b,c,h,w] but different size cause latent
@@ -67,13 +72,15 @@ class DiffusionDecoderCore(nn.Module):
         x = x.permute(0, 2, 4, 3, 5, 1).contiguous()
         x = x.view(b, self.n_p_y * self.n_p_x, self.p * self.p * c)
         x = self.proj_in(x) # -> [b,n,d]
-        #x = self.pos_enc_x(x)
+        if self.rope_impl is None:
+            x = self.pos_enc_x(x)
 
         # Flatten spatial dimensions: [b,c,h,w] -> [b,h*w,c]
         b, c, h, w = z.shape
         z = z.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
         z = self.proj_in_z(z)
-        #z = self.pos_enc_z(z)
+        if self.rope_impl is None:
+            z = self.pos_enc_z(z)
         
         n = x.shape[1]
         x = torch.cat([x,z],dim=1)
@@ -98,7 +105,7 @@ class DiffusionDecoder(nn.Module):
 
         self.core = DiffusionDecoderCore(config)
 
-        self.ts_mu = -0.4
+        self.ts_mu = 0.0
         self.ts_sigma = 1.0
 
     @torch.no_grad()

@@ -43,7 +43,7 @@ class ImageRoPE(nn.Module):
         # Assume x is [b,h,n,d], must reshape to [b,h,n_p_y,n_p_x,d]
         b,h,n,d = x.shape
         x = x.view(b,h,self.n_p_y,self.n_p_x,d)
-        x = apply_rotary_emb(self.freqs.detach(), x)
+        x = apply_rotary_emb(self.freqs.detach().double(), x.double()).to(x.dtype)
         x = x.view(b,h,n,d)
         return x
     
