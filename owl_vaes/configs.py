@@ -34,6 +34,7 @@ class ResNetConfig(VAEConfig):
     decoder_blocks_per_stage : list = None
 
     attn_size : int = None  # When size is less than this, attention will be used
+    skip_logvar: bool = False
 
 @dataclass
 class TransformerConfig(VAEConfig):

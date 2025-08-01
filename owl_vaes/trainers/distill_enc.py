@@ -193,7 +193,7 @@ class DistillEncTrainer(BaseTrainer):
                         if self.total_step_counter % self.train_cfg.sample_interval == 0:
                             with ctx:
                                 teacher_latent = self.teacher_encoder(batch)
-                                student_latent = self.ema.ema_model(batch) * self.train_cfg.latent_scale
+                                student_latent = self.ema.ema_model(batch[:,:student_ch]) * self.train_cfg.latent_scale
                                 
                                 teacher_rec = self.teacher_decoder(teacher_latent)
                                 student_rec = self.teacher_decoder(student_latent)
