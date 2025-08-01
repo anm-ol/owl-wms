@@ -45,8 +45,8 @@ train:
     warmup_steps: 3000
     min_lr: 3.0e-6
 
-  checkpoint_dir: checkpoints/1x_rgb_depth
-  resume_ckpt: null #checkpoints/cod_128x_depth/step_65000.pt
+  checkpoint_dir: checkpoints/1x_rgb_no_depth
+  resume_ckpt: checkpoints/1x_rgb_no_depth/step_80000.pt
 
   sample_interval: 1000
   save_interval: 5000
