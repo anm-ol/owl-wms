@@ -13,3 +13,7 @@ typings/
 .vscode
 my_data/
 **egg**
+*.mp4
+*.npz
+*.txt
+*.pt

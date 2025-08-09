@@ -4,26 +4,30 @@ model:
   channels: 3
   latent_size: 8
   latent_channels: 32
-
   ch_0: 128
   ch_max: 512
-
   encoder_blocks_per_stage: [4, 4, 4, 4, 4]
   decoder_blocks_per_stage: [4, 4, 4, 4, 4]
-
   use_middle_block: false
+
+  discriminator:
+    model_id: dec_tune_v2
+    ch_0: 64
+    ch_max: 512
+    sample_size: [512, 512] # Match the model output size
+    blocks_per_stage: 1
 
 train:
   trainer_id: rec
-  data_id: mnist
+  data_id: t3
   data_kwargs: {}
     #bucket_name: 1x-frames
     #prefix: depth-and-rgb
     #include_depth: false
     #target_size: [512, 512]
 
-  target_batch_size: 64
-  batch_size: 32
+  target_batch_size: 40
+  batch_size: 20
 
   epochs: 200
 
@@ -42,11 +46,21 @@ train:
 
   scheduler: LinearWarmup
   scheduler_kwargs:
-    warmup_steps: 3000
+    warmup_steps: 500
     min_lr: 3.0e-6
 
-  checkpoint_dir: checkpoints/1x_rgb_no_depth
-  resume_ckpt: null #checkpoints/1x_rgb_no_depth/step_80000.pt
+  # --- CRITICAL: Point to your pre-trained VAE ---
+  teacher_ckpt: checkpoints/dcae_mnist/step_5000.pt # Use a real checkpoint path
+  teacher_cfg: configs/dcae_mnist.yml
+
+  checkpoint_dir: checkpoints/dcae_mnist_tuned
+  resume_ckpt: null
+
+  # --- Adversarial training settings ---
+  delay_adv: 5000
+  warmup_adv: 5000
+  use_teacher_decoder: true
+  latent_scale: 1.0
 
   sample_interval: 200
   save_interval: 500
@@ -54,4 +68,4 @@ train:
 wandb:
   name: ${env:WANDB_USER_NAME}
   project: OWL
-  run_name: 1x_64x_c128_no_depth
+  run_name: tekken_vae_0.3_gan

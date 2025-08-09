@@ -53,7 +53,7 @@ def get_loader(batch_size):
         sampler=train_sampler,
         drop_last=True,
         collate_fn=collate_fn,
-        generator=torch.Generator('cuda')
+        generator=torch.Generator('cpu')
     )
 
     return train_loader

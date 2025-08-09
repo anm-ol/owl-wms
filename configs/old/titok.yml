@@ -11,6 +11,7 @@ model:
   n_layers: 12
   n_heads: 6
   d_model: 384
+  dropout: 0.0
 
   patch_size: 4
   causal: False
@@ -19,7 +20,7 @@ model:
 train:
   trainer_id: rec
   data_id: mnist
-
+  data_kwargs: {} 
   target_batch_size: 32
   batch_size: 32
 
@@ -40,7 +41,7 @@ train:
     min_lr: 1.0e-5
 
   checkpoint_dir: checkpoints/v0
-
+  resume_ckpt: null
   sample_interval: 1000
   save_interval: 10000
 
