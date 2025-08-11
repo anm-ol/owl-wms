@@ -26,7 +26,7 @@ class T3Dataset(IterableDataset):
                 # Load .npz file
                 data = np.load(npz_path)
                 mask = data['attention_mask']
-                idx = np.where(mask == 1)[-1]
+                idx = int(np.where(mask == 1)[0][-1])
                 images = data['images'][:idx]
                 
                 # Convert all frames to torch tensors and add to list

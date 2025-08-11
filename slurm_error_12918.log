@@ -1,9 +1,0 @@
-wandb: Currently logged in as: anm-ol (val-stuff) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
-wandb: Tracking run with wandb version 0.21.0
-wandb: Run data is saved locally in /mnt/venky/ankitd/anmol/WM/owl-vaes/wandb/run-20250809_043104-p3h0swe3
-wandb: Run `wandb offline` to turn off syncing.
-wandb: Syncing run tekken_vae_0.3
-wandb: ⭐️ View project at https://wandb.ai/val-stuff/OWL
-wandb: 🚀 View run at https://wandb.ai/val-stuff/OWL/runs/p3h0swe3
-[rank0]:[W809 04:31:25.906712977 reducer.cpp:1430] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
-[rank1]:[W809 04:31:26.178225010 reducer.cpp:1430] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())

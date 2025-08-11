@@ -17,3 +17,5 @@ my_data/
 *.npz
 *.txt
 *.pt
+*.log
+*.err

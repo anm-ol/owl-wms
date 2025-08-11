@@ -42,8 +42,11 @@ class R3GANDiscriminator(nn.Module):
         blocks.append(SameBlock(ch, ch_max, blocks_per_stage, total_blocks))
         self.blocks = nn.ModuleList(blocks)
 
-        self.final = weight_norm(nn.Conv2d(ch_max, 1, 4, 1, 0))
-
+        self.final = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            weight_norm(nn.Conv2d(ch_max, 1, 1, 1, 0))
+        )
+        
     def forward(self, x, output_hidden_states = True):
         # Forward on single sample
         h = []
