@@ -1,3 +1,17 @@
+# checkpoints
+*.safetensors
+*.json
+*.pth
+
+# data
+*.csv
+*.npz
+*.npy
+*.mp4
+*.txt
+digest.txt
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
