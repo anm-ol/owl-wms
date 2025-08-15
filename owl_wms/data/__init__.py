@@ -12,5 +12,5 @@ def get_loader(data_id, batch_size, **data_kwargs):
         from . import s3_cod_latent_mixed
         return s3_cod_latent_mixed.get_loader(batch_size, **data_kwargs)
     elif data_id == "t3":
-        from . import t3_latent
-        return t3_latent.get_loader(batch_size, **data_kwargs)
+        from . import tekken_latent
+        return tekken_latent.get_loader(batch_size, **data_kwargs)

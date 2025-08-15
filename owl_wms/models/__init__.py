@@ -17,3 +17,9 @@ def get_model_cls(model_id):
         """
         from .gamemft_audio import GameMFTAudio
         return GameMFTAudio
+    if model_id == "tekken_rft":
+        """
+        TekkenRFT is a specialized model for the Tekken dataset.
+        """
+        from .tekken_rft import TekkenRFT
+        return TekkenRFT

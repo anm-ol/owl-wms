@@ -2,7 +2,8 @@ import sys
 import os
 
 import torch
-from diffusers import AutoencoderDC
+from diffusers import AutoencoderDC, AutoencoderKLLTXVideo, AutoencoderKLWan
+
 
 sys.path.append("./owl-vaes")
 from owl_vaes.utils.proxy_init import load_proxy_model
@@ -23,6 +24,10 @@ def get_decoder_only(vae_id, cfg_path, ckpt_path):
         if vae_id == "dcae":
             model_id = "mit-han-lab/dc-ae-f64c128-mix-1.0-diffusers"
             model = AutoencoderDC.from_pretrained(model_id).bfloat16().cuda().eval()
+            del model.encoder
+            return model.decoder
+        if vae_id == "ltx":
+            model = AutoencoderKLLTXVideo.from_pretrained(ckpt_path, torch_dtype=torch.bfloat16).cuda().eval()
             del model.encoder
             return model.decoder
         else:

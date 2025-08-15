@@ -135,6 +135,7 @@ class RFTTrainer(BaseTrainer):
             include_audio=False,
             **self.train_cfg.data_kwargs
         )
+        print(loader)
 
         n_samples = (self.train_cfg.n_samples + self.world_size - 1) // self.world_size  # round up to next world_size
         sample_loader = get_loader(

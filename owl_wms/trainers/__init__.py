@@ -5,6 +5,12 @@ def get_trainer_cls(trainer_id):
         """
         from .causvid_v2 import CausVidTrainer
         return CausVidTrainer
+    if trainer_id == "tekken_rft":
+        """
+        TekkenRFTTrainer is a specialized trainer for the TekkenRFT model.
+        """
+        from .tekken_rft_trainer import TekkenRFTTrainer
+        return TekkenRFTTrainer
     if trainer_id == "av":
         """
         Most basic trainer. Does audio + video training.

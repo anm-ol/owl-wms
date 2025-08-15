@@ -4,6 +4,7 @@
 *.pth
 
 # data
+wandb/*
 *.csv
 *.npz
 *.npy

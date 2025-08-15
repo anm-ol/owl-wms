@@ -45,24 +45,33 @@ class RoPE(nn.Module):
 
 class OrthoRoPE(RoPE):
     """
-    RoPE for rotation across orthogonal axes: time, height, and width
+    RoPE for rotation across orthogonal axes: time, height, and width.
+    This version is corrected to handle non-square sample_sizes.
     """
     def get_freqs(self, config):
-        p = config.sample_size
+        # Unpack height and width from sample_size list/tuple
+        try:
+            p_h, p_w = config.sample_size
+        except (TypeError, ValueError):
+            # Fallback for when sample_size is a single integer for square inputs
+            p_h = p_w = config.sample_size
+
         head_dim = config.d_model // config.n_heads
 
         pos_emb = RotaryEmbedding(
-            dim=head_dim // 4,  # Using half dimension since we only need 1D rotation
+            dim=head_dim // 4,
             freqs_for='pixel',
             max_freq=256
         )
-        # Rot features: (L, P+1, P+1, <pad>)
+        # Rot features: (L, P_H+1, P_W+1, <pad>)
+        # Use the unpacked height (p_h) and width (p_w)
         freqs = pos_emb.get_axial_freqs(
-            config.n_frames, p + 1, p + 1, 1, offsets=(0, 0, 0, 1)
-        ).view(config.n_frames, p + 1, p + 1, -1)
+            config.n_frames, p_h + 1, p_w + 1, 1, offsets=(0, 0, 0, 1)
+        ).view(config.n_frames, p_h + 1, p_w + 1, -1)
 
-        vid_freqs = freqs[:, :p, :p].reshape(config.n_frames, p**2, -1)  # top left square
-        aud_freqs = freqs[:, -1, -1].unsqueeze(1)  # bottom right item
+        # Correctly reshape based on rectangular dimensions
+        vid_freqs = freqs[:, :p_h, :p_w].reshape(config.n_frames, p_h * p_w, -1)
+        aud_freqs = freqs[:, -1, -1].unsqueeze(1)
 
         freqs = torch.cat([vid_freqs, aud_freqs], dim=1).flatten(0, 1)
         return freqs[..., ::2]  # subsampling
