@@ -8,7 +8,7 @@ model:
   n_heads: 8
   d_model: 768
   # tokens_per_frame will be calculated inside the model as 14*23=322
-  n_frames: 16              # This is the window length
+  n_frames: 1000              # This is the window length
   cfg_prob: 0.1
   causal: true
   uncond: false
@@ -43,11 +43,11 @@ train:
   output_path: /home/venky/ankitd/anmol/WM/owl-wms/checkpoints/tekken_dit_0.2
   resume_ckpt: null
 
-  sample_interval: 500
-  save_interval: 1000
+  sample_interval: 100
+  save_interval: 100
   n_samples: 4
 
-  sampler_id: t3_sampler
+  sampler_id: t3_caching
   sampler_kwargs:
     n_steps: 40
     window_length: 16

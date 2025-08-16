@@ -79,7 +79,7 @@ def to_wandb(x, batch_mouse, batch_btn, gather = False, max_samples = 8):
 
     return wandb.Video(x, format='gif', fps=60)
 
-def to_wandb_gif(x, max_samples = 4):
+def to_wandb_gif(x, max_samples = 4, fps=16):
     x = x.clamp(-1, 1)
     x = (x + 1) * 127.5
     x = x.to(torch.uint8)
@@ -88,7 +88,7 @@ def to_wandb_gif(x, max_samples = 4):
     if x.shape[1] == 1:
         x = x.repeat(1, 3, 1, 1)
 
-    return wandb.Video(x, format='gif', fps=60)
+    return wandb.Video(x, format='gif', fps=fps)
 
 @torch.no_grad()
 def to_wandb_av(x, audio, batch_mouse, batch_btn, gather = False, max_samples = 4):

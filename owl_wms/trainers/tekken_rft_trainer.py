@@ -101,7 +101,7 @@ class TekkenRFTTrainer(BaseTrainer):
                 vae_scale=self.train_cfg.vae_scale
             )
         
-        wandb_videos = to_wandb_gif(video_out.cpu())
+        wandb_videos = to_wandb_gif(video_out.cpu(), fps=4)
         
         print("Evaluation step finished.")
         return {"samples": wandb_videos}
@@ -174,6 +174,8 @@ class TekkenRFTTrainer(BaseTrainer):
                         eval_wandb_dict = self.eval_step(sampler, decode_fn)
                         if self.rank == 0:
                             wandb_dict.update(eval_wandb_dict)
+                    # Add a barrier here to make all processes wait for rank 0 to finish sampling
+                    self.barrier()
                     
                     if self.rank == 0:
                         wandb.log(wandb_dict)

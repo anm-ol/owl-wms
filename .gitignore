@@ -2,6 +2,7 @@
 *.safetensors
 *.json
 *.pth
+*.pt
 
 # data
 wandb/*

@@ -5,8 +5,17 @@ def get_sampler_cls(sampler_id):
         """
         from .av_window import AVWindowSampler
         return AVWindowSampler
+    elif sampler_id == "t3_caching":
+        """
+        Tekken sampler with KV caching
+        """
+        from .t3_caching import TekkenCachingSampler
+        return TekkenCachingSampler
+    
     elif sampler_id == "t3_sampler":
-        
+        """
+        TekkenRFT model sampler with sliding window attention.
+        """
         from .t3_sampler import TekkenSampler
         return TekkenSampler
     elif sampler_id == "av_caching":
