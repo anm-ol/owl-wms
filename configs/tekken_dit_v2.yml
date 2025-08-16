@@ -1,0 +1,74 @@
+# configs/tekken_rft_train.yml
+model:
+  model_id: tekken_rft
+  sample_size: [14, 23]     # Latent H, W from your VAE
+  channels: 128             # Latent channels from your VAE
+  n_actions: 256            # For the action embedding layer
+  n_layers: 12
+  n_heads: 16
+  d_model: 1536
+  # tokens_per_frame will be calculated inside the model as 14*23=322
+  n_frames: 1000              # This is the window length
+  cfg_prob: 0.1
+  causal: true
+  uncond: false
+  backbone: dit
+  has_audio: false
+
+  local_window: 16
+  global_window: 16
+
+train:
+  trainer_id: tekken_rft
+  data_id: tekken_multi
+  data_kwargs:
+    window_length: 16
+    root_dir: "preproccessing/cached_data_v2/train"
+
+  sample_data_id: tekken_multi
+  sample_data_kwargs:
+    window_length: 16  # size of single ground truth start tokens
+    root_dir: "preproccessing/cached_data_v2/val"
+
+  target_batch_size: 32
+  batch_size: 8 # Adjust based on your GPU memory
+
+  epochs: 50000
+  opt: Muon
+  opt_kwargs:
+    lr: 1.0e-3
+    momentum: 0.95
+    adamw_lr: 1.0e-4
+    adamw_wd: 1.0e-4
+    adamw_eps: 1.0e-15
+    adamw_betas: [0.9, 0.95]
+    adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
+
+  checkpoint_dir: checkpoints/tekken_dit_v2
+  output_path: /home/venky/ankitd/anmol/WM/owl-wms/checkpoints/tekken_dit_v2_ema
+  resume_ckpt: null
+
+  sample_interval: 1000
+  save_interval: 2000
+  n_samples: 2
+
+  sampler_id: t3_caching
+  sampler_kwargs:
+    n_steps: 40
+    window_length: 16
+    cfg_scale: 1.0
+    num_frames: 16
+    # noise_prev: 0.2
+    only_return_generated: false
+
+  # VAE settings for decoding samples
+  vae_id: ltx # Not a built-in HF VAE
+  vae_cfg_path: null # Path to your VAE config
+  vae_ckpt_path: "/home/venky/ankitd/anmol/WM/owl-wms/preproccessing/checkpoints/LTXV/vae" # Path to your VAE checkpoint
+  vae_scale: 1.0 # Adjust if your VAE has a scaling factor
+  vae_batch_size: 16
+
+wandb:
+  name: d-fusion
+  project: OWL
+  run_name: tekken-rft-v2

@@ -12,6 +12,7 @@ from .base import BaseTrainer
 from ..utils import freeze, Timer
 from ..models import get_model_cls
 from ..sampling import get_sampler_cls
+from ..muon import init_muon
 from ..data import get_loader
 from ..utils.logging import LogHelper, to_wandb_gif
 from ..utils.owl_vae_bridge import get_decoder_only, make_batched_decode_fn
@@ -111,18 +112,29 @@ class TekkenRFTTrainer(BaseTrainer):
         torch.cuda.set_device(self.local_rank)
 
         self.model = self.model.cuda().train()
+        
+        print("Compiling the main model...")
+        self.model = torch.compile(self.model)
+        
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank], find_unused_parameters=True)
         
         decode_fn, sampler = None, None
         if self.rank == 0:
             self.decoder = self.decoder.cuda().eval().bfloat16()
+            
+            print("Compiling the VAE decoder...")
+            self.decoder = torch.compile(self.decoder, mode="reduce-overhead", fullgraph=True)
+            
             decode_fn = make_batched_decode_fn(self.decoder, batch_size=self.train_cfg.vae_batch_size, temporal_vae=True)
             sampler = get_sampler_cls(self.train_cfg.sampler_id)(**self.train_cfg.sampler_kwargs)
 
         self.ema = EMA(self.model, beta=0.999, update_every=1)
-        self.opt = torch.optim.AdamW(self.model.parameters(), **self.train_cfg.opt_kwargs)
-        
+        if self.train_cfg.opt.lower() == "muon":
+            self.opt = init_muon(self.model, rank=self.rank, world_size=self.world_size, **self.train_cfg.opt_kwargs)
+        else:
+            self.opt = getattr(torch.optim, self.train_cfg.opt)(self.model.parameters(), **self.train_cfg.opt_kwargs)
+
         accum_steps = max(1, self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size)
         ctx = torch.amp.autocast('cuda', torch.bfloat16)
 
@@ -173,8 +185,6 @@ class TekkenRFTTrainer(BaseTrainer):
                     if self.total_step_counter % self.train_cfg.sample_interval == 0:
                         # Pass sampler and decode_fn instead of sample_loader
                         eval_wandb_dict = self.eval_step(sampler, decode_fn)
-                        gc.collect()
-                        torch.cuda.empty_cache()
                         if self.rank == 0:
                             wandb_dict.update(eval_wandb_dict)
                     # Add a barrier here to make all processes wait for rank 0 to finish sampling

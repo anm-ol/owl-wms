@@ -1,6 +1,7 @@
 import os
 import glob
 from tqdm import tqdm
+import shutil
 import torch
 import numpy as np
 import time
@@ -148,6 +149,7 @@ def process_data(data_dir, output_dir, vae_ckpt_dir, enable_tiling=False, device
     """
     Processes raw Tekken round data from .npz files, encodes video frames into latents
     using a VAE, and saves the latents, actions, and states in a nested directory structure.
+    Expects data_dir to contain 'train' and 'val' subdirectories with .npz files.
     """
     print("--- Starting Data Processing ---")
 
@@ -157,65 +159,117 @@ def process_data(data_dir, output_dir, vae_ckpt_dir, enable_tiling=False, device
         print("Enabling VAE tiling...")
         vae.enable_tiling()
 
-    # 2. Find all .npz files in the data directory
-    npz_files = sorted(glob.glob(os.path.join(data_dir, "*.npz")))
-    if not npz_files:
-        print(f"No .npz files found in {data_dir}. Exiting.")
-        return
+    # 2. Process both train and val directories
+    for split in ['train', 'val']:
+        split_data_dir = os.path.join(data_dir, split)
+        split_output_dir = os.path.join(output_dir, split)
+        
+        if not os.path.exists(split_data_dir):
+            print(f"Directory {split_data_dir} does not exist. Skipping {split} split.")
+            continue
+            
+        # Find all .npz files in the split directory
+        npz_files = sorted(glob.glob(os.path.join(split_data_dir, "*.npz")))
+        if not npz_files:
+            print(f"No .npz files found in {split_data_dir}. Skipping {split} split.")
+            continue
 
-    print(f"Found {len(npz_files)} rounds to process.")
+        print(f"\nProcessing {split} split: Found {len(npz_files)} rounds to process.")
 
-    # 3. Process each file
-    for npz_path in tqdm(npz_files, desc="Processing Rounds"):
-        round_name = os.path.splitext(os.path.basename(npz_path))[0]
-        print(f"\nProcessing {round_name}...")
+        # 3. Process each file in the current split
+        for npz_path in tqdm(npz_files, desc=f"Processing {split} Rounds"):
+            round_name = os.path.splitext(os.path.basename(npz_path))[0]
+            print(f"\nProcessing {split}/{round_name}...")
 
-        # Create output directories for the current round
-        round_output_dir = os.path.join(output_dir, round_name)
-        latents_dir = os.path.join(round_output_dir, "latents")
-        actions_dir = os.path.join(round_output_dir, "actions")
-        states_dir = os.path.join(round_output_dir, "states")
+            # Create output directories for the current round
+            round_output_dir = os.path.join(split_output_dir, round_name)
+            latents_dir = os.path.join(round_output_dir, "latents")
+            actions_dir = os.path.join(round_output_dir, "actions")
+            states_dir = os.path.join(round_output_dir, "states")
 
-        os.makedirs(latents_dir, exist_ok=True)
-        os.makedirs(actions_dir, exist_ok=True)
-        os.makedirs(states_dir, exist_ok=True)
+            os.makedirs(latents_dir, exist_ok=True)
+            os.makedirs(actions_dir, exist_ok=True)
+            os.makedirs(states_dir, exist_ok=True)
 
-        # Load data from .npz file
-        data = np.load(npz_path)
-        mask = data['attention_mask']
-        end_idx = int(np.where(mask == 1)[0][-1])
+            # Load data from .npz file
+            data = np.load(npz_path)
+            mask = data['valid_frames']
+            end_idx = int(np.where(mask == 1)[0][-1])
 
-        images = torch.from_numpy(data['images'][:end_idx]).float()
-        video_len = images.shape[0]
-        n_frames_to_keep = video_len - (video_len - 1) % 4
-        images = images[:n_frames_to_keep]
-        actions = data['actions'][:end_idx]
-        states = data['states'][:end_idx]
-        data.close()
+            images = torch.from_numpy(data['images'][:end_idx]).float()
+            video_len = images.shape[0]
+            n_frames_to_keep = video_len - (video_len - 1) % 4
+            images = images[:n_frames_to_keep]
+            actions = data['actions_p1'][:end_idx]  # Using actions_p1, ignoring actions_p2
+            states = data['states'][:end_idx]
+            data.close()
 
-        with torch.no_grad():
-            images = images.to(device)
-            images = (images / 255.0) * 2 - 1
-            images = images.to(vae.dtype)  # Ensure correct dtype for VAE
-            images = images.permute(1, 0, 2, 3)  # [t, c, h, w] -> [c, t, h, w]
-            images = images.unsqueeze(0)  # Add batch dimension
-            latent_dist = vae.encode(images).latent_dist
-            latent_sample = latent_dist.sample()
-            all_latents = latent_sample.to(torch.float16).cpu().numpy()
+            with torch.no_grad():
+                images = images.to(device)
+                images = (images / 255.0) * 2 - 1
+                images = images.to(vae.dtype)  # Ensure correct dtype for VAE
+                images = images.permute(1, 0, 2, 3)  # [t, c, h, w] -> [c, t, h, w]
+                images = images.unsqueeze(0)  # Add batch dimension
+                latent_dist = vae.encode(images).latent_dist
+                latent_sample = latent_dist.sample()
+                all_latents = latent_sample.to(torch.float16).cpu().numpy()
 
-        final_latents = all_latents.squeeze(0)
+            final_latents = all_latents.squeeze(0)
 
-        # Save the processed data
-        np.save(os.path.join(latents_dir, f"{round_name}_latents.npy"), final_latents)
-        np.save(os.path.join(actions_dir, f"{round_name}_actions.npy"), actions)
-        np.save(os.path.join(states_dir, f"{round_name}_states.npy"), states)
+            # Save the processed data
+            np.save(os.path.join(latents_dir, f"{round_name}_latents.npy"), final_latents)
+            np.save(os.path.join(actions_dir, f"{round_name}_actions.npy"), actions)
+            np.save(os.path.join(states_dir, f"{round_name}_states.npy"), states)
 
-        print(f"Finished processing and saved data for {round_name}.")
+            print(f"Finished processing and saved data for {split}/{round_name}.")
 
     if enable_tiling:
         vae.disable_tiling()
 
     print("\n--- Data Processing Complete ---")
+    
+def create_split(data_dir1, data_dir2, output_dir, split=0.8):
+    import random
+    
+    train_dir = output_dir + "/train"
+    val_dir = output_dir + "/val"
+
+    os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(val_dir, exist_ok=True)
+
+    # Collect all files from both directories
+    all_files = []
+    for data_dir in [data_dir1, data_dir2]:
+        npz_files = sorted(glob.glob(os.path.join(data_dir, "*.npz")))
+        all_files.extend(npz_files)
+    
+    print(f"Found {len(all_files)} total files from both directories")
+    
+    # Randomly shuffle all files
+    random.shuffle(all_files)
+    
+    # Split into train and val
+    num_files = len(all_files)
+    num_train = int(num_files * split)
+    
+    train_files = all_files[:num_train]
+    val_files = all_files[num_train:]
+    
+    print(f"Splitting randomly: {len(train_files)} train files, {len(val_files)} val files")
+
+    # Copy train files
+    print(f"Copying {len(train_files)} training files to {train_dir}")
+    for f in tqdm(train_files, desc="Copying train files"):
+        shutil.copy(f, os.path.join(train_dir, os.path.basename(f)))
+
+    # Copy val files
+    print(f"Copying {len(val_files)} validation files to {val_dir}")
+    for f in tqdm(val_files, desc="Copying val files"):
+        shutil.copy(f, os.path.join(val_dir, os.path.basename(f)))
+
+    print("\n--- Data Splitting Complete ---")
+    print(f"Train data saved in: {train_dir}")
+    print(f"Validation data saved in: {val_dir}")
 
 
 def get_frames_from_npz(file_path):
@@ -223,7 +277,7 @@ def get_frames_from_npz(file_path):
     Extracts frames from a .npz file and returns them as a tensor.
     """
     data = np.load(file_path)
-    mask = data['attention_mask']
+    mask = data['valid_frames']
     idx = int(np.where(mask == 1)[0][-1])
     images = data['images'][:idx]
     video_tensor = torch.from_numpy(images).float()
@@ -233,12 +287,20 @@ def get_frames_from_npz(file_path):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    wan_path = "checkpoints/Wan2.1/vae"
-    ltx_path = "checkpoints/LTXV/vae"
+    wan_path = "preproccessing/checkpoints/Wan2.1/vae"
+    ltx_path = "preproccessing/checkpoints/LTXV/vae"
+
+    data1 = 'preproccessing/data_full/P1_WIN'
+    data2 = 'preproccessing/data_full/P2_WIN'
+    split_output_dir = "preproccessing/data_v2"
+    create_split(data1, data2, split_output_dir)
+    
+    # Now process_data expects the directory containing train/val subdirs
+    cache_dir = "preproccessing/cached_data_v2"
 
     process_data(
-        data_dir="t3_data/",
-        output_dir="cached_data_ltx",
+        data_dir=split_output_dir,  # This contains train/ and val/ subdirs
+        output_dir=cache_dir,
         vae_ckpt_dir=ltx_path,
         enable_tiling=True,
         device='cuda'
