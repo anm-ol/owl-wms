@@ -79,9 +79,12 @@ class TekkenRFT(nn.Module):
 
     def handle_cfg(self, has_controls=None, cfg_prob=None):
         # This function remains the same, used for classifier-free guidance.
+        if cfg_prob is not None:
+            print(f'cfg prob: {cfg_prob.shape}')
+        
         if cfg_prob is None:
             cfg_prob = self.config.cfg_prob
-        if cfg_prob <= 0.0 or has_controls is None:
+        elif cfg_prob <= 0.0 or has_controls is None:
             return has_controls
         
         pct_without = 1.0 - has_controls.float().mean()

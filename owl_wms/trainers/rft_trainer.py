@@ -91,7 +91,7 @@ class RFTTrainer(BaseTrainer):
 
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank])
-        self.model = torch.compile(self.model)
+        # self.model = torch.compile(self.model)
 
         self.decoder = self.decoder.cuda().eval().bfloat16()
         decode_fn = make_batched_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
@@ -158,12 +158,14 @@ class RFTTrainer(BaseTrainer):
             for batch in tqdm.tqdm(loader, total=len(loader), disable=self.rank != 0, desc=f"Epoch: {epoch}"):
 
                 batch = [t.cuda().bfloat16() for t in batch]
-                batch_vid, batch_mouse, batch_btn = batch
+                batch_vid, states, batch_actions = batch
 
                 batch_vid = batch_vid / self.train_cfg.vae_scale
+                batch_actions = batch_actions[:, :, -1]
+                print(f"Batch actions shape: {batch_actions.shape}")
 
                 with ctx:
-                    loss = self.model(batch_vid, batch_mouse, batch_btn)
+                    loss = self.model(batch_vid, action_ids=batch_actions)
                     loss = loss / accum_steps
                     loss.backward()
 

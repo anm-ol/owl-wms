@@ -72,26 +72,26 @@ def collate_fn(batch, include_audio):
         return [stacked[k] for k in ("video", "mouse", "buttons")]
 
 
-def get_loader(batch_size, dataset_path, window_length, include_audio=True):
+def get_loader(batch_size, root_dir, window_length=16, **kwargs):
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     rank = dist.get_rank() if dist.is_initialized() else 0
 
-    ds = WindowedViewDataset(dataset_path, window_length)
+    dataset = TekkenLatentDataset(root_dir=root_dir, window_length=window_length)
 
+    sampler = None
     if world_size > 1:
-        sampler = AutoEpochDistributedSampler(ds, num_replicas=world_size, rank=rank, shuffle=True)
-        loader_kwargs = dict(sampler=sampler, shuffle=False)  # shuffle in sampler
-    else:
-        loader_kwargs = dict(shuffle=True)  # no sampler, shuffle in dataloader
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=True
+        )
 
     return DataLoader(
-        ds,
+        dataset,
         batch_size=batch_size,
-        collate_fn=partial(collate_fn, include_audio=include_audio),
-        num_workers=2,
-        drop_last=True,
+        sampler=sampler,
+        shuffle=(sampler is None),
+        num_workers=12,
         pin_memory=True,
-        prefetch_factor=2,
-        persistent_workers=True,
-        **loader_kwargs
+        drop_last=True,
+        persistent_workers=True,   # workers stay alive; fewer re-forks
+        prefetch_factor=2          # default is 2; keep it explicit
     )

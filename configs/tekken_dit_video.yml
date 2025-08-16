@@ -20,32 +20,50 @@ model:
 
 train:
   trainer_id: tekken_rft
-  data_id: t3
+  data_id: tekken_multi
   data_kwargs:
     window_length: 16
     root_dir: "preproccessing/cached_data_ltx"
 
-  target_batch_size: 8
-  batch_size: 4 # Adjust based on your GPU memory
+  sample_data_id: tekken_multi
+  sample_data_kwargs:
+    window_length: 16  # size of single ground truth start tokens
+    root_dir: "preproccessing/val_data_ltx"
 
-  epochs: 100
+  target_batch_size: 32
+  batch_size: 8 # Adjust based on your GPU memory
+
+  epochs: 2000
   opt: AdamW
   opt_kwargs:
     lr: 1.0e-4
     weight_decay: 0.01
 
-  sample_interval: 1000
-  save_interval: 5000
+  checkpoint_dir: checkpoints/tekken_dit_0.2
+  output_path: /home/venky/ankitd/anmol/WM/owl-wms/checkpoints/tekken_dit_0.2
+  resume_ckpt: null
+
+  sample_interval: 500
+  save_interval: 1000
   n_samples: 4
+
+  sampler_id: t3_sampler
+  sampler_kwargs:
+    n_steps: 40
+    window_length: 16
+    cfg_scale: 1.0
+    num_frames: 32
+    # noise_prev: 0.2
+    only_return_generated: false
 
   # VAE settings for decoding samples
   vae_id: ltx # Not a built-in HF VAE
   vae_cfg_path: null # Path to your VAE config
   vae_ckpt_path: "/home/venky/ankitd/anmol/WM/owl-wms/preproccessing/checkpoints/LTXV/vae" # Path to your VAE checkpoint
   vae_scale: 1.0 # Adjust if your VAE has a scaling factor
-  vae_batch_size: 4
+  vae_batch_size: 16
 
 wandb:
   name: d-fusion
   project: OWL
-  run_name: tekken-rft-v0.1
+  run_name: tekken-rft-v0.2

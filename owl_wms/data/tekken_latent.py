@@ -1,27 +1,36 @@
-import time 
+import time
 import os
 import glob
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
+from tqdm import tqdm
 import torch.distributed as dist
 import torch.nn.functional as F
 
+class AutoEpochDistributedSampler(DistributedSampler):
+    """Ensure we shuffle every epoch"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._auto_epoch = 0
+
+    def __iter__(self):
+        self.set_epoch(self._auto_epoch)
+        self._auto_epoch += 1
+        return super().__iter__()
 
 class TekkenLatentDataset(Dataset):
     """
-    Loads Tekken latents, actions, and states into sliding windows.
+    Memory-efficiently loads Tekken latents, actions, and states into sliding windows.
     """
-    def __init__(self, root_dir, window_length=16, expected_buttons=11):
+    def __init__(self, root_dir, window_length=16):
         self.root_dir = root_dir
         self.window_length = window_length
-        self.expected_buttons = expected_buttons
-
-        self.rounds_data = []
+        self.round_paths = []
         self.samples = []
 
         if not os.path.isdir(root_dir):
-            raise ValueError(f"Root directory not found or not a directory: {root_dir}")
+            raise ValueError(f"Root directory not found: {root_dir}")
 
         round_dirs = sorted(
             d for d in glob.glob(os.path.join(root_dir, 'round_*')) if os.path.isdir(d)
@@ -30,9 +39,9 @@ class TekkenLatentDataset(Dataset):
         if not round_dirs:
             raise FileNotFoundError(f"No round directories found in {root_dir}")
 
-        for round_dir in round_dirs:
+        print("Scanning dataset and building index...")
+        for round_dir in tqdm(round_dirs, desc="Scanning Rounds"):
             round_name = os.path.basename(round_dir)
-
             latents_path = os.path.join(round_dir, 'latents', f'{round_name}_latents.npy')
             actions_path = os.path.join(round_dir, 'actions', f'{round_name}_actions.npy')
             states_path = os.path.join(round_dir, 'states', f'{round_name}_states.npy')
@@ -40,22 +49,16 @@ class TekkenLatentDataset(Dataset):
             if not all(os.path.exists(p) for p in [latents_path, actions_path, states_path]):
                 continue
 
-            latents = np.load(latents_path).transpose(1, 0, 2, 3)  # (T, C, H, W)
-            keep_frames = np.load(actions_path).shape[0] // 8 * 8  # multiple of 8
-
-            # If your .npy files are already (T, 8) and (T, 8, 3), these reshape lines are OK.
-            # If not, consider removing reshape and just rely on dynamic padding below.
-            actions = np.load(actions_path)[:keep_frames].reshape(-1, 8)      # (T, B)
-            states  = np.load(states_path)[:keep_frames].reshape(-1, 8, 3)    # (T, B, 3)
-            actions = actions.astype(np.int32)
-            self.rounds_data.append({
-                'latents': torch.from_numpy(latents),
-                'actions': torch.from_numpy(actions),
-                'states':  torch.from_numpy(states)
+            # Store paths instead of loading data into memory
+            self.round_paths.append({
+                'latents': latents_path,
+                'actions': actions_path,
+                'states': states_path
             })
-
-            num_frames = latents.shape[0]
-            round_idx = len(self.rounds_data) - 1
+            
+            # Use mmap_mode='r' to read metadata (like shape) without loading the array
+            num_frames = np.load(latents_path, mmap_mode='r').shape[1]
+            round_idx = len(self.round_paths) - 1
             for start_frame in range(num_frames - self.window_length + 1):
                 self.samples.append((round_idx, start_frame))
 
@@ -65,15 +68,22 @@ class TekkenLatentDataset(Dataset):
     def __getitem__(self, idx):
         round_idx, start_frame = self.samples[idx]
         end_frame = start_frame + self.window_length
-        data = self.rounds_data[round_idx]
+        paths = self.round_paths[round_idx]
 
-        latents_slice = data['latents'][start_frame:end_frame]               # (T, C, H, W)
-        states_slice  = data['states'][start_frame:end_frame].float()        # (T, B, 3)
-        actions_slice = data['actions'][start_frame:end_frame].float()       # (T, B)
+        # mmap_mode='r' to avoid full load.copy()
+        latents = np.load(paths['latents'], mmap_mode='r').copy().transpose(1, 0, 2, 3)
+        actions = np.load(paths['actions'], mmap_mode='r').copy()
+        states  = np.load(paths['states'], mmap_mode='r').copy()
+
+        keep_frames = actions.shape[0] // 8 * 8
+        actions = actions[:keep_frames].reshape(-1, 8)      # (T, B)
+        states  = states[:keep_frames].reshape(-1, 8, 3)  
+
+        latents_slice = torch.from_numpy(latents).float()[start_frame:end_frame]
+        actions_slice = torch.from_numpy(actions).long()[start_frame:end_frame]
+        states_slice  = torch.from_numpy(states).float()[start_frame:end_frame]
 
         return latents_slice, states_slice, actions_slice
-
-
 def collate_fn(batch):
     """
     Collates and pads sequences:
@@ -127,28 +137,15 @@ def collate_fn(batch):
 
     return video_batch, states_batch, actions_batch
 
-
 def get_loader(batch_size, root_dir, window_length=16, **kwargs):
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     rank = dist.get_rank() if dist.is_initialized() else 0
-
     dataset = TekkenLatentDataset(root_dir=root_dir, window_length=window_length)
-
-    sampler = None
-    if world_size > 1:
-        sampler = torch.utils.data.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
-
+    sampler = AutoEpochDistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True) if world_size > 1 else None
     return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        sampler=sampler,
-        shuffle=(sampler is None),
-        collate_fn=collate_fn,
-        num_workers=4,
-        pin_memory=True,
-        drop_last=True
+        dataset, batch_size=batch_size, sampler=sampler, shuffle=(sampler is None),
+        collate_fn=collate_fn, num_workers=4, pin_memory=True, drop_last=True
     )
-
 
 if __name__ == "__main__":
     path = "/home/venky/ankitd/anmol/WM/owl-wms/preproccessing/cached_data_ltx"

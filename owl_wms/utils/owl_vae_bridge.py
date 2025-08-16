@@ -43,20 +43,26 @@ def get_decoder_only(vae_id, cfg_path, ckpt_path):
             return model
 
 @torch.no_grad()
-def make_batched_decode_fn(decoder, batch_size = 8):
+def make_batched_decode_fn(decoder, batch_size = 8, temporal_vae=True):
     def decode(x):
         # x is [b,n,c,h,w]
         b,n,c,h,w = x.shape
-        x = x.view(b*n,c,h,w).contiguous()
-
+        if not temporal_vae:
+            x = x.view(b*n,c,h,w).contiguous()
+        else:
+            x = x.permute(0, 2, 1, 3, 4)
+            x = x.contiguous()
         batches = x.split(batch_size)
         batch_out = []
         for batch in batches:
             batch_out.append(decoder(batch).bfloat16())
 
         x = torch.cat(batch_out) # [b*n,c,h,w]
-        _,c,h,w = x.shape
-        x = x.view(b,n,c,h,w).contiguous()
+        if not temporal_vae:
+            _,c,h,w = x.shape
+            x = x.view(b,n,c,h,w).contiguous()
+        else:
+            x = x.contiguous()
 
         return x
     return decode
