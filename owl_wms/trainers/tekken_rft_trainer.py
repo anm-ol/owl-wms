@@ -100,9 +100,10 @@ class TekkenRFTTrainer(BaseTrainer):
                 decode_fn=decode_fn,
                 vae_scale=self.train_cfg.vae_scale
             )
-        
-        wandb_videos = to_wandb_gif(video_out.cpu(), fps=4)
-        
+        video_out = video_out.permute(0, 2, 1, 3, 4)
+        print(f'Generated video shape: {video_out.shape}')
+        wandb_videos = to_wandb_gif(video_out.cpu(), format='mp4', fps=30)
+
         print("Evaluation step finished.")
         return {"samples": wandb_videos}
 
@@ -172,6 +173,8 @@ class TekkenRFTTrainer(BaseTrainer):
                     if self.total_step_counter % self.train_cfg.sample_interval == 0:
                         # Pass sampler and decode_fn instead of sample_loader
                         eval_wandb_dict = self.eval_step(sampler, decode_fn)
+                        gc.collect()
+                        torch.cuda.empty_cache()
                         if self.rank == 0:
                             wandb_dict.update(eval_wandb_dict)
                     # Add a barrier here to make all processes wait for rank 0 to finish sampling

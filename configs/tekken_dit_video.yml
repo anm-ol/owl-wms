@@ -40,11 +40,11 @@ train:
     weight_decay: 0.01
 
   checkpoint_dir: checkpoints/tekken_dit_0.2
-  output_path: /home/venky/ankitd/anmol/WM/owl-wms/checkpoints/tekken_dit_0.2
-  resume_ckpt: null
+  output_path: /home/venky/ankitd/anmol/WM/owl-wms/checkpoints/tekken_dit_0.2_ema
+  resume_ckpt: checkpoints/tekken_dit_0.2/step_400.pt
 
-  sample_interval: 100
-  save_interval: 100
+  sample_interval: 200
+  save_interval: 200
   n_samples: 4
 
   sampler_id: t3_caching
@@ -52,7 +52,7 @@ train:
     n_steps: 40
     window_length: 16
     cfg_scale: 1.0
-    num_frames: 32
+    num_frames: 16
     # noise_prev: 0.2
     only_return_generated: false
 
