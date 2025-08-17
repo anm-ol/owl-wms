@@ -25,7 +25,7 @@ model:
   global_window: null  # full window
 
 train:
-  trainer_id: rft
+  trainer_id: rft_pair_distill
   data_id: wan_pair_distill
   data_kwargs:
     dataset_path: /mnt/data/lapp0/datasets/wan_generated/
