@@ -118,7 +118,6 @@ class TransformerTranslator(nn.Module):
 
         # expand: 1 input frame → `group` output frames
         x = x.permute(0, 1, 3, 4, 2).reshape(B * N_in, Hi * Wi, Ci)      # [B*N_in, Hi*Wi, Ci]
-        x = x.permute(0, 1, 3, 4, 2).reshape(B * N_in, self.tokens_in, Ci)  # [B*N_in, Hi*Wi, Ci]
         x = self.in_proj(x)                                                 # → [B*N_in, tokens_in, d]
 
         q = self.queries.unsqueeze(0).expand(B * N_in, -1, -1)              # [B*N_in, group*Ho*Wo, d]
