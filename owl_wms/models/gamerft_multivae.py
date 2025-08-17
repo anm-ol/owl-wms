@@ -168,8 +168,16 @@ class GameRFTCore(nn.Module):
         x = self.translate_in(x)
 
         b, n, c, h, w = x.shape
-        r = n // t.size(1)
-        t = t.repeat_interleave(r, dim=1)
+
+        t_len = t.size(1)
+        if n == t_len:
+            pass
+        elif n > t_len:                                     # expanded
+            assert n % t_len == 0
+            t = t.repeat_interleave(n // t_len, dim=1)
+        else:                                               # compressed
+            assert t_len % n == 0
+            t = t[:, :: (t_len // n)]
 
         t_cond = self.t_embed(t)
 
