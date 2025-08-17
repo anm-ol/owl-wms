@@ -40,7 +40,7 @@ class AVCachingSampler:
         prev_btn = btn[:, :init_len] if btn is not None else None
 
         for idx in tqdm(range(self.num_frames), desc="Sampling frames"):
-            start = min(init_len + idx, mouse.size(1) - 1)
+            start = min(init_len + idx, mouse.size(1) - 1) if mouse is not None else init_len + idx
             curr_mouse = mouse[:, start: start + 1] if mouse is not None else None
             curr_btn = btn[:, start: start + 1] if btn is not None else None
 
