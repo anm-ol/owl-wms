@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-from .gamerft import RFTTrainer
+from .rft_trainer import RFTTrainer
 
 
 class RFTPairDistillTrainer(RFTTrainer):
