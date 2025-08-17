@@ -1,5 +1,5 @@
 model:
-  model_id: game_rft
+  model_id: game_rft_multivae
   sample_size: 8
   channels: 128
 
