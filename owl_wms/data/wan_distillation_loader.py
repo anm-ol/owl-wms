@@ -45,8 +45,10 @@ class WanPairDataset(Dataset):
 
         # 1) find run dirs by presence of the final step file
         self.run_dirs = sorted(
-            p.parent for p in self.root.rglob("00000039_latents.pt")
-            if not any(part.startswith(".") for part in p.parent.relative_to(self.root).parts)
+            p.parent
+            for d in self.root.iterdir() if d.is_dir() and "." not in d.name
+            for p in d.rglob("00000039_latents.pt")
+            if all("." not in part for part in p.parent.relative_to(self.root).parts)
         )
         if not self.run_dirs:
             raise FileNotFoundError(f"No runs found under {root_dir}")
@@ -171,8 +173,10 @@ class WanGTWindowDataset(Dataset):
         # Find all run dirs that contain the target step file (e.g., 00000039_latents.pt)
         pattern = f"{step_index:08d}_latents.pt"
         self.run_dirs = sorted(
-            p.parent for p in self.root.rglob(pattern)
-            if not any(part.startswith(".") for part in p.parent.relative_to(self.root).parts)
+            p.parent
+            for d in self.root.iterdir() if d.is_dir() and "." not in d.name
+            for p in d.rglob(pattern)
+            if all("." not in part for part in p.parent.relative_to(self.root).parts)
         )
         if not self.run_dirs:
             raise FileNotFoundError(f"No runs with {pattern} found under {root_dir}")
