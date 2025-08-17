@@ -30,8 +30,8 @@ train:
     window_length: 16  # size of single ground truth start tokens
     root_dir: "preproccessing/cached_data_v2/val"
 
-  target_batch_size: 32
-  batch_size: 8 # Adjust based on your GPU memory
+  target_batch_size: 1
+  batch_size: 1 # Adjust based on your GPU memory
 
   epochs: 50000
   opt: Muon
@@ -46,14 +46,14 @@ train:
 
   checkpoint_dir: checkpoints/tekken_dit_v2
   output_path: /home/venky/ankitd/anmol/WM/owl-wms/checkpoints/tekken_dit_v2_ema
-  resume_ckpt: checkpoints/tekken_dit_v2/step_8000.pt # Path to your last checkpoint
+  resume_ckpt: checkpoints/tekken_dit_v2/step_12000.pt # Path to your last checkpoint
 
-  sample_interval: 500
+  sample_interval: 1
   save_interval: 4000
-  n_samples: 2
+  n_samples: 1
   eval_sample_dir: samples/tekken_dit_v2
 
-  sampler_id: t3_caching
+  sampler_id: t3_sampler
   sampler_kwargs:
     n_steps: 16
     # window_length: 16
@@ -72,4 +72,4 @@ train:
 wandb:
   name: d-fusion
   project: OWL
-  run_name: tekken-rft-v2
+  run_name: tekken-rft-eval

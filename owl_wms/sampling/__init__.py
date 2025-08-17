@@ -18,6 +18,18 @@ def get_sampler_cls(sampler_id):
         """
         from .t3_sampler import TekkenSampler
         return TekkenSampler
+    elif sampler_id == 't3_caching_cfg':
+        """
+        TekkenRFT model sampler with sliding window attention and CFG.
+        """
+        from .t3_caching import TekkenCachingSamplerWithCFG
+        return TekkenCachingSamplerWithCFG
+    elif sampler_id == "t3_simple":
+        """
+        Simple Tekken sampler without caching.
+        """
+        from .t3_caching import SimpleTekkenSampler
+        return SimpleTekkenSampler
     elif sampler_id == "av_caching":
         """
         Audio+Video sampler with KV caching.
@@ -36,9 +48,9 @@ def get_sampler_cls(sampler_id):
         """
         from .av_window import CausalAVWindowSamplerNoCFG
         return CausalAVWindowSamplerNoCFG
-    elif sampler_id == "av_caching_one_step":
-        """
-        Identical to av_caching but with a hard assumption for one step to simplify
-        """
-        from .av_caching import AVCachingOneStepSampler
-        return AVCachingOneStepSampler
+    # elif sampler_id == "av_caching_one_step":
+    #     """
+    #     Identical to av_caching but with a hard assumption for one step to simplify
+    #     """
+    #     from .av_caching import AVCachingOneStepSampler
+    #     return AVCachingOneStepSampler
