@@ -162,14 +162,18 @@ class GameRFTCore(nn.Module):
         """
         x: [b,n,c,h,w]
         t: [b,n]
-        mouse: [b,n,2]
-        btn: [b,n,n_buttons]
         """
+        x = self.translate_in(x)
+
         b, n, c, h, w = x.shape
+        r = n // t.size(1)
+        print("R IS", r)
+        t = t.repeat_interleave(r, dim=1)
 
         t_cond = self.t_embed(t)
 
         if not self.uncond:
+            # TODO: repeat interleave for WAN?
             ctrl_cond = self.control_embed(mouse, btn)  # [b,n,d]
             if has_controls is not None:
                 ctrl_cond = torch.where(has_controls[:, None, None], ctrl_cond, torch.zeros_like(ctrl_cond))
@@ -177,15 +181,13 @@ class GameRFTCore(nn.Module):
         else:
             cond = t_cond
 
-        x = self.translate_in(x)
-
         x = eo.rearrange(x, 'b n c h w -> b (n h w) c')
 
         x = self.proj_in(x)
         x = self.transformer(x, cond, doc_id, kv_cache)
         x = self.proj_out(x, cond)
 
-        x = eo.rearrange(x, 'b (n h w) c -> b n c h w', h=h, w=w)
+        x = eo.rearrange(x, 'b (n h w) c -> b n c h w', n=n, h=h, w=w)
 
         x = self.translate_out(x)
 
