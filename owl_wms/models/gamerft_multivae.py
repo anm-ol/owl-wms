@@ -146,12 +146,12 @@ class GameRFTCore(nn.Module):
         self.t_embed = TimestepEmbedding(config.d_model)
 
         self.translate_in = TransformerTranslator(
-            in_shape={'C':16, 'H':30, 'W':52, 'G':4},
-            out_shape={'C':128, 'H':8,  'W':8, 'G': 1}
+            in_shape={'C':16, 'H':30, 'W':52, 'G': 1},
+            out_shape={'C':128, 'H':8,  'W':8, 'G': 4}
         )
         self.translate_out = TransformerTranslator(
-            in_shape={'C':128, 'H':8,  'W':8, 'G': 1},
-            out_shape={'C':16, 'H':30, 'W':52, 'G':4},
+            in_shape={'C':128, 'H':8,  'W':8, 'G': 4},
+            out_shape={'C':16, 'H':30, 'W':52, 'G': 1},
         )
 
         self.proj_in = nn.Linear(config.channels, config.d_model, bias=False)
