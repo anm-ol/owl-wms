@@ -169,7 +169,6 @@ class GameRFTCore(nn.Module):
 
         b, n, c, h, w = x.shape
         r = n // t.size(1)
-        print("R IS", r)
         t = t.repeat_interleave(r, dim=1)
 
         t_cond = self.t_embed(t)
