@@ -57,6 +57,8 @@ class RFTTrainer(BaseTrainer):
 
         freeze(self.decoder)
 
+        self.autocast_ctx = torch.amp.autocast('cuda', torch.bfloat16)
+
     @staticmethod
     def get_raw_model(model):
         return getattr(model, "module", model)
@@ -143,7 +145,6 @@ class RFTTrainer(BaseTrainer):
         # Grad accum setup and scaler
         accum_steps = self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size
         accum_steps = max(1, accum_steps)
-        ctx = torch.amp.autocast('cuda', torch.bfloat16)
 
         self.load()
 
@@ -180,11 +181,14 @@ class RFTTrainer(BaseTrainer):
         local_step = 0
         for epoch in range(self.train_cfg.epochs):
             for batch in tqdm.tqdm(loader, total=len(loader), disable=self.rank != 0, desc=f"Epoch: {epoch}"):
-                vid, mouse, btn, doc_id = [t.cuda() for t in batch]
-                vid = vid / self.train_cfg.vae_scale
+                train_steps = local_step // accum_steps
 
-                with ctx:
-                    loss = self.model(vid, mouse, btn, doc_id)
+                with self.autocast_ctx:
+                    batch_cuda = [
+                        item.cuda() if isinstance(item, torch.Tensor) else item
+                        for item in batch
+                    ]
+                    loss = self.fwd_step(batch_cuda, train_steps)
                     loss = loss / accum_steps
                     loss.backward()
 
@@ -203,29 +207,37 @@ class RFTTrainer(BaseTrainer):
                         self.scheduler.step()
                     self.ema.update()
 
-                    # Do logging
-                    with torch.no_grad():
-                        wandb_dict = metrics.pop()
-                        wandb_dict['time'] = timer.hit()
-                        timer.reset()
-
-                        # Sampling commented out for now
-                        if self.total_step_counter % self.train_cfg.sample_interval == 0:
-                            with ctx:
-                                eval_wandb_dict = self.eval_step(sample_loader, sampler)
-                                gc.collect()
-                                torch.cuda.empty_cache()
-                                if self.rank == 0:
-                                    wandb_dict.update(eval_wandb_dict)
-
-                        if self.rank == 0:
-                            wandb.log(wandb_dict)
+                    self.log_step(metrics, timer, sample_loader, sampler)
 
                     self.total_step_counter += 1
                     if self.total_step_counter % self.train_cfg.save_interval == 0:
                         self.save()
 
                     self.barrier()
+
+    def fwd_step(self, batch, train_step):
+        vid, mouse, btn, doc_id = batch
+        vid = vid / self.train_cfg.vae_scale
+        loss = self.model(vid, mouse, btn, doc_id)
+        return loss
+
+    @torch.no_grad()
+    def log_step(self, metrics, timer, sample_loader, sampler):
+        wandb_dict = metrics.pop()
+        wandb_dict['time'] = timer.hit()
+        timer.reset()
+
+        # Sampling commented out for now
+        if self.total_step_counter % self.train_cfg.sample_interval == 0:
+            with self.autocast_ctx:
+                eval_wandb_dict = self.eval_step(sample_loader, sampler)
+                gc.collect()
+                torch.cuda.empty_cache()
+                if self.rank == 0:
+                    wandb_dict.update(eval_wandb_dict)
+
+        if self.rank == 0:
+            wandb.log(wandb_dict)
 
     def _gather_concat_cpu(self, t: torch.Tensor, dim: int = 0):
         """Gather *t* from every rank onto rank 0 and return concatenated copy."""
@@ -244,14 +256,20 @@ class RFTTrainer(BaseTrainer):
         ema_model = self.get_module(ema=True).core
 
         # ---- Generate Samples ----
-        vid, mouse, btn = [x.cuda() for x in next(sample_loader)]
-        mouse, button = batch_permute_to_length(mouse, btn, sampler.num_frames + vid.size(1))
+        eval_batch = [x.cuda() for x in next(sample_loader)]
+        if len(eval_batch) == 3:
+            vid, mouse, btn = eval_batch
+            mouse, btn = batch_permute_to_length(mouse, btn, sampler.num_frames + vid.size(1))
+        else:
+            vid, = eval_batch
+            mouse, btn = None, None
+
         vid = vid / self.train_cfg.vae_scale
 
-        latent_vid = sampler(ema_model, vid, mouse, button)
+        latent_vid = sampler(ema_model, vid, mouse, btn)
 
         if self.sampler_only_return_generated:
-            latent_vid, mouse, button = (x[:, vid.size(1):] for x in (latent_vid, mouse, button))
+            latent_vid, mouse, btn = (x[:, vid.size(1):] for x in (latent_vid, mouse, btn))
 
         video_out = self.decode_fn(latent_vid * self.train_cfg.vae_scale) if self.decode_fn is not None else None
 
@@ -264,8 +282,8 @@ class RFTTrainer(BaseTrainer):
                 torch.save(latent_vid, eval_dir / f"vid.{self.total_step_counter}.pt")
 
         # ---- Generate Media Artifacts ----
-        video_out, mouse, button = map(self._gather_concat_cpu, (video_out, mouse, button))
-        eval_wandb_dict = to_wandb_samples(video_out, mouse, button) if self.rank == 0 else None
+        video_out, mouse, btn = map(self._gather_concat_cpu, (video_out, mouse, btn))
+        eval_wandb_dict = to_wandb_samples(video_out, mouse, btn) if self.rank == 0 else None
         dist.barrier()
 
         return eval_wandb_dict

@@ -1,4 +1,7 @@
 def get_trainer_cls(trainer_id):
+    if trainer_id == "rft_pair_distill":
+        from .rft_pair_distill_trainer import RFTPairDistillTrainer
+        return RFTPairDistillTrainer
     if trainer_id == "causvid":
         """
         CausvidTrainer does DMD to create few-step causal student

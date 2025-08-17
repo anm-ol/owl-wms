@@ -30,7 +30,7 @@ class GameRFTCore(nn.Module):
 
         self.uncond = config.uncond
 
-    def forward(self, x, t, mouse, btn, doc_id=None, has_controls=None, kv_cache=None):
+    def forward(self, x, t, mouse=None, btn=None, doc_id=None, has_controls=None, kv_cache=None):
         """
         x: [b,n,c,h,w]
         t: [b,n]
