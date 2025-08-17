@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from ..nn.embeddings import TimestepEmbedding, ControlEmbedding
 from ..nn.attn import DiT, FinalLayer, Attn, MLP
-from .normalization import rms_norm
+from ..nn.normalization import rms_norm
 
 import einops as eo
 from einops._torch_specific import allow_ops_in_compiled_graph
