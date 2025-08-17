@@ -92,17 +92,19 @@ class TransformerTranslator(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N_in, Ci, Hi, Wi = x.shape
-        assert (Ci, Hi, Wi) == (self.Ci, self.Hi, self.Wi)
+        # be strict on channels, flexible on spatial (use runtime H/W)
+        assert Ci == self.Ci, f"Expected C={self.Ci}, got {Ci}"
 
         # target frame count
         assert (N_in * self.Go) % self.Gi == 0, "Frame count not divisible given G_in/G_out"
         N_out = (N_in * self.Go) // self.Gi
 
         if self.mode in ('compress', 'same'):
+            tokens_in = (self.group * Hi * Wi) if self.mode == 'compress' else (Hi * Wi)
             # group `group` input frames → 1 output frame
             x = x.view(B, N_out, self.group, Ci, Hi, Wi) \
                  .permute(0, 1, 2, 4, 5, 3)                               # [B,N_out,group,Hi,Wi,Ci]
-            x = x.reshape(B * N_out, self.tokens_in, Ci)                  # [B*N_out, tokens_in, Ci]
+            x = x.reshape(B * N_out, tokens_in, Ci)                       # [B*N_out, tokens_in, Ci]
             x = self.in_proj(x)                                           # → [B*N_out, tokens_in, d]
 
             q = self.queries.unsqueeze(0).expand(B * N_out, -1, -1)      # [B*N_out, tokens_out, d]
@@ -115,6 +117,7 @@ class TransformerTranslator(nn.Module):
             return y.permute(0, 1, 4, 2, 3).contiguous()                  # [B,N_out,Co,Ho,Wo]
 
         # expand: 1 input frame → `group` output frames
+        x = x.permute(0, 1, 3, 4, 2).reshape(B * N_in, Hi * Wi, Ci)      # [B*N_in, Hi*Wi, Ci]
         x = x.permute(0, 1, 3, 4, 2).reshape(B * N_in, self.tokens_in, Ci)  # [B*N_in, Hi*Wi, Ci]
         x = self.in_proj(x)                                                 # → [B*N_in, tokens_in, d]
 
