@@ -135,6 +135,7 @@ class TransformerTranslator(nn.Module):
 
 import einops
 from ..nn.mlp import MLPCustom
+from torch.nn.attention.flex_attention import flex_attention, create_block_mask
 
 
 class TransformerTranslatorBlock(nn.Module):
@@ -168,17 +169,17 @@ class TransformerTranslatorBlock(nn.Module):
         y2 = x1 * (-sin) + x2 * cos
         return torch.cat((y1, y2), dim=-1).type_as(x)
 
-    def attn(self, x):
+    def attn(self, x, block_mask):
         qkv = self.attn_qkv(x)
         q, k, v = einops.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
         q, k = rms_norm(q), rms_norm(k)
         q, k = self.rope(q), self.rope(k)
-        x = F.scaled_dot_product_attention(q, k, v)
+        x = flex_attention(q, k, v, block_mask=block_mask)
         x = x.permute(0, 2, 1, 3).contiguous().view(x.shape[0], x.shape[2], -1)
         return self.attn_out(x)
 
-    def forward(self, x, cond, block_mask, kv_cache=None):
-        x = x + self.attn(rms_norm(x))
+    def forward(self, x, block_mask):
+        x = x + self.attn(rms_norm(x), block_mask)
         x = x + self.mlp(rms_norm(x))
         return x
 
@@ -227,6 +228,18 @@ class TransformerTranslator(nn.Module):
         # Project each output token to C_out
         self.out_proj = nn.Linear(d_model, Cout)
 
+        self.block_mask = self.get_block_mask(self.tokens_in_per_group, self.tokens_out_per_group)
+
+    def get_block_mask(self, in_L, out_L):
+        S = in_L + out_L
+        is_input = torch.zeros(S, dtype=torch.bool)
+        is_input[:in_L] = True
+
+        def mask_mod(b, h, q, kv):
+            return ~is_input[q] | is_input[kv]
+
+        return create_block_mask(mask_mod, B=None, H=None, Q_LEN=S, KV_LEN=S)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: [B, N, C_in, H_in, W_in]
@@ -245,7 +258,7 @@ class TransformerTranslator(nn.Module):
 
         # run encoder per bundle
         for blk in self.blocks:
-            z = blk(z, cond=None, block_mask=None)
+            z = blk(z, cond=None, block_mask=self.block_mask)
         z = rms_norm(z)
 
         # Keep only output tokens, project to channels, and reshape back to frames
