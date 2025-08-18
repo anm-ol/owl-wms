@@ -147,6 +147,7 @@ class TranslatorBlock(nn.Module):
         self.attn_out = nn.Linear(d_model, d_model)
 
         # rotary cache (half-truncated)
+        self.head_dim = d_model // n_head
         angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=self.head_dim // 4, dtype=torch.float32)
         angular_freq = torch.cat([angular_freq, angular_freq.new_zeros(self.head_dim // 4)], dim=0)  # [D/2]
         t = torch.arange(max_seq_len, dtype=torch.float32)                                          # [T]
