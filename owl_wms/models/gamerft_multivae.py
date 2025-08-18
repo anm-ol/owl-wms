@@ -199,7 +199,7 @@ class TransformerTranslator(nn.Module):
         d_model: int = 128,
         depth: int = 2,
         nhead: int = 4,
-        mlp_ratio: float = 1.0,
+        mlp_ratio: float = 2.0,
     ):
         super().__init__()
         Cin, Hin, Win, Gin = in_shape['C'], in_shape['H'], in_shape['W'], in_shape.get('G', 1)
@@ -208,11 +208,14 @@ class TransformerTranslator(nn.Module):
         self.Gin, self.Gout = Gin, Gout
         self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
 
+        self.tokens_in_per_group = Hin * Win * self.Gin
+        self.tokens_out_per_group = Hout * Wout * self.Gout
+
         # Per-token projection (C_in → d_model)
         self.in_proj = nn.Linear(Cin, d_model)
 
         # Transformer blocks (operate on concatenated [inputs || learned outputs])
-        max_seq_len = (Hin * Win * self.Gin) + (Hout * Wout * self.Gout)
+        max_seq_len = self.tokens_in_per_group + self.tokens_out_per_group
         self.blocks = nn.ModuleList([
             TransformerTranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio, max_seq_len=max_seq_len)
             for _ in range(depth)
