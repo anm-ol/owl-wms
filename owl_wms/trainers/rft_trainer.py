@@ -62,7 +62,6 @@ class RFTTrainer(BaseTrainer):
 
         ####
 
-        self.decoder = self.wan_decoder  # TODO: remove
         # TODO
         """
         self.decoder = get_decoder_only(
@@ -117,7 +116,10 @@ class RFTTrainer(BaseTrainer):
         self.model = torch.compile(self.model)
 
         self.decoder = self.decoder.cuda().eval().bfloat16()
-        self.decode_fn = make_batched_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
+        # self.decode_fn = make_batched_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
+        self.decode_fn = make_batched_decode_fn(
+            lambda z: self.wan_decoder.decode(z).sample, self.train_cfg.vae_batch_size
+        )
 
         # ----- EMA, optimiser, scheduler -----
         self.ema = EMA(self.model, beta=0.999, update_after_step=0, update_every=1)
