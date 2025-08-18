@@ -32,6 +32,10 @@ class WanPairDataset(Dataset):
       t_end   = t_start + Δ
       Snap both to the discrete K-step grid (files 00000000..000000{K-1}).
     """
+
+    wan_scheduler_timesteps = {0: 999.0, 1: 991.0, 2: 982.0, 3: 973.0, 4: 963.0, 5: 954.0, 6: 944.0, 7: 933.0, 8: 922.0, 9: 911.0, 10: 899.0, 11: 887.0, 12: 874.0, 13: 861.0, 14: 847.0, 15: 832.0, 16: 817.0, 17: 801.0, 18: 785.0, 19: 767.0, 20: 749.0, 21: 730.0, 22: 710.0, 23: 688.0, 24: 666.0, 25: 642.0, 26: 617.0, 27: 590.0, 28: 562.0, 29: 531.0, 30: 499.0, 31: 465.0, 32: 428.0, 33: 388.0, 34: 345.0, 35: 299.0, 36: 249.0, 37: 195.0, 38: 136.0, 39: 71.0}
+    wan_max = 999
+
     def __init__(
         self,
         root_dir: str,
@@ -109,8 +113,10 @@ class WanPairDataset(Dataset):
         x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]
         F = x_a.shape[0]
 
-        time_a = torch.full((F,), float(t_a_scalar), dtype=torch.float32)
-        time_b = torch.full((F,), float(t_b_scalar), dtype=torch.float32)
+        t_a_scalar = float(self.wan_scheduler_timesteps[steps[i_a]] / self.wan_range[1])
+        t_b_scalar = float(self.wan_scheduler_timesteps[steps[i_b]] / self.wan_range[1])
+        time_a = torch.full((F,), t_a_scalar, dtype=torch.float32)
+        time_b = torch.full((F,), t_b_scalar, dtype=torch.float32)
 
         return {"x_a": x_a, "time_a": time_a, "x_b": x_b, "time_b": time_b}
 
