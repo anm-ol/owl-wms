@@ -113,8 +113,8 @@ class WanPairDataset(Dataset):
         x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]
         F = x_a.shape[0]
 
-        t_a_scalar = float(self.wan_scheduler_timesteps[steps[i_a]] / self.wan_range[1])
-        t_b_scalar = float(self.wan_scheduler_timesteps[steps[i_b]] / self.wan_range[1])
+        t_a_scalar = float(self.wan_scheduler_timesteps[steps[i_a]] / self.wan_max)
+        t_b_scalar = float(self.wan_scheduler_timesteps[steps[i_b]] / self.wan_max)
         time_a = torch.full((F,), t_a_scalar, dtype=torch.float32)
         time_b = torch.full((F,), t_b_scalar, dtype=torch.float32)
 
