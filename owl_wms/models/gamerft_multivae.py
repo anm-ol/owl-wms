@@ -138,6 +138,11 @@ from ..nn.mlp import MLPCustom
 from torch.nn.attention.flex_attention import flex_attention, create_block_mask
 
 
+create_block_mask = torch.compile(create_block_mask)
+flex_attention = torch.compile(flex_attention)
+
+
+
 class TransformerTranslatorBlock(nn.Module):
     def __init__(self, d_model, n_head, mlp_ratio, max_seq_len: int = 16384):
         super().__init__()
