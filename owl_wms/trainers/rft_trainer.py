@@ -119,7 +119,11 @@ class RFTTrainer(BaseTrainer):
         self.decoder = self.decoder.cuda().eval().bfloat16()
         # self.decode_fn = make_batched_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
         self.decode_fn = make_batched_decode_fn(
-            lambda z: self.wan_decoder.decode(z.permute(0, 2, 1, 3, 4)).sample,
+            lambda z: self.wan_decoder.decode(
+                # if 5D and channels already first, leave it; if 5D and time first, swap; if 4D, add T=1
+                z if (z.ndim == 5 and z.shape[1] == self.wan_decoder.config.z_dim)
+                else (z.permute(0, 2, 1, 3, 4) if z.ndim == 5 else z.unsqueeze(2))
+            ).sample,
             self.train_cfg.vae_batch_size
         )
         # ----- EMA, optimiser, scheduler -----
