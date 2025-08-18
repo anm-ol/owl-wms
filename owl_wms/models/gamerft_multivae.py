@@ -133,6 +133,32 @@ class TransformerTranslator(nn.Module):
         return y
 """
 
+import einops
+from ..nn.mlp import MLPCustom
+
+
+
+class TranslatorBlock(nn.Module):
+    def __init__(self, d_model, n_head, mlp_ratio=4):
+        super().__init__()
+        self.n_heads = n_head
+        self.attn_qkv = nn.Linear(d_model, 3 * d_model)
+        self.attn_out = nn.Linear(d_model, d_model)
+        self.mlp = MLPCustom(d_model, d_model * mlp_ratio, d_model)
+
+    def attn(self, x):
+        qkv = self.attn_qkv(x)
+        q, k, v = einops.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
+        q, k = rms_norm(q), rms_norm(k)
+        x = F.scaled_dot_product_attention(q, k, v)
+        x = x.permute(0, 2, 1, 3).contiguous().view(x.shape[0], x.shape[2], -1)
+        return self.attn_out(x)
+
+    def forward(self, x, cond, block_mask, kv_cache=None):
+        x = x + self.attn(rms_norm(x))
+        x = x + self.mlp(rms_norm(x))
+        return x
+
 
 class TransformerTranslator(nn.Module):
     """
@@ -164,15 +190,10 @@ class TransformerTranslator(nn.Module):
         self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
 
         # Simple seq encoder: project frame→d_model, Transformer over N, project d_model→(out_vec * g_mult)
-        self.in_proj  = nn.Linear(self.in_vec, d_model)
-        enc_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=int(d_model * mlp_ratio),
-            batch_first=True,
-            activation=activation,
+        self.in_proj = nn.Linear(self.in_vec, d_model)
+        self.blocks = nn.ModuleList(
+            [TranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio) for _ in range(depth)]
         )
-        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=depth)
         self.out_proj = nn.Linear(d_model, self.out_vec * self.g_mult)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -183,7 +204,9 @@ class TransformerTranslator(nn.Module):
         B, N, C, H, W = x.shape
         z = x.reshape(B, N, -1)           # [B, N, in_vec]
         z = self.in_proj(z)               # [B, N, d_model]
-        z = self.encoder(z)               # [B, N, d_model]
+        for blk in self.blocks:           # [B, N, d_model]
+            z = blk(z, cond=None, block_mask=None)
+        z = rms_norm(z)
         z = self.out_proj(z)              # [B, N, out_vec * g_mult]
         z = z.view(B, N * self.g_mult, self.Cout, self.Hout, self.Wout)
         return z

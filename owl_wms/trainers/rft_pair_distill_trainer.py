@@ -53,7 +53,9 @@ class RFTPairDistillTrainer(RFTTrainer):
             # TODO: try midpoint between x_a and x_b
             # u = 0.5 * (t_a + t_b)
             # TODO: see how well strict midpoint below works
-            u = 0.5
+            # u = 0.5
+            # random point on the segment
+            u = time_b + torch.rand_like(time_a) * (time_a - time_b)
 
             x_u = x0 + u * v                             # [B,F,C,H,W]
             t_u = torch.full_like(time_a, u)             # [B,F]
