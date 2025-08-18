@@ -42,7 +42,7 @@ class RFTPairDistillTrainer(RFTTrainer):
         if train_step < self.train_cfg.finite_difference_step:
             # ----- ODE-pair regression: (x_a, time_a) -> x0 -----
             pred_x0 = self.core_fwd(x_a, time_a)
-            return F.mse_loss(pred_x0, x0)
+            diffusion_loss = F.mse_loss(pred_x0, x0)
 
         else:
             # ----- Flow-matching KD: (x_u, u) -> v -----
@@ -54,14 +54,22 @@ class RFTPairDistillTrainer(RFTTrainer):
             # u = 0.5 * (t_a + t_b)
             # TODO: see how well strict midpoint below works
             # u = 0.5
-            # random point on the segment
+            # random interpolated point
             u = time_b + torch.rand_like(time_a) * (time_a - time_b)
 
             x_u = x0 + u * v                             # [B,F,C,H,W]
             t_u = torch.full_like(time_a, u)             # [B,F]
 
             pred_v = self.core_fwd(x_u, t_u)
-            return F.mse_loss(pred_v, v)
+            diffusion_loss = F.mse_loss(pred_v, v)
+
+        translation_loss = F.mse_loss(
+            x_a,
+            self.get_module(ema=False).core.translate_out(self.core.translate_in(x_a))
+        )
+        loss = diffusion_loss + translation_loss
+        return loss, diffusion_loss, translation_loss
+
 
     @torch.compile
     def core_fwd(self, *args, **kwargs):

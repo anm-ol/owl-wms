@@ -231,11 +231,13 @@ class RFTTrainer(BaseTrainer):
                         item.cuda() if isinstance(item, torch.Tensor) else item
                         for item in batch
                     ]
-                    loss = self.fwd_step(batch_cuda, train_steps)
+                    loss, diffusion_loss, translation_loss = self.fwd_step(batch_cuda, train_steps)
                     loss = loss / accum_steps
                     loss.backward()
 
-                metrics.log('diffusion_loss', loss)
+                metrics.log('loss', loss)
+                metrics.log('diffusion_loss', diffusion_loss)
+                metrics.log('translation_loss', translation_loss)
 
                 local_step += 1
                 if local_step % accum_steps == 0:

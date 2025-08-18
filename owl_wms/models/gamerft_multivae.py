@@ -197,9 +197,9 @@ class TransformerTranslator(nn.Module):
         in_shape: dict,      # e.g. {'C':16, 'H':60, 'W':104, 'G':1}
         out_shape: dict,     # e.g. {'C':128,'H':8, 'W':8,   'G':4}
         d_model: int = 128,
-        depth: int = 3,
+        depth: int = 2,
         nhead: int = 4,
-        mlp_ratio: float = 2.0,
+        mlp_ratio: float = 1.0,
     ):
         super().__init__()
         Cin, Hin, Win, Gin = in_shape['C'], in_shape['H'], in_shape['W'], in_shape.get('G', 1)
