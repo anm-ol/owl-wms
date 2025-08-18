@@ -22,6 +22,8 @@ class TranslatorBlock(nn.Module):
         x = x + self.mlp(rms_norm(x))
         return x
 
+
+"""
 class _Block(nn.Module):
     def __init__(self, d, h, mlp_ratio=4):
         super().__init__()
@@ -37,7 +39,7 @@ class _Block(nn.Module):
 # --- unified translator (compress or expand based on G_in -> G_out) ----------
 
 class TransformerTranslator(nn.Module):
-    """
+    ""
     Input  x: [B, N_in,  C_in, H_in, W_in]
     Output y: [B, N_out, C_out, H_out, W_out]
 
@@ -48,7 +50,7 @@ class TransformerTranslator(nn.Module):
     - If G_out < G_in → compress (e.g., 4→1)
     - If G_out > G_in → expand   (e.g., 1→4)
     - If G_out = G_in → same rate (just spatial/channel remap)
-    """
+    ""
     def __init__(self, in_shape, out_shape, d_model=None, n_heads=8, n_layers=2, mlp_ratio=4):
         super().__init__()
 
@@ -129,6 +131,62 @@ class TransformerTranslator(nn.Module):
         y = self.out_proj(y).reshape(B, N_in, self.group, self.Ho, self.Wo, -1)
         y = y.permute(0, 1, 2, 5, 3, 4).contiguous().view(B, N_out, -1, self.Ho, self.Wo)
         return y
+"""
+
+
+class TransformerTranslator(nn.Module):
+    """
+    Minimal translator:
+      x: [B, N, C_in, H_in, W_in]  →  y: [B, N * (G_out/G_in), C_out, H_out, W_out]
+
+    It linearly flattens frames, runs a Transformer encoder over the sequence,
+    and linearly reshapes to the target frame shape. 'G' multiplies sequence length.
+    """
+    def __init__(
+        self,
+        in_shape: dict,      # e.g. {'C':16, 'H':60, 'W':104, 'G':1}
+        out_shape: dict,     # e.g. {'C':128,'H':8, 'W':8,   'G':4}
+        d_model: int = 512,
+        depth: int = 2,
+        nhead: int = 8,
+        mlp_ratio: float = 2.0,
+        activation: str = "gelu",
+    ):
+        super().__init__()
+        Cin, Hin, Win, Gin = in_shape['C'], in_shape['H'], in_shape['W'], in_shape.get('G', 1)
+        Cout, Hout, Wout, Gout = out_shape['C'], out_shape['H'], out_shape['W'], out_shape.get('G', 1)
+
+        assert Gout % Gin == 0, "G_out must be an integer multiple of G_in"
+        self.g_mult = Gout // Gin
+
+        self.in_vec  = Cin * Hin * Win
+        self.out_vec = Cout * Hout * Wout
+        self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
+
+        # Simple seq encoder: project frame→d_model, Transformer over N, project d_model→(out_vec * g_mult)
+        self.in_proj  = nn.Linear(self.in_vec, d_model)
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=int(d_model * mlp_ratio),
+            batch_first=True,
+            activation=activation,
+        )
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=depth)
+        self.out_proj = nn.Linear(d_model, self.out_vec * self.g_mult)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: [B, N, C_in, H_in, W_in]
+        returns: [B, N * (G_out/G_in), C_out, H_out, W_out]
+        """
+        B, N, C, H, W = x.shape
+        z = x.reshape(B, N, -1)           # [B, N, in_vec]
+        z = self.in_proj(z)               # [B, N, d_model]
+        z = self.encoder(z)               # [B, N, d_model]
+        z = self.out_proj(z)              # [B, N, out_vec * g_mult]
+        z = z.view(B, N * self.g_mult, self.Cout, self.Hout, self.Wout)
+        return z
 
 
 class GameRFTCore(nn.Module):
