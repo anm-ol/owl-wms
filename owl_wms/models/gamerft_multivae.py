@@ -137,7 +137,7 @@ import einops
 from ..nn.mlp import MLPCustom
 
 
-class TranslatorBlock(nn.Module):
+class TransformerTranslatorBlock(nn.Module):
     def __init__(self, d_model, n_head, mlp_ratio, max_seq_len: int = 16384):
         super().__init__()
         self.mlp = MLPCustom(d_model, int(d_model * mlp_ratio), d_model)
@@ -185,15 +185,12 @@ class TranslatorBlock(nn.Module):
 
 class TransformerTranslator(nn.Module):
     """
-    Translator with an explicit G dimension on both input and output.
+    Attention-based frame translator.
 
-    x: [B, N, C_in, H_in, W_in]  →  y: [B, (N // G_in) * G_out, C_out, H_out, W_out]
+    Input  : x [B, N, C_in, H_in, W_in]
+    Output : y [B, (N//G_in)*G_out, C_out, H_out, W_out]
 
-    It groups frames along the N axis into bundles of size G_in, forms
-    H_in*W_in*G_in input tokens per bundle (each token is C_in), appends
-    G_out*H_out*W_out learnable output tokens per bundle, runs self-attention
-    over the concatenated sequence, then reads back only the output tokens and
-    reshapes to frames with G_out per original bundle.
+    Groups frames by G_in, attends over tokens, and emits G_out frames per group.
     """
     def __init__(
         self,
@@ -203,36 +200,26 @@ class TransformerTranslator(nn.Module):
         depth: int = 3,
         nhead: int = 4,
         mlp_ratio: float = 2.0,
-        activation: str = "gelu",  # currently unused; kept for API parity
     ):
         super().__init__()
         Cin, Hin, Win, Gin = in_shape['C'], in_shape['H'], in_shape['W'], in_shape.get('G', 1)
         Cout, Hout, Wout, Gout = out_shape['C'], out_shape['H'], out_shape['W'], out_shape.get('G', 1)
+
         self.Gin, self.Gout = Gin, Gout
-
-        # Cached shapes for final view/permute
         self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
-
-        # Token counts per *bundle* (bundle size = G_in frames)
-        self.tokens_in_per_group  = Hin * Win * self.Gin            # H_in * W_in * G_in
-        self.tokens_out_per_group = Hout * Wout * self.Gout         # H_out * W_out * G_out
 
         # Per-token projection (C_in → d_model)
         self.in_proj = nn.Linear(Cin, d_model)
 
-        # RoPE cache length required inside each block: tokens_in + tokens_out (per bundle)
-        max_seq_len = self.tokens_in_per_group + self.tokens_out_per_group
-
         # Transformer blocks (operate on concatenated [inputs || learned outputs])
+        max_seq_len = (Hin * Win * self.Gin) + (Hout * Wout * self.Gout)
         self.blocks = nn.ModuleList([
-            TranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio, max_seq_len=max_seq_len)
+            TransformerTranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio, max_seq_len=max_seq_len)
             for _ in range(depth)
         ])
 
         # Learnable output tokens per bundle (query tokens in d_model space)
-        self.out_queries = nn.Parameter(
-            torch.randn(1, self.tokens_out_per_group, d_model) * (d_model ** -0.5)
-        )
+        self.out_queries = nn.Parameter(torch.randn(1, self.tokens_out_per_group, d_model) * (d_model ** -0.5))
 
         # Project each output token to C_out
         self.out_proj = nn.Linear(d_model, Cout)
@@ -246,34 +233,25 @@ class TransformerTranslator(nn.Module):
         assert N % self.Gin == 0, "N must be divisible by G_in to split frames into bundles"
 
         # Group frames first, then flatten to a single token sequence per bundle
-        # xg: [(B * (N/G_in)), G_in, C, H, W]
-        xg = einops.rearrange(x, 'b (n g) c h w -> (b n) g c h w', g=self.Gin)
+        tokens_in = einops.rearrange(x, 'b (n g) c h w -> (b n) (g h w) c', g=self.Gin)
 
-        # tokens_in: [(B*N/G_in), (G_in*H*W), C_in]
-        tokens_in = einops.rearrange(xg, 'bn g c h w -> bn (g h w) c')
-
-        # Project to model width: [(B*N/G_in), (G_in*H*W), d_model]
+        # Concatenate projected inputs | learned output embeddings
         z_in = self.in_proj(tokens_in)
-
-        # Append learned output tokens per bundle
-        # out_q: [(B*N/G_in), (G_out*H_out*W_out), d_model]
         out_q = self.out_queries.expand(z_in.size(0), -1, -1)
-
-        # Concatenate inputs || outputs and run attention per bundle
-        # z: [(B*N/G_in), (G_in*H*W + G_out*H_out*W_out), d_model]
         z = torch.cat([z_in, out_q], dim=1)
+
+        # run encoder per bundle
         for blk in self.blocks:
             z = blk(z, cond=None, block_mask=None)
         z = rms_norm(z)
 
-        # Read back only the output tokens, project to C_out
-        z_out = z[:, -self.tokens_out_per_group:, :]                        # [(B*N/G_in), G_out*H_out*W_out, d]
-        z_out = self.out_proj(z_out)                                        # [(B*N/G_in), G_out*H_out*W_out, C_out]
-
-        # Reshape to frames: [B, (N/G_in), G_out, H_out, W_out, C_out] → [B, (N/G_in)*G_out, C_out, H_out, W_out]
-        z_out = z_out.view(B, N // self.Gin, self.Gout, self.Hout, self.Wout, self.Cout)
-        z_out = z_out.view(B, (N // self.Gin) * self.Gout, self.Hout, self.Wout, self.Cout)
-        z_out = z_out.permute(0, 1, 4, 2, 3).contiguous()
+        # Keep only output tokens, project to channels, and reshape back to frames
+        z_out = z[:, -self.tokens_out_per_group:, :]                 # [(B*N/Gin), Gout*Hout*Wout, d]
+        z_out = self.out_proj(z_out)                                 # [(B*N/Gin), Gout*Hout*Wout, C_out]
+        z_out = einops.rearrange(
+            z_out, '(b n) (g ho wo) c -> b (n g) c ho wo',
+            b=B, n=N // self.Gin, g=self.Gout, ho=self.Hout, wo=self.Wout
+        )  # [B, (N/Gin)*Gout, C_out, H_out, W_out]
         return z_out
 
 
@@ -291,12 +269,12 @@ class GameRFTCore(nn.Module):
         self.t_embed = TimestepEmbedding(config.d_model)
 
         self.translate_in = TransformerTranslator(
-            in_shape={'C':16, 'H':60, 'W':104, 'G': 1},
-            out_shape={'C':128, 'H':8,  'W':8, 'G': 1},
+            in_shape={'C': 16, 'H': 60, 'W': 104, 'G': 1},
+            out_shape={'C': 128, 'H': 8, 'W': 8, 'G': 1},  # G: frame groups (4x as many frames)
         )
         self.translate_out = TransformerTranslator(
-            in_shape={'C':128, 'H':8,  'W':8, 'G': 1},
-            out_shape={'C':16, 'H':60, 'W':104, 'G': 1},  # TODO: use 'G': 4
+            in_shape={'C': 128, 'H': 8, 'W': 8, 'G': 1},
+            out_shape={'C': 16, 'H': 60, 'W': 104, 'G': 1},
         )
 
         self.proj_in = nn.Linear(config.channels, config.d_model, bias=False)
