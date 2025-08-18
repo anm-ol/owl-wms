@@ -22,6 +22,32 @@ from ..muon import init_muon
 from ..utils.owl_vae_bridge import get_decoder_only, make_batched_decode_fn
 
 
+@torch.no_grad()
+def make_batched_wan_decode_fn(vae, batch_size: int = 2):
+    """
+    VAE is AutoencoderKLWan. Accept latents as:
+      [B,N,C,H,W]  (time-first after batch)  or
+      [B,C,N,H,W]  (channel-first)          or
+      [B,C,H,W]    (single frame)
+    Returns pixels as [B,N,3,H',W'].
+    """
+    def decode(z: torch.Tensor):
+        if z.ndim == 4:
+            z = z.unsqueeze(1)  # [B,1,C,H,W]
+        # If channels already first, keep; else swap [B,N,C,H,W] -> [B,C,N,H,W]
+        z = z if (z.ndim == 5 and z.shape[1] == getattr(vae.config, "z_dim", z.shape[1])) \
+              else z.permute(0, 2, 1, 3, 4).contiguous()
+
+        outs = []
+        for z_chunk in z.split(batch_size, dim=0):        # batch over B only (keep time intact)
+            pix = vae.decode(z_chunk).sample               # [b,3,N,H',W']
+            outs.append(pix)
+        y = torch.cat(outs, dim=0)                         # [B,3,N,H',W']
+        y = y.permute(0, 2, 1, 3, 4).contiguous().bfloat16()  # -> [B,N,3,H',W']
+        return y
+    return decode
+
+
 class RFTTrainer(BaseTrainer):
     """
     Trainer for rectified flow transformer
@@ -118,14 +144,8 @@ class RFTTrainer(BaseTrainer):
 
         self.decoder = self.decoder.cuda().eval().bfloat16()
         # self.decode_fn = make_batched_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
-        self.decode_fn = make_batched_decode_fn(
-            lambda z: self.wan_decoder.decode(
-                # if 5D and channels already first, leave it; if 5D and time first, swap; if 4D, add T=1
-                z if (z.ndim == 5 and z.shape[1] == self.wan_decoder.config.z_dim)
-                else (z.permute(0, 2, 1, 3, 4) if z.ndim == 5 else z.unsqueeze(2))
-            ).sample,
-            self.train_cfg.vae_batch_size
-        )
+        self.decode_fn = make_batched_wan_decode_fn(self.wan_decoder, self.train_cfg.vae_batch_size)
+
         # ----- EMA, optimiser, scheduler -----
         self.ema = EMA(self.model, beta=0.999, update_after_step=0, update_every=1)
 
