@@ -137,19 +137,39 @@ import einops
 from ..nn.mlp import MLPCustom
 
 
-
 class TranslatorBlock(nn.Module):
-    def __init__(self, d_model, n_head, mlp_ratio):
+    def __init__(self, d_model, n_head, mlp_ratio, max_seq_len: int = 4096):
         super().__init__()
+        self.mlp = MLPCustom(d_model, int(d_model * mlp_ratio), d_model)
+
         self.n_heads = n_head
         self.attn_qkv = nn.Linear(d_model, 3 * d_model)
         self.attn_out = nn.Linear(d_model, d_model)
-        self.mlp = MLPCustom(d_model, int(d_model * mlp_ratio), d_model)
+
+        # rotary cache (half-truncated)
+        angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=self.head_dim // 4, dtype=torch.float32)
+        angular_freq = torch.cat([angular_freq, angular_freq.new_zeros(self.head_dim // 4)], dim=0)  # [D/2]
+        t = torch.arange(max_seq_len, dtype=torch.float32)                                          # [T]
+        theta = torch.einsum("i,j->ij", t, angular_freq)                                            # [T, D/2]
+        self.register_buffer("pos_cos", theta.cos(), persistent=False)
+        self.register_buffer("pos_sin", theta.sin(), persistent=False)
+
+    def rope(self, x):
+        # x: [B, H, T, D]
+        T, D = x.size(2), x.size(-1)
+        assert D % 2 == 0 and self.pos_cos.size(0) >= T, "RoPE cache too small or odd head dim"
+        cos = self.pos_cos[:T].unsqueeze(0).unsqueeze(1)  # [1, 1, T, D/2]
+        sin = self.pos_sin[:T].unsqueeze(0).unsqueeze(1)  # [1, 1, T, D/2]
+        x1, x2 = x.to(torch.float32).chunk(2, dim=-1)
+        y1 = x1 * cos + x2 * sin
+        y2 = x1 * (-sin) + x2 * cos
+        return torch.cat((y1, y2), dim=-1).type_as(x)
 
     def attn(self, x):
         qkv = self.attn_qkv(x)
         q, k, v = einops.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
         q, k = rms_norm(q), rms_norm(k)
+        q, k = self.rope(q), self.rope(k)
         x = F.scaled_dot_product_attention(q, k, v)
         x = x.permute(0, 2, 1, 3).contiguous().view(x.shape[0], x.shape[2], -1)
         return self.attn_out(x)
@@ -172,7 +192,7 @@ class TransformerTranslator(nn.Module):
         self,
         in_shape: dict,      # e.g. {'C':16, 'H':60, 'W':104, 'G':1}
         out_shape: dict,     # e.g. {'C':128,'H':8, 'W':8,   'G':4}
-        d_model: int = 512,
+        d_model: int = 128,
         depth: int = 2,
         nhead: int = 8,
         mlp_ratio: float = 2.0,
@@ -185,7 +205,7 @@ class TransformerTranslator(nn.Module):
         assert Gout % Gin == 0, "G_out must be an integer multiple of G_in"
         self.g_mult = Gout // Gin
 
-        self.in_vec  = Cin * Hin * Win
+        self.in_vec = Cin * Hin * Win
         self.out_vec = Cout * Hout * Wout
         self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
 
