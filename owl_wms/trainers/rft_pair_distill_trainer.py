@@ -63,9 +63,10 @@ class RFTPairDistillTrainer(RFTTrainer):
             pred_v = self.core_fwd(x_u, t_u)
             diffusion_loss = F.mse_loss(pred_v, v)
 
+        core = self.get_module(ema=False).core
         translation_loss = F.mse_loss(
             x_a,
-            self.get_module(ema=False).core.translate_out(self.core.translate_in(x_a))
+            core.translate_out(core.translate_in(x_a))
         )
         loss = diffusion_loss + translation_loss
         return loss, diffusion_loss, translation_loss
