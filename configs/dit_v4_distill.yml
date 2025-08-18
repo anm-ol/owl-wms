@@ -67,7 +67,7 @@ train:
   output_path: /mnt/data/owl-wms/checkpoints/dit_v4
   resume_ckpt: null
 
-  sample_interval: 5000
+  sample_interval: 500
   save_interval: 10000
 
   sampler_id: av_caching
