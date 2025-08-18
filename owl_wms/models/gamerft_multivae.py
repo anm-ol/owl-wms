@@ -232,7 +232,7 @@ class TransformerTranslator(nn.Module):
 
     def get_block_mask(self, in_L, out_L):
         S = in_L + out_L
-        is_input = torch.zeros(S, dtype=torch.bool)
+        is_input = torch.zeros(S, dtype=torch.bool, device="cuda")
         is_input[:in_L] = True
 
         def mask_mod(b, h, q, kv):
