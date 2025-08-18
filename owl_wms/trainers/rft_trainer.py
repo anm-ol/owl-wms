@@ -62,6 +62,7 @@ class RFTTrainer(BaseTrainer):
 
         ####
 
+        self.decoder = self.wan_decoder  # TODO: remove
         # TODO
         """
         self.decoder = get_decoder_only(
