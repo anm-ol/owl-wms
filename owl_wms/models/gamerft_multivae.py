@@ -146,11 +146,11 @@ class GameRFTCore(nn.Module):
 
         self.translate_in = TransformerTranslator(
             in_shape={'C':16, 'H':60, 'W':104, 'G': 1},
-            out_shape={'C':128, 'H':8,  'W':8, 'G': 4}
+            out_shape={'C':128, 'H':8,  'W':8, 'G': 1}  # TODO: use 'G': 4
         )
         self.translate_out = TransformerTranslator(
-            in_shape={'C':128, 'H':8,  'W':8, 'G': 4},
-            out_shape={'C':16, 'H':60, 'W':104, 'G': 1},
+            in_shape={'C':128, 'H':8,  'W':8, 'G': 1},
+            out_shape={'C':16, 'H':60, 'W':104, 'G': 1},  # TODO: use 'G': 4
         )
 
         self.proj_in = nn.Linear(config.channels, config.d_model, bias=False)
