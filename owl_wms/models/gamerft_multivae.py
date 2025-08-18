@@ -138,7 +138,7 @@ from ..nn.mlp import MLPCustom
 
 
 class TranslatorBlock(nn.Module):
-    def __init__(self, d_model, n_head, mlp_ratio, max_seq_len: int = 4096):
+    def __init__(self, d_model, n_head, mlp_ratio, max_seq_len: int = 16384):
         super().__init__()
         self.mlp = MLPCustom(d_model, int(d_model * mlp_ratio), d_model)
 
@@ -149,9 +149,9 @@ class TranslatorBlock(nn.Module):
         # rotary cache (half-truncated)
         self.head_dim = d_model // n_head
         angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=self.head_dim // 4, dtype=torch.float32)
-        angular_freq = torch.cat([angular_freq, angular_freq.new_zeros(self.head_dim // 4)], dim=0)  # [D/2]
-        t = torch.arange(max_seq_len, dtype=torch.float32)                                          # [T]
-        theta = torch.einsum("i,j->ij", t, angular_freq)                                            # [T, D/2]
+        angular_freq = torch.cat([angular_freq, angular_freq.new_zeros(self.head_dim // 4)], dim=0)
+        t = torch.arange(max_seq_len, dtype=torch.float32)
+        theta = torch.einsum("i,j->ij", t, angular_freq)
         self.register_buffer("pos_cos", theta.cos(), persistent=False)
         self.register_buffer("pos_sin", theta.sin(), persistent=False)
 
@@ -195,13 +195,14 @@ class TransformerTranslator(nn.Module):
         out_shape: dict,     # e.g. {'C':128,'H':8, 'W':8,   'G':4}
         d_model: int = 128,
         depth: int = 3,
-        nhead: int = 8,
+        nhead: int = 4,
         mlp_ratio: float = 2.0,
         activation: str = "gelu",
     ):
         super().__init__()
         Cin, Hin, Win, Gin = in_shape['C'], in_shape['H'], in_shape['W'], in_shape.get('G', 1)
         Cout, Hout, Wout, Gout = out_shape['C'], out_shape['H'], out_shape['W'], out_shape.get('G', 1)
+        self.Gin, self.Gout = Gin, Gout
 
         assert Gout % Gin == 0, "G_out must be an integer multiple of G_in"
         self.g_mult = Gout // Gin
@@ -209,13 +210,18 @@ class TransformerTranslator(nn.Module):
         self.in_vec = Cin * Hin * Win
         self.out_vec = Cout * Hout * Wout
         self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
+        self.tokens_in_per_frame  = Hin * Win * Gin                  # H*W*G_in
+        self.tokens_out_per_frame = Hout * Wout * self.g_mult        # H*W*(G_out/G_in)
 
         # Simple seq encoder: project frame→d_model, Transformer over N, project d_model→(out_vec * g_mult)
-        self.in_proj = nn.Linear(self.in_vec, d_model)
+        self.in_proj = nn.Linear(Cin, d_model)
         self.blocks = nn.ModuleList(
             [TranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio) for _ in range(depth)]
         )
-        self.out_proj = nn.Linear(d_model, self.out_vec * self.g_mult)
+        # Learned output queries (H_out*W_out*g_mult tokens per frame)
+        self.out_queries = nn.Parameter(torch.randn(1, self.tokens_out_per_frame, d_model) * (d_model ** -0.5))
+        # Project each output token to C_out
+        self.out_proj = nn.Linear(d_model, Cout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -223,14 +229,31 @@ class TransformerTranslator(nn.Module):
         returns: [B, N * (G_out/G_in), C_out, H_out, W_out]
         """
         B, N, C, H, W = x.shape
-        z = x.reshape(B, N, -1)           # [B, N, in_vec]
-        z = self.in_proj(z)               # [B, N, d_model]
-        for blk in self.blocks:           # [B, N, d_model]
+        # --- Build H*W*G_in input tokens of size C, then project to d_model ---
+        tokens_in = einops.rearrange(x, 'b n c h w -> b (n h w) c')    # [B, N*H*W, C]
+        if self.Gin > 1:
+            tokens_in = tokens_in.repeat_interleave(self.Gin, dim=1)   # [B, N*H*W*G_in, C]
+        z_in = self.in_proj(tokens_in)                                  # [B, N*H*W*G_in, d_model]
+
+        # --- Build H*W*(G_out/G_in) learnable output tokens per frame and tile over N ---
+        out_q = self.out_queries.expand(B, -1, -1)                      # [B, T_out_frame, d_model]
+        out_q = einops.repeat(out_q, 'b t d -> b (n t) d', n=N)         # [B, N*T_out_frame, d_model]
+
+        # --- Concatenate and run self-attention across ALL tokens ---
+        z = torch.cat([z_in, out_q], dim=1)                             # [B, N*H*W*G_in + N*T_out_frame, d]
+        for blk in self.blocks:
             z = blk(z, cond=None, block_mask=None)
         z = rms_norm(z)
-        z = self.out_proj(z)              # [B, N, out_vec * g_mult]
-        z = z.view(B, N * self.g_mult, self.Cout, self.Hout, self.Wout)
-        return z
+
+        # --- Take only the output-token slice, project to C_out, and reshape to images ---
+        T_out = N * self.tokens_out_per_frame
+        z_out = z[:, -T_out:, :]                                        # [B, N*T_out_frame, d_model]
+        z_out = self.out_proj(z_out)                                    # [B, N*T_out_frame, C_out]
+        z_out = z_out.view(B, N, self.tokens_out_per_frame, self.Cout)  # [B, N, H_out*W_out*g_mult, C_out]
+        z_out = z_out.view(B, N, self.g_mult, self.Hout * self.Wout, self.Cout)
+        z_out = z_out.view(B, N * self.g_mult, self.Hout, self.Wout, self.Cout)
+        z_out = z_out.permute(0, 1, 4, 2, 3).contiguous()               # [B, N*g_mult, C_out, H_out, W_out]
+        return z_out
 
 
 class GameRFTCore(nn.Module):
