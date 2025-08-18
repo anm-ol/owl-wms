@@ -185,11 +185,15 @@ class TranslatorBlock(nn.Module):
 
 class TransformerTranslator(nn.Module):
     """
-    Minimal translator:
-      x: [B, N, C_in, H_in, W_in]  →  y: [B, N * (G_out/G_in), C_out, H_out, W_out]
+    Translator with an explicit G dimension on both input and output.
 
-    It linearly flattens frames, runs a Transformer encoder over the sequence,
-    and linearly reshapes to the target frame shape. 'G' multiplies sequence length.
+    x: [B, N, C_in, H_in, W_in]  →  y: [B, (N // G_in) * G_out, C_out, H_out, W_out]
+
+    It groups frames along the N axis into bundles of size G_in, forms
+    H_in*W_in*G_in input tokens per bundle (each token is C_in), appends
+    G_out*H_out*W_out learnable output tokens per bundle, runs self-attention
+    over the concatenated sequence, then reads back only the output tokens and
+    reshapes to frames with G_out per original bundle.
     """
     def __init__(
         self,
@@ -199,67 +203,77 @@ class TransformerTranslator(nn.Module):
         depth: int = 3,
         nhead: int = 4,
         mlp_ratio: float = 2.0,
-        activation: str = "gelu",
+        activation: str = "gelu",  # currently unused; kept for API parity
     ):
         super().__init__()
         Cin, Hin, Win, Gin = in_shape['C'], in_shape['H'], in_shape['W'], in_shape.get('G', 1)
         Cout, Hout, Wout, Gout = out_shape['C'], out_shape['H'], out_shape['W'], out_shape.get('G', 1)
         self.Gin, self.Gout = Gin, Gout
 
-        assert Gout % Gin == 0, "G_out must be an integer multiple of G_in"
-        self.g_mult = Gout // Gin
-
-        self.in_vec = Cin * Hin * Win
-        self.out_vec = Cout * Hout * Wout
+        # Cached shapes for final view/permute
         self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
 
-        # Group g_mult frames → per-group tokens: H*W*g_mult; one output frame per group
-        self.tokens_in_per_group  = Hin * Win * self.g_mult           # H*W*g_mult
-        self.tokens_out_per_group = Hout * Wout                        # H_out*W_out
+        # Token counts per *bundle* (bundle size = G_in frames)
+        self.tokens_in_per_group  = Hin * Win * self.Gin            # H_in * W_in * G_in
+        self.tokens_out_per_group = Hout * Wout * self.Gout         # H_out * W_out * G_out
 
-        # Per-token projection: C → d_model
+        # Per-token projection (C_in → d_model)
         self.in_proj = nn.Linear(Cin, d_model)
 
+        # RoPE cache length required inside each block: tokens_in + tokens_out (per bundle)
         max_seq_len = self.tokens_in_per_group + self.tokens_out_per_group
+
+        # Transformer blocks (operate on concatenated [inputs || learned outputs])
         self.blocks = nn.ModuleList([
             TranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio, max_seq_len=max_seq_len)
             for _ in range(depth)
         ])
-        # Learnable output tokens per group (one output frame per group)
+
+        # Learnable output tokens per bundle (query tokens in d_model space)
         self.out_queries = nn.Parameter(
             torch.randn(1, self.tokens_out_per_group, d_model) * (d_model ** -0.5)
         )
+
         # Project each output token to C_out
         self.out_proj = nn.Linear(d_model, Cout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: [B, N, C_in, H_in, W_in]
-        returns: [B, N * (G_out/G_in), C_out, H_out, W_out]
+        returns: [B, (N // G_in) * G_out, C_out, H_out, W_out]
         """
         B, N, C, H, W = x.shape
-        g = self.g_mult
-        assert N % g == 0, "N must be divisible by G_out/G_in"
-        # Fold groups of g frames into the batch; per-group we have H*W*g tokens of size C
-        xg = einops.rearrange(x, 'b (n g) c h w -> (b n) g c h w', g=g)           # [(B*N/g), g, C, H, W]
-        tokens_in = einops.rearrange(xg, 'bn g c h w -> bn (h w g) c')            # [(B*N/g), H*W*g, C]
-        z_in = self.in_proj(tokens_in)                                            # [(B*N/g), H*W*g, d_model]
+        assert N % self.Gin == 0, "N must be divisible by G_in to split frames into bundles"
 
-        # Per-group learned output tokens (one output frame per group)
-        out_q = self.out_queries.expand(z_in.size(0), -1, -1)                     # [(B*N/g), H_out*W_out, d]
+        # Group frames first, then flatten to a single token sequence per bundle
+        # xg: [(B * (N/G_in)), G_in, C, H, W]
+        xg = einops.rearrange(x, 'b (n g) c h w -> (b n) g c h w', g=self.Gin)
 
-        # Concatenate inputs || outputs and run attention per group
-        z = torch.cat([z_in, out_q], dim=1)                                       # [(B*N/g), H*W*g + H_o*W_o, d]
+        # tokens_in: [(B*N/G_in), (G_in*H*W), C_in]
+        tokens_in = einops.rearrange(xg, 'bn g c h w -> bn (g h w) c')
 
+        # Project to model width: [(B*N/G_in), (G_in*H*W), d_model]
+        z_in = self.in_proj(tokens_in)
+
+        # Append learned output tokens per bundle
+        # out_q: [(B*N/G_in), (G_out*H_out*W_out), d_model]
+        out_q = self.out_queries.expand(z_in.size(0), -1, -1)
+
+        # Concatenate inputs || outputs and run attention per bundle
+        # z: [(B*N/G_in), (G_in*H*W + G_out*H_out*W_out), d_model]
+        z = torch.cat([z_in, out_q], dim=1)
         for blk in self.blocks:
             z = blk(z, cond=None, block_mask=None)
         z = rms_norm(z)
 
-        # Take only the output-token slice for each group, project, and reshape back to [B, N/g, C_o, H_o, W_o]
-        z_out = z[:, -self.tokens_out_per_group:, :]                                # [(B*N/g), H_o*W_o, d]
-        z_out = self.out_proj(z_out)                                                # [(B*N/g), H_o*W_o, C_o]
-        z_out = z_out.view(B, N // g, self.Hout, self.Wout, self.Cout)              # [B, N/g, H_o, W_o, C_o]
-        z_out = z_out.permute(0, 1, 4, 2, 3).contiguous()                           # [B, N/g, C_o, H_o, W_o]
+        # Read back only the output tokens, project to C_out
+        z_out = z[:, -self.tokens_out_per_group:, :]                        # [(B*N/G_in), G_out*H_out*W_out, d]
+        z_out = self.out_proj(z_out)                                        # [(B*N/G_in), G_out*H_out*W_out, C_out]
+
+        # Reshape to frames: [B, (N/G_in), G_out, H_out, W_out, C_out] → [B, (N/G_in)*G_out, C_out, H_out, W_out]
+        z_out = z_out.view(B, N // self.Gin, self.Gout, self.Hout, self.Wout, self.Cout)
+        z_out = z_out.view(B, (N // self.Gin) * self.Gout, self.Hout, self.Wout, self.Cout)
+        z_out = z_out.permute(0, 1, 4, 2, 3).contiguous()
         return z_out
 
 
