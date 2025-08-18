@@ -97,17 +97,14 @@ class WanPairDataset(Dataset):
             i_end = min(i_start + 1, K - 1) if i_start < K - 1 else i_start - 1
         i_a, i_b = (min(i_start, i_end), max(i_start, i_end))  # i_a < i_b → t_a > t_b
 
-        # exact grid times we will return with the tensors
-        t_a = 1.0 - (i_a / (K - 1))
-        t_b = 1.0 - (i_b / (K - 1))
-        return i_a, i_b, t_a, t_b
+        return i_a, i_b
 
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
         steps = self._steps[run_dir]
         K = len(steps)
 
-        i_a, i_b, t_a_scalar, t_b_scalar = self._pick_pair_indices(K)
+        i_a, i_b = self._pick_pair_indices(K)
 
         x_a = self._load_step(run_dir, steps[i_a])  # [F,C,H,W]
         x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]

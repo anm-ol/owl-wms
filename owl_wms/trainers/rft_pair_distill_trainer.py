@@ -71,7 +71,6 @@ class RFTPairDistillTrainer(RFTTrainer):
         loss = diffusion_loss + translation_loss
         return loss, diffusion_loss, translation_loss
 
-
     @torch.compile
     def core_fwd(self, *args, **kwargs):
         core = self.get_module(ema=False).core
