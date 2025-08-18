@@ -139,12 +139,12 @@ from ..nn.mlp import MLPCustom
 
 
 class TranslatorBlock(nn.Module):
-    def __init__(self, d_model, n_head, mlp_ratio=4):
+    def __init__(self, d_model, n_head, mlp_ratio):
         super().__init__()
         self.n_heads = n_head
         self.attn_qkv = nn.Linear(d_model, 3 * d_model)
         self.attn_out = nn.Linear(d_model, d_model)
-        self.mlp = MLPCustom(d_model, d_model * mlp_ratio, d_model)
+        self.mlp = MLPCustom(d_model, int(d_model * mlp_ratio), d_model)
 
     def attn(self, x):
         qkv = self.attn_qkv(x)
