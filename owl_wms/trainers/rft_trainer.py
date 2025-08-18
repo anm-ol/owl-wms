@@ -82,8 +82,8 @@ class RFTTrainer(BaseTrainer):
         self.wan_decoder = AutoencoderKLWan.from_pretrained(
             "Wan-AI/Wan2.2-T2V-A14B-Diffusers",  # or a local path with the same structure
             subfolder="vae",
-            torch_dtype=torch.float32,  # keep VAE weights in fp32 per upstream example
-        )
+            torch_dtype=torch.bfloat16,  # keep VAE weights in fp32 per upstream example
+        ).cuda()
         freeze(self.wan_decoder)
 
         ####
