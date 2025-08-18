@@ -143,11 +143,13 @@ class TranslatorBlock(nn.Module):
         self.mlp = MLPCustom(d_model, int(d_model * mlp_ratio), d_model)
 
         self.n_heads = n_head
+        assert d_model % n_head == 0
         self.attn_qkv = nn.Linear(d_model, 3 * d_model)
         self.attn_out = nn.Linear(d_model, d_model)
 
         # rotary cache (half-truncated)
         self.head_dim = d_model // n_head
+        assert self.head_dim % 4 == 0, "head_dim must be divisible by 4 for half-truncated RoPE"
         angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=self.head_dim // 4, dtype=torch.float32)
         angular_freq = torch.cat([angular_freq, angular_freq.new_zeros(self.head_dim // 4)], dim=0)
         t = torch.arange(max_seq_len, dtype=torch.float32)
@@ -210,16 +212,23 @@ class TransformerTranslator(nn.Module):
         self.in_vec = Cin * Hin * Win
         self.out_vec = Cout * Hout * Wout
         self.Cout, self.Hout, self.Wout = Cout, Hout, Wout
-        self.tokens_in_per_frame  = Hin * Win * Gin                  # H*W*G_in
-        self.tokens_out_per_frame = Hout * Wout * self.g_mult        # H*W*(G_out/G_in)
 
-        # Simple seq encoder: project frame→d_model, Transformer over N, project d_model→(out_vec * g_mult)
+        # Group g_mult frames → per-group tokens: H*W*g_mult; one output frame per group
+        self.tokens_in_per_group  = Hin * Win * self.g_mult           # H*W*g_mult
+        self.tokens_out_per_group = Hout * Wout                        # H_out*W_out
+
+        # Per-token projection: C → d_model
         self.in_proj = nn.Linear(Cin, d_model)
-        self.blocks = nn.ModuleList(
-            [TranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio) for _ in range(depth)]
+
+        max_seq_len = self.tokens_in_per_group + self.tokens_out_per_group
+        self.blocks = nn.ModuleList([
+            TranslatorBlock(d_model, n_head=nhead, mlp_ratio=mlp_ratio, max_seq_len=max_seq_len)
+            for _ in range(depth)
+        ])
+        # Learnable output tokens per group (one output frame per group)
+        self.out_queries = nn.Parameter(
+            torch.randn(1, self.tokens_out_per_group, d_model) * (d_model ** -0.5)
         )
-        # Learned output queries (H_out*W_out*g_mult tokens per frame)
-        self.out_queries = nn.Parameter(torch.randn(1, self.tokens_out_per_frame, d_model) * (d_model ** -0.5))
         # Project each output token to C_out
         self.out_proj = nn.Linear(d_model, Cout)
 
@@ -229,30 +238,28 @@ class TransformerTranslator(nn.Module):
         returns: [B, N * (G_out/G_in), C_out, H_out, W_out]
         """
         B, N, C, H, W = x.shape
-        # --- Build H*W*G_in input tokens of size C, then project to d_model ---
-        tokens_in = einops.rearrange(x, 'b n c h w -> b (n h w) c')    # [B, N*H*W, C]
-        if self.Gin > 1:
-            tokens_in = tokens_in.repeat_interleave(self.Gin, dim=1)   # [B, N*H*W*G_in, C]
-        z_in = self.in_proj(tokens_in)                                  # [B, N*H*W*G_in, d_model]
+        g = self.g_mult
+        assert N % g == 0, "N must be divisible by G_out/G_in"
+        # Fold groups of g frames into the batch; per-group we have H*W*g tokens of size C
+        xg = einops.rearrange(x, 'b (n g) c h w -> (b n) g c h w', g=g)           # [(B*N/g), g, C, H, W]
+        tokens_in = einops.rearrange(xg, 'bn g c h w -> bn (h w g) c')            # [(B*N/g), H*W*g, C]
+        z_in = self.in_proj(tokens_in)                                            # [(B*N/g), H*W*g, d_model]
 
-        # --- Build H*W*(G_out/G_in) learnable output tokens per frame and tile over N ---
-        out_q = self.out_queries.expand(B, -1, -1)                      # [B, T_out_frame, d_model]
-        out_q = einops.repeat(out_q, 'b t d -> b (n t) d', n=N)         # [B, N*T_out_frame, d_model]
+        # Per-group learned output tokens (one output frame per group)
+        out_q = self.out_queries.expand(z_in.size(0), -1, -1)                     # [(B*N/g), H_out*W_out, d]
 
-        # --- Concatenate and run self-attention across ALL tokens ---
-        z = torch.cat([z_in, out_q], dim=1)                             # [B, N*H*W*G_in + N*T_out_frame, d]
+        # Concatenate inputs || outputs and run attention per group
+        z = torch.cat([z_in, out_q], dim=1)                                       # [(B*N/g), H*W*g + H_o*W_o, d]
+
         for blk in self.blocks:
             z = blk(z, cond=None, block_mask=None)
         z = rms_norm(z)
 
-        # --- Take only the output-token slice, project to C_out, and reshape to images ---
-        T_out = N * self.tokens_out_per_frame
-        z_out = z[:, -T_out:, :]                                        # [B, N*T_out_frame, d_model]
-        z_out = self.out_proj(z_out)                                    # [B, N*T_out_frame, C_out]
-        z_out = z_out.view(B, N, self.tokens_out_per_frame, self.Cout)  # [B, N, H_out*W_out*g_mult, C_out]
-        z_out = z_out.view(B, N, self.g_mult, self.Hout * self.Wout, self.Cout)
-        z_out = z_out.view(B, N * self.g_mult, self.Hout, self.Wout, self.Cout)
-        z_out = z_out.permute(0, 1, 4, 2, 3).contiguous()               # [B, N*g_mult, C_out, H_out, W_out]
+        # Take only the output-token slice for each group, project, and reshape back to [B, N/g, C_o, H_o, W_o]
+        z_out = z[:, -self.tokens_out_per_group:, :]                                # [(B*N/g), H_o*W_o, d]
+        z_out = self.out_proj(z_out)                                                # [(B*N/g), H_o*W_o, C_o]
+        z_out = z_out.view(B, N // g, self.Hout, self.Wout, self.Cout)              # [B, N/g, H_o, W_o, C_o]
+        z_out = z_out.permute(0, 1, 4, 2, 3).contiguous()                           # [B, N/g, C_o, H_o, W_o]
         return z_out
 
 
@@ -271,7 +278,7 @@ class GameRFTCore(nn.Module):
 
         self.translate_in = TransformerTranslator(
             in_shape={'C':16, 'H':60, 'W':104, 'G': 1},
-            out_shape={'C':128, 'H':8,  'W':8, 'G': 1}  # TODO: use 'G': 4
+            out_shape={'C':128, 'H':8,  'W':8, 'G': 1},
         )
         self.translate_out = TransformerTranslator(
             in_shape={'C':128, 'H':8,  'W':8, 'G': 1},
