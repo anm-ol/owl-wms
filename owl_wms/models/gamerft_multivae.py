@@ -258,7 +258,7 @@ class TransformerTranslator(nn.Module):
 
         # run encoder per bundle
         for blk in self.blocks:
-            z = blk(z, cond=None, block_mask=self.block_mask)
+            z = blk(z, block_mask=self.block_mask)
         z = rms_norm(z)
 
         # Keep only output tokens, project to channels, and reshape back to frames
