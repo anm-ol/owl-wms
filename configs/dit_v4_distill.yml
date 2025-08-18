@@ -37,7 +37,7 @@ train:
     dataset_path: /mnt/data/lapp0/datasets/wan_generated/
     batch_columns: ["x"]
 
-  finite_difference_step: 1000
+  finite_difference_step: 10000
 
   target_batch_size: 64
   batch_size: 8
@@ -67,14 +67,14 @@ train:
   output_path: /mnt/data/owl-wms/checkpoints/dit_v4
   resume_ckpt: null
 
-  sample_interval: 500
+  sample_interval: 1000
   save_interval: 10000
 
   sampler_id: av_caching
   sampler_kwargs:
     n_steps: 16
     cfg_scale: 1.0
-    num_frames: 490
+    num_frames: 200
     noise_prev: 0.2
     only_return_generated: false
 
