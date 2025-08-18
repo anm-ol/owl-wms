@@ -49,13 +49,29 @@ class RFTTrainer(BaseTrainer):
         self.scheduler = None
 
         self.total_step_counter = 0
+
+        ####
+
+        from diffusers import AutoencoderKLWan
+        self.wan_decoder = AutoencoderKLWan.from_pretrained(
+            "Wan-AI/Wan2.2-T2V-A14B-Diffusers",  # or a local path with the same structure
+            subfolder="vae",
+            torch_dtype=torch.float32,  # keep VAE weights in fp32 per upstream example
+        )
+        freeze(self.wan_decoder)
+
+        ####
+
+        self.decoder = self.wan_decoder  # TODO: remove
+        # TODO
+        """
         self.decoder = get_decoder_only(
             self.train_cfg.vae_id,
             self.train_cfg.vae_cfg_path,
             self.train_cfg.vae_ckpt_path
         )
-
         freeze(self.decoder)
+        """
 
         self.autocast_ctx = torch.amp.autocast('cuda', torch.bfloat16)
 
