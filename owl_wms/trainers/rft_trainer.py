@@ -284,6 +284,8 @@ class RFTTrainer(BaseTrainer):
 
     def _gather_concat_cpu(self, t: torch.Tensor, dim: int = 0):
         """Gather *t* from every rank onto rank 0 and return concatenated copy."""
+        if t is None:
+            return None
         if self.world_size == 1:
             return t.cpu()
         if self.rank == 0:
