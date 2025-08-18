@@ -169,15 +169,11 @@ class GameRFTCore(nn.Module):
 
         b, n, c, h, w = x.shape
 
-        t_len = t.size(1)
-        if n == t_len:
-            pass
-        elif n > t_len:                                     # expanded
-            assert n % t_len == 0
-            t = t.repeat_interleave(n // t_len, dim=1)
-        else:                                               # compressed
-            assert t_len % n == 0
-            t = t[:, :: (t_len // n)]
+        old_n = t.size(1)
+        assert n % old_n == 0, "translator changed frame count by a non-integer factor"
+        factor = n // old_n  # e.g., 4 when G:1->4
+
+        t = t.repeat_interleave(factor, dim=1) if factor > 1 else t[:, :: (old_n // n)]
 
         t_cond = self.t_embed(t)
 
