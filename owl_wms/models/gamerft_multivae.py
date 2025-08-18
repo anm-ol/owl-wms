@@ -228,17 +228,15 @@ class TransformerTranslator(nn.Module):
         # Project each output token to C_out
         self.out_proj = nn.Linear(d_model, Cout)
 
-        self.block_mask = self.get_block_mask(self.tokens_in_per_group, self.tokens_out_per_group)
-
-    def get_block_mask(self, in_L, out_L):
+    def get_block_mask(self, in_L, out_L, device):
         S = in_L + out_L
-        is_input = torch.zeros(S, dtype=torch.bool, device="cuda")
+        is_input = torch.zeros(S, dtype=torch.bool, device=device)
         is_input[:in_L] = True
 
         def mask_mod(b, h, q, kv):
             return ~is_input[q] | is_input[kv]
 
-        return create_block_mask(mask_mod, B=None, H=None, Q_LEN=S, KV_LEN=S)
+        return create_block_mask(mask_mod, B=None, H=None, Q_LEN=S, KV_LEN=S, device=device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -257,8 +255,9 @@ class TransformerTranslator(nn.Module):
         z = torch.cat([z_in, out_q], dim=1)
 
         # run encoder per bundle
+        block_mask = self.get_block_mask(self.tokens_in_per_group, self.tokens_out_per_group, device=z.device)
         for blk in self.blocks:
-            z = blk(z, block_mask=self.block_mask)
+            z = blk(z, block_mask=block_mask)
         z = rms_norm(z)
 
         # Keep only output tokens, project to channels, and reshape back to frames
