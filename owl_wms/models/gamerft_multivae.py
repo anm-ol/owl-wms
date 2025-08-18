@@ -193,7 +193,7 @@ class TransformerTranslator(nn.Module):
         in_shape: dict,      # e.g. {'C':16, 'H':60, 'W':104, 'G':1}
         out_shape: dict,     # e.g. {'C':128,'H':8, 'W':8,   'G':4}
         d_model: int = 128,
-        depth: int = 2,
+        depth: int = 3,
         nhead: int = 8,
         mlp_ratio: float = 2.0,
         activation: str = "gelu",
