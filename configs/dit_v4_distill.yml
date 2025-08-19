@@ -1,7 +1,7 @@
 model:
   model_id: game_rft
   sample_size: 8
-  channels: 128
+  channels: 16  # 128
 
   n_layers: 16
   n_heads: 24
