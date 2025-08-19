@@ -26,7 +26,6 @@ class RoPE(nn.Module):
         if not config.has_audio:
             # subclasses freqs include audio by default, remove last item from each frame
             freqs = freqs.view(config.n_frames, -1, freqs.size(-1))[:, :-1].flatten(0, 1)
-            freqs = freqs
 
         self.cos = nn.Buffer(freqs.cos().contiguous(), persistent=False)
         self.sin = nn.Buffer(freqs.sin().contiguous(), persistent=False)
@@ -59,7 +58,7 @@ class OrthoRoPE(RoPE):
             freqs_for='pixel',
             max_freq=256
         )
-        # Rot features: (L, P+1, P+1, <pad>)
+        # Rot features: (L, H+1, W+1, <pad>)
         freqs = pos_emb.get_axial_freqs(
             config.n_frames, H + 1, W + 1, 1, offsets=(0, 0, 0, 1)
         ).view(config.n_frames, H + 1, W + 1, -1)
