@@ -250,14 +250,13 @@ class FinalLayer(nn.Module):
         """
         x: (B, D, N, s, s)    cond: (B, N, D)  # per-frame conditioning
         """
-        B, D, N, s, _ = x.shape
+        B, D, N, H2, W2 = x.shape
 
         # token-wise AdaLN + SiLU (broadcast cond over spatial s×s)
-        x_tok = einops.rearrange(x, 'b d n h w -> b (n h w) d')                    # (B, N*s*s, D)
-        cond_tok = einops.repeat(cond, 'b n d -> b (n h w) d', h=s, w=s)              # (B, N*s*s, D)
+        x_tok = einops.rearrange(x, 'b d n h w -> b (n h w) d')
+        cond_tok = einops.repeat(cond, 'b n d -> b (n h w) d', h=H2, w=W2)
         x_tok = self.act(self.norm(x_tok, cond_tok))
-
-        x = einops.rearrange(x_tok, 'b (n h w) d -> b d n h w', n=N, h=s, w=s)        # (B, D, N, s, s)
+        x = einops.rearrange(x_tok, 'b (n h w) d -> b d n h w', n=N, h=H2, w=W2)
         return self.proj(x)  # -> (B, C, N, s*ps[1], s*ps[2])
 
 
