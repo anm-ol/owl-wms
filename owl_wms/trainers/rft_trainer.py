@@ -45,10 +45,15 @@ def make_batched_wan_decode_fn(vae, batch_size: int = 2):
             raise ValueError(f"Ambiguous: both dim1 and dim2 equal z_dim={C}; pass [B,C,T,H,W].")
         raise ValueError(f"Neither dim1 nor dim2 equals z_dim={C}; got {tuple(z.shape)}")
 
-    def enforce_4k_plus_1(x: torch.Tensor) -> torch.Tensor:
+    def pad_to_4k_plus_1(x: torch.Tensor) -> tuple[torch.Tensor, int]:
+        # Round UP to the nearest 4k+1 in time, replicating the last latent if needed.
         T = x.shape[2]
-        target = ((T - 1) // 4) * 4 + 1
-        return x[:, :, :target] if target != T else x
+        target = ((T - 1 + 3) // 4) * 4 + 1
+        if target == T:
+            return x, T
+        pad = target - T
+        x_pad = torch.cat([x, x[:, :, -1:].expand(-1, -1, pad, -1, -1)], dim=2)
+        return x_pad, T
 
     def to_vae_space(z_model: torch.Tensor) -> torch.Tensor:
         # Canonical diffusers conversion:
@@ -62,15 +67,23 @@ def make_batched_wan_decode_fn(vae, batch_size: int = 2):
 
     def decode(z: torch.Tensor) -> torch.Tensor:
         x = to_c_first_3d(z)
-        x = enforce_4k_plus_1(x)
+        x, orig_T = pad_to_4k_plus_1(x)
         x = x.to(torch.float32)  # keep VAE fp32
         outs = []
         for z_chunk in x.split(batch_size, dim=0):
             z_in = to_vae_space(z_chunk)
             pix = vae.decode(z_in, return_dict=True).sample  # [b,3,T,H,W]
             outs.append(pix)
-        y = torch.cat(outs, dim=0)  # [B,3,T,H,W]
-        return y.permute(0, 2, 1, 3, 4).contiguous()  # [B,T,3,H,W]
+        y = torch.cat(outs, dim=0)  # [B,3,Tpix,H,W] where Tpix = 1 + 4*(Tpad-1)
+        # Trim back to the frames implied by the original latent length:
+        want_Tpix = 1 + 4 * (orig_T - 1)
+        if y.shape[2] >= want_Tpix:
+            y = y[:, :, :want_Tpix]
+        # ---- Debug: report lengths and effective temporal scale
+        eff_scale = float(y.shape[2] - 1) / max(1, (orig_T - 1))
+        print(f"[WAN decode] latents_in={orig_T}, latents_used={x.shape[2]}, "
+              f"frames_out={y.shape[2]}, frames/latent≈{eff_scale:.2f}")
+        return y.permute(0, 2, 1, 3, 4).contiguous()  # [B,Tpix,3,H,W]
 
     return decode
 
@@ -103,8 +116,6 @@ class RFTTrainer(BaseTrainer):
 
         self.total_step_counter = 0
 
-        ####
-
         from diffusers import AutoencoderKLWan
         self.wan_decoder = AutoencoderKLWan.from_pretrained(
             "Wan-AI/Wan2.2-T2V-A14B-Diffusers",  # or a local path with the same structure
@@ -112,19 +123,6 @@ class RFTTrainer(BaseTrainer):
             torch_dtype=torch.float32,  # keep VAE weights in fp32 per upstream example
         ).cuda()
         freeze(self.wan_decoder)
-
-        ####
-
-        self.decoder = self.wan_decoder  # TODO: remove
-        # TODO
-        """
-        self.decoder = get_decoder_only(
-            self.train_cfg.vae_id,
-            self.train_cfg.vae_cfg_path,
-            self.train_cfg.vae_ckpt_path
-        )
-        """
-        freeze(self.decoder)
 
         self.autocast_ctx = torch.amp.autocast('cuda', torch.bfloat16)
 
@@ -169,9 +167,8 @@ class RFTTrainer(BaseTrainer):
             self.model = self.model
         self.model = torch.compile(self.model)
 
-        self.decoder = self.decoder.cuda().eval()
-        # self.decode_fn = make_batched_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
-        self.decode_fn = make_batched_wan_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
+        self.wan_decoder = self.wan_decoder.cuda().eval()
+        self.decode_fn = make_batched_wan_decode_fn(self.wan_decoder, self.train_cfg.vae_batch_size)
 
         # ----- EMA, optimiser, scheduler -----
         self.ema = EMA(self.model, beta=0.999, update_after_step=0, update_every=1)
@@ -287,7 +284,6 @@ class RFTTrainer(BaseTrainer):
 
     def fwd_step(self, batch, train_step):
         vid, mouse, btn, doc_id = batch
-        # vid = vid / self.train_cfg.vae_scale
         loss = self.model(vid, mouse, btn, doc_id)
         return loss
 
@@ -335,20 +331,13 @@ class RFTTrainer(BaseTrainer):
             vid, = eval_batch
             mouse, btn = None, None
 
-        # no scaling due to captured data not using scaling
-        # vid = vid / self.train_cfg.vae_scale
-
         with self.autocast_ctx:
             latent_vid = sampler(ema_model, vid, mouse, btn)
 
         if self.sampler_only_return_generated:
             latent_vid, mouse, btn = (x[:, vid.size(1):] if x is not None else None for x in (latent_vid, mouse, btn))
 
-        # no scaling due to AutoKL expecting unscaled
-        # latent_vid = latent_vid.float() * self.train_cfg.vae_scale
-        latent_vid = latent_vid.float()
-
-        video_out = self.decode_fn(latent_vid) if self.decode_fn is not None else None
+        video_out = self.decode_fn(latent_vid.float()) if self.decode_fn is not None else None
 
         # ---- Optionally Save Latent Artifacts ----
         if getattr(self.train_cfg, "eval_sample_dir", None):
@@ -360,7 +349,7 @@ class RFTTrainer(BaseTrainer):
 
         # ---- Generate Media Artifacts ----
         video_out, mouse, btn = map(self._gather_concat_cpu, (video_out, mouse, btn))
-        eval_wandb_dict = to_wandb_samples(video_out, mouse, btn) if self.rank == 0 else None
+        eval_wandb_dict = to_wandb_samples(video_out, mouse, btn, fps=24) if self.rank == 0 else None
         dist.barrier()
 
         return eval_wandb_dict

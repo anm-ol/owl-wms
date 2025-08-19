@@ -144,7 +144,7 @@ def to_wandb_av(x, audio, batch_mouse, batch_btn, gather = False, max_samples = 
 
 
 @torch.no_grad()
-def to_wandb_samples(video, mouse, btn):
+def to_wandb_samples(video, mouse, btn, fps=60):
     video = video.clamp(-1, 1).cpu().float()          # [B, T, C, H, W]
 
     depth_gif = flow_gif = None
@@ -165,6 +165,7 @@ def to_wandb_samples(video, mouse, btn):
             str(path),
             np.moveaxis(clip, 1, -1),                 # [T, H, W, C]
             audio=None,
+            fps=fps
         )
         samples.append(wandb.Video(str(path), format="mp4"))
 
