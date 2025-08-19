@@ -42,7 +42,7 @@ class RFTPairDistillTrainer(RFTTrainer):
         if train_step < self.train_cfg.finite_difference_step:
             # ----- ODE-pair regression: (x_a, time_a) -> x0 -----
             pred_x0 = self.core_fwd(x_a, time_a)
-            diffusion_loss = F.mse_loss(pred_x0, x0)
+            return F.mse_loss(pred_x0, x0)
 
         else:
             # ----- Flow-matching KD: (x_u, u) -> v -----
@@ -61,15 +61,9 @@ class RFTPairDistillTrainer(RFTTrainer):
             t_u = torch.full_like(time_a, u)             # [B,F]
 
             pred_v = self.core_fwd(x_u, t_u)
-            diffusion_loss = F.mse_loss(pred_v, v)
+            return F.mse_loss(pred_v, v)
 
         core = self.get_module(ema=False).core
-        translation_loss = F.mse_loss(
-            x_a,
-            core.translate_out(core.translate_in(x_a))
-        )
-        loss = diffusion_loss + translation_loss
-        return loss, diffusion_loss, translation_loss
 
     @torch.compile
     def core_fwd(self, *args, **kwargs):
