@@ -316,7 +316,9 @@ class RFTTrainer(BaseTrainer):
         if self.sampler_only_return_generated:
             latent_vid, mouse, btn = (x[:, vid.size(1):] for x in (latent_vid, mouse, btn))
 
-        video_out = self.decode_fn(latent_vid * self.train_cfg.vae_scale) if self.decode_fn is not None else None
+        latent_vid = latent_vid.float() * self.train_cfg.vae_scale
+
+        video_out = self.decode_fn(latent_vid) if self.decode_fn is not None else None
 
         # ---- Optionally Save Latent Artifacts ----
         if getattr(self.train_cfg, "eval_sample_dir", None):
