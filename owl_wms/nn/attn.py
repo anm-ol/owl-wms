@@ -239,19 +239,27 @@ class UViT(nn.Module):
 # === VIT Specific Layers ===
 
 class FinalLayer(nn.Module):
-    def __init__(self, sample_size, d_model, channels = 3, patch_size=1):
+    def __init__(self, d_model, channels, **conv_kw):
         super().__init__()
 
         self.norm = AdaLN(d_model)
         self.act = nn.SiLU()
-        self.proj = nn.Linear(d_model, channels*patch_size*patch_size)
+        self.proj = nn.ConvTranspose3d(d_model, channels, **conv_kw)
 
     def forward(self, x, cond):
-        x = self.norm(x, cond)
-        x = self.act(x)
-        x = self.proj(x)
+        """
+        x: (B, D, N, s, s)    cond: (B, N, D)  # per-frame conditioning
+        """
+        B, D, N, s, _ = x.shape
 
-        return x
+        # token-wise AdaLN + SiLU (broadcast cond over spatial s×s)
+        x_tok = einops.rearrange(x, 'b d n h w -> b (n h w) d')                    # (B, N*s*s, D)
+        cond_tok = einops.repeat(cond, 'b n d -> b (n h w) d', h=s, w=s)              # (B, N*s*s, D)
+        x_tok = self.act(self.norm(x_tok, cond_tok))
+
+        x = einops.rearrange(x_tok, 'b (n h w) d -> b d n h w', n=N, h=s, w=s)        # (B, D, N, s, s)
+        return self.proj(x)  # -> (B, C, N, s*ps[1], s*ps[2])
+
 
 def test_attn_mask():
     total_tokens = 64

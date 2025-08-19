@@ -26,13 +26,13 @@ class GameRFTCore(nn.Module):
         patch_size = getattr(config, "patch_size", [1, 1, 1])
         patch_stride = getattr(config, "patch_stride", patch_size)
         assert patch_size[0] == patch_stride[0] == 1, "Temporal patching not supported; use (1,*,*)."
+        assert patch_size[1] == patch_stride[1] and patch_size[2] == patch_stride[2], \
+            "For clean unpatchify, set stride==kernel on H/W."
 
         self.proj_in = nn.Conv3d(
             config.channels, config.d_model, kernel_size=patch_size, stride=patch_stride, bias=False)
-
-        # TODO: AdaLN before proj_out
-        self.proj_out = nn.ConvTranspose3d(
-            config.d_model, config.channels, kernel_size=patch_size, stride=patch_stride, bias=False)
+        self.proj_out = FinalLayer(
+            config.d_model, config.channels, kernel_size=patch_size, stride=patch_stride, bias=True)
 
         self.uncond = config.uncond
 
@@ -63,7 +63,7 @@ class GameRFTCore(nn.Module):
         x = eo.rearrange(tokens, 'b (n h w) d -> b d n h w', n=N2, h=H2, w=W2)
 
         # unpatchify
-        x = self.proj_out(x, output_size=(B, C, N, H, W))
+        x = self.proj_out(x, cond)
         return eo.rearrange(x, 'b c n h w -> b n c h w')
 
 
