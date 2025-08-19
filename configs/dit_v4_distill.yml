@@ -1,23 +1,29 @@
 model:
   model_id: game_rft
-  sample_size: 8
+
   channels: 16  # 128
 
   n_layers: 16
   n_heads: 24
   d_model: 1536
 
+  n_frames: 512
   tokens_per_frame: 64
+  height: 8
+  width: 8
+  # sample_size: 8
+
+
+  has_audio: false
+
   n_buttons: 11
   n_mouse_axes: 2
 
   cfg_prob: 0.1
-  n_frames: 512
 
   causal: true
   uncond: true
   backbone: dit
-  has_audio: false
   rope_impl: motion
   rope_ats_delta: 2.0
 

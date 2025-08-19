@@ -50,7 +50,8 @@ class OrthoRoPE(RoPE):
     RoPE for rotation across orthogonal axes: time, height, and width
     """
     def get_freqs(self, config):
-        p = config.sample_size
+        H = getattr(config, 'height', getattr(config, 'sample_size', None))
+        W = getattr(config, 'width', getattr(config, 'sample_size', None))
         head_dim = config.d_model // config.n_heads
 
         pos_emb = RotaryEmbedding(
@@ -60,10 +61,10 @@ class OrthoRoPE(RoPE):
         )
         # Rot features: (L, P+1, P+1, <pad>)
         freqs = pos_emb.get_axial_freqs(
-            config.n_frames, p + 1, p + 1, 1, offsets=(0, 0, 0, 1)
-        ).view(config.n_frames, p + 1, p + 1, -1)
+            config.n_frames, H + 1, W + 1, 1, offsets=(0, 0, 0, 1)
+        ).view(config.n_frames, H + 1, W + 1, -1)
 
-        vid_freqs = freqs[:, :p, :p].reshape(config.n_frames, p**2, -1)  # top left square
+        vid_freqs = freqs[:, :H, :W].reshape(config.n_frames, H * W, -1)  # top left region
         aud_freqs = freqs[:, -1, -1].unsqueeze(1)  # bottom right item
 
         freqs = torch.cat([vid_freqs, aud_freqs], dim=1).flatten(0, 1)
@@ -77,7 +78,8 @@ class MotionRoPE(RoPE):
     This constant-velocity prior serves as a baseline for learning complex, non-linear motion.
     """
     def get_freqs(self, config):
-        H, W = config.sample_size, config.sample_size
+        H = getattr(config, 'height', getattr(config, 'sample_size', None))
+        W = getattr(config, 'width', getattr(config, 'sample_size', None))
         F = config.n_frames
         d_head = config.d_model // config.n_heads
 
@@ -113,8 +115,8 @@ class MotionRoPE(RoPE):
     def _create_positions(self, n_frames, height, width, ats_delta):
         # Base 1D grids for time, height, and width
         t_grid = torch.arange(n_frames, dtype=torch.float32) * ats_delta
-        h_grid = torch.arange(height, dtype=torch.float32) - (height - 1) / 2.0
-        w_grid = torch.arange(width, dtype=torch.float32) - (width - 1) / 2.0
+        h_grid = torch.linspace(-1., 1., steps=height, dtype=torch.float32) * ((height - 1) / 2.0)
+        w_grid = torch.linspace(-1., 1., steps=width, dtype=torch.float32) * ((width - 1) / 2.0)
 
         # Create flattened position lists for video and audio
         t_video = eo.repeat(t_grid, 'f -> (f h w)', h=height, w=width)
