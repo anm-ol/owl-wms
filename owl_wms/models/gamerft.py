@@ -23,12 +23,10 @@ class GameRFTCore(nn.Module):
             self.control_embed = ControlEmbedding(config.n_buttons, config.d_model)
         self.t_embed = TimestepEmbedding(config.d_model)
 
-        self.proj_in = nn.Linear(config.channels, config.d_model, bias=False)
-        self.proj_out = FinalLayer(config.sample_size, config.d_model, config.channels)
-
-        # WAN-style tubelet embed/unembed: (t,h,w) = (1,2,2)
-        self.proj_in = nn.Conv3d(config.channels, config.d_model, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
-        self.proj_out = nn.ConvTranspose3d(config.d_model, config.channels, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
+        self.proj_in = nn.Conv3d(
+            config.channels, config.d_model, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
+        self.proj_out = nn.ConvTranspose3d(
+            config.d_model, config.channels, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
 
         self.uncond = config.uncond
 
