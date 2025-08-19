@@ -24,39 +24,58 @@ from ..utils.owl_vae_bridge import get_decoder_only, make_batched_decode_fn
 
 @torch.no_grad()
 def make_batched_wan_decode_fn(vae, batch_size: int = 2):
-    zc = int(getattr(vae.config, "z_dim", 16))
+    cfg = vae.config
+    C   = int(getattr(cfg, "z_dim", getattr(cfg, "latent_channels", 16)))
+    sf  = float(getattr(cfg, "scaling_factor", 1.0))
+    m   = getattr(cfg, "latents_mean", None)
+    s   = getattr(cfg, "latents_std",  None)
 
     def to_c_first_3d(z: torch.Tensor) -> torch.Tensor:
-        if z.ndim == 4:                 # [B,C,H,W] -> [B,C,1,H,W]
+        # [B,C,H,W] -> [B,C,1,H,W]
+        if z.ndim == 4:
             z = z.unsqueeze(2)
         if z.ndim != 5:
             raise ValueError(f"Expected 4D/5D latents, got {tuple(z.shape)}")
-
-        if z.shape[1] == zc and z.shape[2] != zc:   # [B,C,T,H,W]
+        # accept [B,C,T,H,W] or [B,T,C,H,W]
+        if z.shape[1] == C and z.shape[2] != C:
             return z
-        if z.shape[2] == zc and z.shape[1] != zc:   # [B,T,C,H,W]
+        if z.shape[2] == C and z.shape[1] != C:
             return z.permute(0, 2, 1, 3, 4).contiguous()
-        if z.shape[1] == zc and z.shape[2] == zc:
-            raise ValueError(f"Ambiguous: both dim1 and dim2 equal z_dim={zc}; pass [B,C,T,H,W].")
-        raise ValueError(f"Neither dim1 nor dim2 equals z_dim={zc}; got {tuple(z.shape)}")
+        if z.shape[1] == C and z.shape[2] == C:
+            raise ValueError(f"Ambiguous: both dim1 and dim2 equal z_dim={C}; pass [B,C,T,H,W].")
+        raise ValueError(f"Neither dim1 nor dim2 equals z_dim={C}; got {tuple(z.shape)}")
 
-    def enforce_4k_plus_1(x: torch.Tensor) -> torch.Tensor:
+    def pad_to_4k_plus_1(x: torch.Tensor) -> torch.Tensor:
         T = x.shape[2]
-        target = ((T - 1) // 4) * 4 + 1
-        return x[:, :, :target] if target != T else x
+        rem = (T - 1) % 4
+        if rem == 0:
+            return x
+        need = 4 - rem
+        pad = x[:, :, -1:].repeat(1, 1, need, 1, 1)  # repeat last latent step
+        return torch.cat([x, pad], dim=2)
+
+    def to_vae_space(z_model: torch.Tensor) -> torch.Tensor:
+        # Canonical diffusers conversion:
+        #   if mean/std present:  z * (1/std) / sf + mean
+        #   else:                 z / sf
+        if m is not None and s is not None:
+            mean = torch.as_tensor(m, device=z_model.device, dtype=z_model.dtype).view(1, C, 1, 1, 1)
+            std  = torch.as_tensor(s, device=z_model.device, dtype=z_model.dtype).view(1, C, 1, 1, 1)
+            return (z_model / sf) * std + mean
+        return z_model / sf
 
     def decode(z: torch.Tensor) -> torch.Tensor:
         x = to_c_first_3d(z)
-        x = enforce_4k_plus_1(x)
-        # ensure fp32 compute for VAE regardless of outer autocast
-        x = x.to(torch.float32)
+        x = pad_to_4k_plus_1(x)
+        x = x.to(torch.float32)  # keep VAE fp32
         outs = []
-        # do not wrap this in autocast; keep VAE fp32
         for z_chunk in x.split(batch_size, dim=0):
-            pix = vae.decode(z_chunk, return_dict=True).sample  # [b,3,T,H',W']
+            z_in = to_vae_space(z_chunk)
+            pix = vae.decode(z_in, return_dict=True).sample  # [b,3,T,H,W]
             outs.append(pix)
-        y = torch.cat(outs, dim=0)                              # [B,3,T,H',W']
-        return y.permute(0, 2, 1, 3, 4).contiguous()            # [B,T,3,H',W']
+        y = torch.cat(outs, dim=0)  # [B,3,T,H,W]
+        return y.permute(0, 2, 1, 3, 4).contiguous()  # [B,T,3,H,W]
+
     return decode
 
 
@@ -272,7 +291,7 @@ class RFTTrainer(BaseTrainer):
 
     def fwd_step(self, batch, train_step):
         vid, mouse, btn, doc_id = batch
-        vid = vid / self.train_cfg.vae_scale
+        # vid = vid / self.train_cfg.vae_scale
         loss = self.model(vid, mouse, btn, doc_id)
         return loss
 
@@ -320,7 +339,8 @@ class RFTTrainer(BaseTrainer):
             vid, = eval_batch
             mouse, btn = None, None
 
-        vid = vid / self.train_cfg.vae_scale
+        # no scaling due to captured data not using scaling
+        # vid = vid / self.train_cfg.vae_scale
 
         with self.autocast_ctx:
             latent_vid = sampler(ema_model, vid, mouse, btn)
@@ -328,7 +348,9 @@ class RFTTrainer(BaseTrainer):
         if self.sampler_only_return_generated:
             latent_vid, mouse, btn = (x[:, vid.size(1):] for x in (latent_vid, mouse, btn))
 
-        latent_vid = latent_vid.float() * self.train_cfg.vae_scale
+        # no scaling due to AutoKL expecting unscaled
+        # latent_vid = latent_vid.float() * self.train_cfg.vae_scale
+        latent_vid = latent_vid.float()
 
         video_out = self.decode_fn(latent_vid) if self.decode_fn is not None else None
 
