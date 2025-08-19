@@ -23,10 +23,6 @@ class RFTPairDistillTrainer(RFTTrainer):
     def fwd_step(self, batch, train_step: int):
         x_a, time_a, x_b, time_b = batch
 
-        scale = float(self.train_cfg.vae_scale)
-        x_a = x_a / scale
-        x_b = x_b / scale
-
         # Shared quantities from the pair
         denom = (time_b - time_a)  # [B, F]
         if torch.any(denom == 0):
