@@ -43,7 +43,7 @@ def make_batched_wan_decode_fn(vae, batch_size: int = 2):
             pix = vae.decode(z_chunk).sample               # [b,3,N,H',W']
             outs.append(pix)
         y = torch.cat(outs, dim=0)                         # [B,3,N,H',W']
-        y = y.permute(0, 2, 1, 3, 4).contiguous().bfloat16()  # -> [B,N,3,H',W']
+        y = y.permute(0, 2, 1, 3, 4).contiguous()  # -> [B,N,3,H',W']
         return y
     return decode
 
@@ -82,7 +82,7 @@ class RFTTrainer(BaseTrainer):
         self.wan_decoder = AutoencoderKLWan.from_pretrained(
             "Wan-AI/Wan2.2-T2V-A14B-Diffusers",  # or a local path with the same structure
             subfolder="vae",
-            torch_dtype=torch.bfloat16,  # keep VAE weights in fp32 per upstream example
+            torch_dtype=torch.float32,  # keep VAE weights in fp32 per upstream example
         ).cuda()
         freeze(self.wan_decoder)
 
@@ -142,7 +142,7 @@ class RFTTrainer(BaseTrainer):
             self.model = self.model
         self.model = torch.compile(self.model)
 
-        self.decoder = self.decoder.cuda().eval().bfloat16()
+        self.decoder = self.decoder.cuda().eval()
         # self.decode_fn = make_batched_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
         self.decode_fn = make_batched_wan_decode_fn(self.decoder, self.train_cfg.vae_batch_size)
 
@@ -272,12 +272,11 @@ class RFTTrainer(BaseTrainer):
 
         # Sampling commented out for now
         if self.total_step_counter % self.train_cfg.sample_interval == 0:
-            with self.autocast_ctx:
-                eval_wandb_dict = self.eval_step(sample_loader, sampler)
-                gc.collect()
-                torch.cuda.empty_cache()
-                if self.rank == 0:
-                    wandb_dict.update(eval_wandb_dict)
+            eval_wandb_dict = self.eval_step(sample_loader, sampler)
+            gc.collect()
+            torch.cuda.empty_cache()
+            if self.rank == 0:
+                wandb_dict.update(eval_wandb_dict)
 
         if self.rank == 0:
             wandb.log(wandb_dict)
@@ -311,7 +310,8 @@ class RFTTrainer(BaseTrainer):
 
         vid = vid / self.train_cfg.vae_scale
 
-        latent_vid = sampler(ema_model, vid, mouse, btn)
+        with self.autocast_ctx:
+            latent_vid = sampler(ema_model, vid, mouse, btn)
 
         if self.sampler_only_return_generated:
             latent_vid, mouse, btn = (x[:, vid.size(1):] for x in (latent_vid, mouse, btn))
