@@ -24,27 +24,39 @@ from ..utils.owl_vae_bridge import get_decoder_only, make_batched_decode_fn
 
 @torch.no_grad()
 def make_batched_wan_decode_fn(vae, batch_size: int = 2):
-    """
-    VAE is AutoencoderKLWan. Accept latents as:
-      [B,N,C,H,W]  (time-first after batch)  or
-      [B,C,N,H,W]  (channel-first)          or
-      [B,C,H,W]    (single frame)
-    Returns pixels as [B,N,3,H',W'].
-    """
-    def decode(z: torch.Tensor):
-        if z.ndim == 4:
-            z = z.unsqueeze(1)  # [B,1,C,H,W]
-        # If channels already first, keep; else swap [B,N,C,H,W] -> [B,C,N,H,W]
-        z = z if (z.ndim == 5 and z.shape[1] == getattr(vae.config, "z_dim", z.shape[1])) \
-              else z.permute(0, 2, 1, 3, 4).contiguous()
+    zc = int(getattr(vae.config, "z_dim", 16))
 
+    def to_c_first_3d(z: torch.Tensor) -> torch.Tensor:
+        if z.ndim == 4:                 # [B,C,H,W] -> [B,C,1,H,W]
+            z = z.unsqueeze(2)
+        if z.ndim != 5:
+            raise ValueError(f"Expected 4D/5D latents, got {tuple(z.shape)}")
+
+        if z.shape[1] == zc and z.shape[2] != zc:   # [B,C,T,H,W]
+            return z
+        if z.shape[2] == zc and z.shape[1] != zc:   # [B,T,C,H,W]
+            return z.permute(0, 2, 1, 3, 4).contiguous()
+        if z.shape[1] == zc and z.shape[2] == zc:
+            raise ValueError(f"Ambiguous: both dim1 and dim2 equal z_dim={zc}; pass [B,C,T,H,W].")
+        raise ValueError(f"Neither dim1 nor dim2 equals z_dim={zc}; got {tuple(z.shape)}")
+
+    def enforce_4k_plus_1(x: torch.Tensor) -> torch.Tensor:
+        T = x.shape[2]
+        target = ((T - 1) // 4) * 4 + 1
+        return x[:, :, :target] if target != T else x
+
+    def decode(z: torch.Tensor) -> torch.Tensor:
+        x = to_c_first_3d(z)
+        x = enforce_4k_plus_1(x)
+        # ensure fp32 compute for VAE regardless of outer autocast
+        x = x.to(torch.float32)
         outs = []
-        for z_chunk in z.split(batch_size, dim=0):        # batch over B only (keep time intact)
-            pix = vae.decode(z_chunk).sample               # [b,3,N,H',W']
+        # do not wrap this in autocast; keep VAE fp32
+        for z_chunk in x.split(batch_size, dim=0):
+            pix = vae.decode(z_chunk, return_dict=True).sample  # [b,3,T,H',W']
             outs.append(pix)
-        y = torch.cat(outs, dim=0)                         # [B,3,N,H',W']
-        y = y.permute(0, 2, 1, 3, 4).contiguous()  # -> [B,N,3,H',W']
-        return y
+        y = torch.cat(outs, dim=0)                              # [B,3,T,H',W']
+        return y.permute(0, 2, 1, 3, 4).contiguous()            # [B,T,3,H',W']
     return decode
 
 
