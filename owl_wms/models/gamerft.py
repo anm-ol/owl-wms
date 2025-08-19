@@ -26,37 +26,41 @@ class GameRFTCore(nn.Module):
         self.proj_in = nn.Linear(config.channels, config.d_model, bias=False)
         self.proj_out = FinalLayer(config.sample_size, config.d_model, config.channels)
 
-        assert self.config.tokens_per_frame == self.config.sample_size**2
+        # WAN-style tubelet embed/unembed: (t,h,w) = (1,2,2)
+        self.proj_in  = nn.Conv3d(config.channels, config.d_model, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
+        self.proj_out = nn.ConvTranspose3d(config.d_model, config.channels, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
 
         self.uncond = config.uncond
 
     def forward(self, x, t, mouse=None, btn=None, doc_id=None, has_controls=None, kv_cache=None):
         """
-        x: [b,n,c,h,w]
-        t: [b,n]
-        mouse: [b,n,2]
-        btn: [b,n,n_buttons]
+        x: [B, N, C, H, W], t: [B, N]
         """
-        b, n, c, h, w = x.shape
+        B, N, C, H, W = x.shape
 
-        t_cond = self.t_embed(t)
-
+        # per-frame conditioning
+        cond = self.t_embed(t)  # [B, N, d]
         if not self.uncond:
-            ctrl_cond = self.control_embed(mouse, btn)  # [b,n,d]
+            ctrl = self.control_embed(mouse, btn)  # [B, N, d]
             if has_controls is not None:
-                ctrl_cond = torch.where(has_controls[:, None, None], ctrl_cond, torch.zeros_like(ctrl_cond))
-            cond = t_cond + ctrl_cond  # [b,n,d]
-        else:
-            cond = t_cond
+                ctrl = torch.where(has_controls[:, None, None], ctrl, torch.zeros_like(ctrl))
+            cond = cond + ctrl
 
-        x = eo.rearrange(x, 'b n c h w -> b (n h w) c')
+        # ---- tubelet embed: Conv3d (1,2,2) ----
+        x5 = self.proj_in(eo.rearrange(x, 'b n c h w -> b c n h w'))      # [B, D, N, H2, W2]
+        B, D, N2, H2, W2 = x5.shape
+        assert N2 == N, "Temporal size must be preserved (patch_t=1)."
+        assert self.config.tokens_per_frame == H2 * W2, \
+            f"tokens_per_frame={self.config.tokens_per_frame}, got {H2*W2}"
 
-        x = self.proj_in(x)
-        x = self.transformer(x, cond, doc_id, kv_cache)
-        x = self.proj_out(x, cond)
+        tokens = eo.rearrange(x5, 'b d n h w -> b (n h w) d')             # [B, N*H2*W2, D]
+        tokens = self.transformer(tokens, cond, doc_id, kv_cache)
+        x5 = eo.rearrange(tokens, 'b (n h w) d -> b d n h w', n=N2, h=H2, w=W2)
 
-        x = eo.rearrange(x, 'b (n h w) c -> b n c h w', h=h, w=w)
-        return x
+        # ---- unpatchify: ConvTranspose3d (1,2,2) ----
+        x = self.proj_out(x5)                                             # [B, C, N, H, W]
+        return eo.rearrange(x, 'b c n h w -> b n c h w')
+
 
 
 class GameRFT(nn.Module):
