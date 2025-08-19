@@ -88,13 +88,15 @@ class RFTTrainer(BaseTrainer):
 
         ####
 
-        # self.decoder = self.wan_decoder  # TODO: remove
+        self.decoder = self.wan_decoder  # TODO: remove
         # TODO
+        """
         self.decoder = get_decoder_only(
             self.train_cfg.vae_id,
             self.train_cfg.vae_cfg_path,
             self.train_cfg.vae_ckpt_path
         )
+        """
         freeze(self.decoder)
 
         self.autocast_ctx = torch.amp.autocast('cuda', torch.bfloat16)
