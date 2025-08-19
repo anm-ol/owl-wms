@@ -53,6 +53,7 @@ class GameRFTCore(nn.Module):
         # patchify
         x = self.proj_in(eo.rearrange(x, 'b n c h w -> b c n h w'))      # [B, D, N, H2, W2]
         B, D, N2, H2, W2 = x.shape
+        print("B, D, N2, H2, W2", B, D, N2, H2, W2)
         assert N2 == N, "Temporal size must be preserved (patch_t=1)."
         assert self.config.tokens_per_frame == H2 * W2, \
             f"tokens_per_frame={self.config.tokens_per_frame}, got {H2 * W2}"
