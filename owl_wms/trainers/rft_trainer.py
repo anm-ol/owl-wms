@@ -45,14 +45,10 @@ def make_batched_wan_decode_fn(vae, batch_size: int = 2):
             raise ValueError(f"Ambiguous: both dim1 and dim2 equal z_dim={C}; pass [B,C,T,H,W].")
         raise ValueError(f"Neither dim1 nor dim2 equals z_dim={C}; got {tuple(z.shape)}")
 
-    def pad_to_4k_plus_1(x: torch.Tensor) -> torch.Tensor:
+    def enforce_4k_plus_1(x: torch.Tensor) -> torch.Tensor:
         T = x.shape[2]
-        rem = (T - 1) % 4
-        if rem == 0:
-            return x
-        need = 4 - rem
-        pad = x[:, :, -1:].repeat(1, 1, need, 1, 1)  # repeat last latent step
-        return torch.cat([x, pad], dim=2)
+        target = ((T - 1) // 4) * 4 + 1
+        return x[:, :, :target] if target != T else x
 
     def to_vae_space(z_model: torch.Tensor) -> torch.Tensor:
         # Canonical diffusers conversion:
@@ -66,7 +62,7 @@ def make_batched_wan_decode_fn(vae, batch_size: int = 2):
 
     def decode(z: torch.Tensor) -> torch.Tensor:
         x = to_c_first_3d(z)
-        x = pad_to_4k_plus_1(x)
+        x = enforce_4k_plus_1(x)
         x = x.to(torch.float32)  # keep VAE fp32
         outs = []
         for z_chunk in x.split(batch_size, dim=0):

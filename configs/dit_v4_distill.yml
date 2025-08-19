@@ -91,7 +91,7 @@ train:
   vae_batch_size: 4
 
   # FOR WAN
-  vae_scale = 0.18215
+  vae_scale: 0.18215
   ###################
 
   # vae_scale: 0.63
