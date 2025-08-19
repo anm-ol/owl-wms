@@ -24,10 +24,9 @@ class GameRFTCore(nn.Module):
         self.t_embed = TimestepEmbedding(config.d_model)
 
         patch_size = getattr(config, "patch_size", [1, 1, 1])
-        patch_stride = getattr(config, "patch_stride", patch_size)
+        patch_stride = getattr(config, "patch_stride", patch_size)  # currently unsupported
         assert patch_size[0] == patch_stride[0] == 1, "Temporal patching not supported; use (1,*,*)."
-        assert patch_size[1] == patch_stride[1] and patch_size[2] == patch_stride[2], \
-            "For clean unpatchify, set stride==kernel on H/W."
+        assert patch_size[1:] == patch_stride[1:], "For clean unpatchify, set stride==kernel on H/W."
 
         self.proj_in = nn.Conv3d(
             config.channels, config.d_model, kernel_size=patch_size, stride=patch_stride, bias=False)
