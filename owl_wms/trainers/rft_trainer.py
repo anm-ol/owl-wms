@@ -342,7 +342,7 @@ class RFTTrainer(BaseTrainer):
             latent_vid = sampler(ema_model, vid, mouse, btn)
 
         if self.sampler_only_return_generated:
-            latent_vid, mouse, btn = (x[:, vid.size(1):] for x in (latent_vid, mouse, btn))
+            latent_vid, mouse, btn = (x[:, vid.size(1):] if x is not None else None for x in (latent_vid, mouse, btn))
 
         # no scaling due to AutoKL expecting unscaled
         # latent_vid = latent_vid.float() * self.train_cfg.vae_scale
