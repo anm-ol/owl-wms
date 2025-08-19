@@ -13,6 +13,8 @@ model:
   width: 8
   # sample_size: 8
 
+  patch_size: [1, 2, 2]
+  patch_stride: [1, 2, 2]
 
   has_audio: false
 

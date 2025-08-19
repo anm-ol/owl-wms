@@ -23,10 +23,15 @@ class GameRFTCore(nn.Module):
             self.control_embed = ControlEmbedding(config.n_buttons, config.d_model)
         self.t_embed = TimestepEmbedding(config.d_model)
 
+        patch_size = getattr(config, "patch_size", [1, 1, 1])
+        patch_stride = getattr(config, "patch_stride", [1, 1, 1])
+
         self.proj_in = nn.Conv3d(
-            config.channels, config.d_model, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
+            config.channels, config.d_model, kernel_size=patch_size, stride=patch_stride, bias=False)
+
+        # TODO: AdaLN before proj_out
         self.proj_out = nn.ConvTranspose3d(
-            config.d_model, config.channels, kernel_size=(1, 2, 2), stride=(1, 2, 2), bias=False)
+            config.d_model, config.channels, kernel_size=patch_size, stride=patch_stride, bias=False)
 
         self.uncond = config.uncond
 
