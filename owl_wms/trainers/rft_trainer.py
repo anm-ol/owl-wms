@@ -79,8 +79,6 @@ def make_batched_wan_decode_fn(vae, batch_size: int = 2):
         want_Tpix = 1 + 4 * (orig_T - 1)
         if y.shape[2] >= want_Tpix:
             y = y[:, :, :want_Tpix]
-        # ---- Debug: report lengths and effective temporal scale
-        eff_scale = float(y.shape[2] - 1) / max(1, (orig_T - 1))
         return y.permute(0, 2, 1, 3, 4).contiguous()  # [B,Tpix,3,H,W]
 
     return decode
