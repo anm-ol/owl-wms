@@ -89,7 +89,7 @@ class RFTPairDistillTrainer(RFTTrainer):
 
     def fwd_step(self, batch, train_step: int):
         if train_step < self.train_cfg.finite_difference_step:
-            self.ode_fwd(batch)
+            return self.ode_fwd(batch)
         else:
             return self.flow_matching_fwd(batch)
 

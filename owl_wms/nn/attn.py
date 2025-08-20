@@ -191,8 +191,6 @@ class SkipConnection(nn.Module):
 
 
 class UViT(nn.Module):
-    get_block_mask = DiT.get_block_mask
-
     def __init__(self, config):
         super().__init__()
 
@@ -214,7 +212,7 @@ class UViT(nn.Module):
         self.skip_projs = nn.ModuleList(skip_projs)
 
     def forward(self, x, cond, kv_cache = None):
-        block_mask = self.get_block_mask(x, kv_cache)
+        block_mask = self.get_block_mask(x, kv_cache)  # TODO: use AttnMaskScheduler or get_block_mask directly
 
         # Cache early block outputs for skip connections
         early_features = []
