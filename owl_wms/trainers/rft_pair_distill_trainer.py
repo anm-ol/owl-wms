@@ -63,7 +63,7 @@ class RFTPairDistillTrainer(RFTTrainer):
         if train_step < self.train_cfg.finite_difference_step:
             with self.autocast_ctx:
                 pred_x0 = self.core_fwd(x_a, t_a)
-            return F.mse_loss(pred_x0, x_clean)
+            return F.mse_loss(pred_x0.float(), x_clean.float())
 
         # ----- Phase 2: Flow-matching KD (x_u, u) -> v -----
         denom = t_b - t_a  # [B,F]
@@ -73,19 +73,18 @@ class RFTPairDistillTrainer(RFTTrainer):
         inv = denom.reciprocal()[..., None, None, None]     # [B,F,1,1,1]
         t_a_e = t_a[..., None, None, None]                    # [B,F,1,1,1]
 
-        v = (x_b - x_a) * inv                                # [B,F,C,H,W]
+        v = ((x_b - x_a) * inv).detach()
 
         # Sample a single u per chunk (per video), then broadcast over frames
         u = t_b[:, :1] + torch.rand(t_a.size(0), 1, device=t_a.device, dtype=t_a.dtype) * (t_a[:, :1] - t_b[:, :1])  # [B,1]
-        u_full = u.expand_as(t_a)
+        u_full = u.expand_as(t_a).contiguous()
 
         # Direct interpolation along the (a,b) segment at that u
         x_u = x_a + (u_full[..., None, None, None] - t_a_e) * (x_b - x_a) * inv     # [B,F,C,H,W]
 
         with self.autocast_ctx:
             pred_v = self.core_fwd(x_u, u_full)
-        return F.mse_loss(pred_v, v)
-
+        return F.mse_loss(pred_v.float(), v.float())
 
     @torch.compile
     def core_fwd(self, *args, **kwargs):
