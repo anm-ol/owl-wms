@@ -62,7 +62,7 @@ def get_block_mask(
     return create_block_mask(mask_mod, B=None, H=None, Q_LEN=q_len, KV_LEN=n_tokens, device=device)
 
 
-class AttnMaskScheduler(nn.Module):
+class AttnMaskScheduler:
     def __init__(self, config):
         super().__init__()
         self.config = config
