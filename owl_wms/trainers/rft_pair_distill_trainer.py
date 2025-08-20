@@ -61,6 +61,7 @@ class RFTPairDistillTrainer(RFTTrainer):
 
         # ----- Phase 1: ODE init (x_a, t_a) -> x_clean -----
         if train_step < self.train_cfg.finite_difference_step:
+            x_in, t_in = (x_a, t_a) if torch.rand(()) < 0.5 else (x_b, t_b)
             with self.autocast_ctx:
                 pred_x0 = self.core_fwd(x_a, t_a)
             return F.mse_loss(pred_x0.float(), x_clean.float())
