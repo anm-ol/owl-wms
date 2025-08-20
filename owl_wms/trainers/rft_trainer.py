@@ -81,8 +81,6 @@ def make_batched_wan_decode_fn(vae, batch_size: int = 2):
             y = y[:, :, :want_Tpix]
         # ---- Debug: report lengths and effective temporal scale
         eff_scale = float(y.shape[2] - 1) / max(1, (orig_T - 1))
-        print(f"[WAN decode] latents_in={orig_T}, latents_used={x.shape[2]}, "
-              f"frames_out={y.shape[2]}, frames/latent≈{eff_scale:.2f}")
         return y.permute(0, 2, 1, 3, 4).contiguous()  # [B,Tpix,3,H,W]
 
     return decode

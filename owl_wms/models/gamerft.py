@@ -16,6 +16,9 @@ class GameRFTCore(nn.Module):
 
         self.config = config
 
+        # TODO: include audio in formula
+        assert self.config.tokens_per_frame == self.config.height * self.config.width
+
         assert config.backbone == "dit"
         self.transformer = DiT(config)
 
@@ -53,7 +56,7 @@ class GameRFTCore(nn.Module):
         x = self.proj_in(eo.rearrange(x, 'b n c h w -> b c n h w'))      # [B, D, N, H2, W2]
         B, D, N2, H2, W2 = x.shape
         assert N2 == N, "Temporal size must be preserved (patch_t=1)."
-        print("B, D, N2, H2, W2", B, D, N2, H2, W2)
+
         assert self.config.tokens_per_frame == H2 * W2, \
             f"tokens_per_frame={self.config.tokens_per_frame}, got {H2 * W2}"
 
