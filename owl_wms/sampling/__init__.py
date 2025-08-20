@@ -30,6 +30,18 @@ def get_sampler_cls(sampler_id):
         """
         from .t3_caching import SimpleTekkenSampler
         return SimpleTekkenSampler
+    elif sampler_id == "t3_caching_v2":
+        """
+        Advanced Tekken sampler with proper sliding context logic (v2).
+        """
+        from .tekken_caching_v2 import TekkenCachingSamplerV2
+        return TekkenCachingSamplerV2
+    elif sampler_id == "t3_simple_v2":
+        """
+        Simplified Tekken sampler v2 for debugging.
+        """
+        from .tekken_caching_v2 import SimpleTekkenSamplerV2
+        return SimpleTekkenSamplerV2
     elif sampler_id == "av_caching":
         """
         Audio+Video sampler with KV caching.

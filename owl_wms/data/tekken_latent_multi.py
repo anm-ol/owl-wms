@@ -15,11 +15,13 @@ class TekkenLatentMulti(Dataset):
         self,
         root_dir: str,
         window_length: int,
+        temporal_compression: int = 8,
         data_types: tuple = ("latents", "actions", "states"),
         min_sequence_length: int = None,
     ):
         self.data_dir = root_dir
         self.window_length = window_length
+        self.temporal_compression = temporal_compression
         self.data_types = data_types
         self.min_sequence_length = min_sequence_length or window_length
         
@@ -74,7 +76,7 @@ class TekkenLatentMulti(Dataset):
                     try:
                         sample_data = np.load(actions_file, mmap_mode='r')
                         frame_count = sample_data.shape[0] if len(sample_data.shape) > 0 else 0
-                        seq_len = frame_count // 8  # Convert to latent temporal resolution
+                        seq_len = frame_count // self.temporal_compression  # Convert to latent temporal resolution
                         del sample_data
                     except:
                         continue
@@ -127,8 +129,8 @@ class TekkenLatentMulti(Dataset):
 
             elif data_type == "actions":
                 # Actions: reshape from (window_length * 8,) to (window_length, 8)
-                frame_start = start * 8
-                frame_end = frame_start + self.window_length * 8
+                frame_start = start * self.temporal_compression
+                frame_end = frame_start + self.window_length * self.temporal_compression
                 
                 # Safe windowing with padding if needed
                 if frame_end > full_data.shape[0]:
@@ -144,9 +146,9 @@ class TekkenLatentMulti(Dataset):
             
             elif data_type == "states":
                 # States: reshape from (window_length * 8, 3) to (window_length, 8, 3)
-                frame_start = start * 8
-                frame_end = frame_start + self.window_length * 8
-                
+                frame_start = start * self.temporal_compression
+                frame_end = frame_start + self.window_length * self.temporal_compression
+
                 # Safe windowing with padding if needed
                 if frame_end > full_data.shape[0]:
                     windowed_data = full_data[frame_start:]
@@ -156,7 +158,7 @@ class TekkenLatentMulti(Dataset):
                     windowed_data = full_data[frame_start:frame_end]
                 
                 # Reshape to (window_length, 8, 3)
-                windowed_data = windowed_data.reshape(self.window_length, 8, 3)
+                windowed_data = windowed_data.reshape(self.window_length, self.temporal_compression, 3)
                 result[data_type] = torch.from_numpy(windowed_data.copy())
 
             else:

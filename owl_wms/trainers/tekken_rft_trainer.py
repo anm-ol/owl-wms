@@ -93,7 +93,7 @@ class TekkenRFTTrainer(BaseTrainer):
 
         with torch.no_grad(), torch.amp.autocast('cuda', torch.bfloat16):
             ema_core = self.get_module(ema=True).core if self.world_size > 1 else self.get_module(ema=True).core
-            # print(f'EMA core: {ema_core}')
+            # print(f'this is the EMA core: {ema_core}')
             video_out, _, _ = sampler(
                 ema_core,
                 initial_latents,
@@ -113,9 +113,10 @@ class TekkenRFTTrainer(BaseTrainer):
 
         self.model = self.model.cuda().train()
         
-        print("Compiling the main model...")
-        self.model = torch.compile(self.model)
-        
+        if self.train_cfg.compile:
+            print("Compiling the main model...")
+            self.model = torch.compile(self.model)
+
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank], find_unused_parameters=True)
         
@@ -123,9 +124,10 @@ class TekkenRFTTrainer(BaseTrainer):
         if self.rank == 0:
             self.decoder = self.decoder.cuda().eval().bfloat16()
             
-            print("Compiling the VAE decoder...")
-            self.decoder = torch.compile(self.decoder, mode="reduce-overhead", fullgraph=True)
-            
+            if self.train_cfg.compile:
+                print("Compiling the VAE decoder...")
+                self.decoder = torch.compile(self.decoder, mode="reduce-overhead", fullgraph=True)
+
             decode_fn = make_batched_decode_fn(self.decoder, batch_size=self.train_cfg.vae_batch_size, temporal_vae=True)
             sampler = get_sampler_cls(self.train_cfg.sampler_id)(**self.train_cfg.sampler_kwargs)
 

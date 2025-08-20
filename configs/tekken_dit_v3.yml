@@ -31,7 +31,7 @@ train:
     root_dir: "preproccessing/cached_data_v2/val"
 
   target_batch_size: 32
-  batch_size: 1 # Adjust based on your GPU memory
+  batch_size: 8 # Adjust based on your GPU memory
 
   epochs: 50000
   opt: Muon
@@ -50,7 +50,7 @@ train:
 
   sample_interval: 500
   save_interval: 4000
-  n_samples: 1
+  n_samples: 2
   eval_sample_dir: samples/tekken_dit_v2
 
   sampler_id: t3_caching
@@ -67,7 +67,7 @@ train:
   vae_cfg_path: null # Path to your VAE config
   vae_ckpt_path: "/home/venky/ankitd/anmol/WM/owl-wms/preproccessing/checkpoints/LTXV/vae" # Path to your VAE checkpoint
   vae_scale: 1.0 # Adjust if your VAE has a scaling factor
-  vae_batch_size: 8
+  vae_batch_size: 16
 
 wandb:
   name: d-fusion
