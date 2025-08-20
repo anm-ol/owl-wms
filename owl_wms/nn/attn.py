@@ -1,5 +1,5 @@
 import torch
-import einops
+import einops as eo
 from torch import nn
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
@@ -102,7 +102,7 @@ class Attn(nn.Module):
         B, L, _ = x.shape
 
         qkv = self.qkv(x)
-        q, k, v = einops.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
+        q, k, v = eo.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
         q, k = rms_norm(q), rms_norm(k)
 
         # rotate new queries and keys (shared kv cache between modalities)
@@ -257,8 +257,8 @@ class FinalLayer(nn.Module):
         B, D, N, H2, W2 = x.shape
 
         # token-wise AdaLN + SiLU (broadcast cond over spatial s×s)
-        x_tok = einops.rearrange(x, 'b d n h w -> b (n h w) d')
-        cond_tok = einops.repeat(cond, 'b n d -> b (n h w) d', h=H2, w=W2)
+        x_tok = eo.rearrange(x, 'b d n h w -> b (n h w) d')
+        cond_tok = eo.repeat(cond, 'b n d -> b (n h w) d', h=H2, w=W2)
         x_tok = self.act(self.norm(x_tok, cond_tok))
-        x = einops.rearrange(x_tok, 'b (n h w) d -> b d n h w', n=N, h=H2, w=W2)
+        x = eo.rearrange(x_tok, 'b (n h w) d -> b d n h w', n=N, h=H2, w=W2)
         return self.proj(x)  # -> (B, C, N, s*ps[1], s*ps[2])
