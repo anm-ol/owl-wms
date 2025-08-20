@@ -122,7 +122,7 @@ class RFTPairDistillTrainer(RFTTrainer):
 
         # 3) model forward + loss
         with self.autocast_ctx:
-            v_pred = self.model(x_u, s_u)
+            v_pred = self.core_fwd(x_u, s_u)
         return F.mse_loss(v_pred.float(), v_hat.float())
 
     @torch.compile
