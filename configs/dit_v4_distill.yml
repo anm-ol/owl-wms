@@ -43,7 +43,7 @@ train:
     dataset_path: /mnt/data/lapp0/datasets/wan_generated/
     batch_columns: ["x"]
 
-  finite_difference_step: 2000
+  finite_difference_step: 0
 
   target_batch_size: 64
   batch_size: 4

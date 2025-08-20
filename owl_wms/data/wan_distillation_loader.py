@@ -92,12 +92,10 @@ class WanPairDataset(Dataset):
         def to_pair(t0, t1):
             import math
             j0 = (1.0 - t0) * (K - 1)
-            j1 = (1.0 - t1) * (K - 1)
-            i0 = int(max(0, min(K - 1, math.floor(j0))))      # floor
-            i1 = int(max(0, min(K - 1, math.ceil(j1))))       # ceil
-            if i1 <= i0:
-                i1 = min(i0 + 1, K - 1) if i0 < K - 1 else i0 - 1
-            return i0, i1
+            i0 = int(max(0, min(K - 1, math.floor(j0))))  # floor
+            if i0 >= K - 1:
+                return K - 2, K - 1
+            return i0, i0 + 1
 
         i_start, i_end = to_pair(t_start, t_end)
         return i_start, i_end
@@ -108,24 +106,27 @@ class WanPairDataset(Dataset):
         K = len(steps)
 
         i_a, i_b = self._pick_pair_indices(K)
+        assert i_b == min(i_a + 1, K - 1) and i_a < i_b, "sampling must return adjacent indices"
 
         x_a = self._load_step(run_dir, steps[i_a])  # [F,C,H,W]
         x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]
         F = x_a.shape[0]
 
-        t_a_scalar = float(self.wan_scheduler_timesteps[steps[i_a]] / self.wan_max)
-        t_b_scalar = float(self.wan_scheduler_timesteps[steps[i_b]] / self.wan_max)
+        # index-time clock s = (K-1 - i) / (K-1)
+        denom = float(K)
+        t_a_scalar = float((K - 1 - i_a) / denom)
+        t_b_scalar = float((K - 1 - i_b) / denom)
         time_a = torch.full((F,), t_a_scalar, dtype=torch.float32)
         time_b = torch.full((F,), t_b_scalar, dtype=torch.float32)
 
         # teacher clean endpoint (assume step 39 exists)
-        x_clean = self._load_step(run_dir, 39)               # [F,C,H,W]
-        time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(39)=0.0
+        # x_clean = self._load_step(run_dir, 39)               # [F,C,H,W]
+        # time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(39)=0.0
 
         return {
             "x_a": x_a, "time_a": time_a,
             "x_b": x_b, "time_b": time_b,
-            "x_clean": x_clean, "time_clean": time_clean,
+            # "x_clean": x_clean, "time_clean": time_clean,
         }
 
 
