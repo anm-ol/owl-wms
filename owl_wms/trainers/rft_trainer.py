@@ -250,14 +250,13 @@ class RFTTrainer(BaseTrainer):
             for batch in tqdm.tqdm(loader, total=len(loader), disable=self.rank != 0, desc=f"Epoch: {epoch}"):
                 train_steps = local_step // accum_steps
 
-                with self.autocast_ctx:
-                    batch_cuda = [
-                        item.cuda() if isinstance(item, torch.Tensor) else item
-                        for item in batch
-                    ]
-                    loss = self.fwd_step(batch_cuda, train_steps)
-                    loss = loss / accum_steps
-                    loss.backward()
+                batch_cuda = [
+                    item.cuda() if isinstance(item, torch.Tensor) else item
+                    for item in batch
+                ]
+                loss = self.fwd_step(batch_cuda, train_steps)
+                loss = loss / accum_steps
+                loss.backward()
 
                 metrics.log('loss', loss)
 
@@ -284,7 +283,8 @@ class RFTTrainer(BaseTrainer):
 
     def fwd_step(self, batch, train_step):
         vid, mouse, btn, doc_id = batch
-        loss = self.model(vid, mouse, btn, doc_id)
+        with self.autocast_ctx:
+            loss = self.model(vid, mouse, btn, doc_id)
         return loss
 
     @torch.no_grad()

@@ -20,12 +20,13 @@ class RFTPairDistillTrainer(RFTTrainer):
           pick u in [0,1], x_u = x0 + u * v
     """
 
-    def fwd_step(self, batch, train_step: int):
+    def old_fwd_step(self, batch, train_step: int):
         x_a, t_a, x_b, t_b, x_clean, t_clean = batch  # t_clean unused
 
         # ----- Phase 1: ODE init (x_a, t_a) -> x_clean -----
         if train_step < self.train_cfg.finite_difference_step:
-            pred_x0 = self.core_fwd(x_a, t_a)
+            with self.autocast_ctx:
+                pred_x0 = self.core_fwd(x_a, t_a)
             return F.mse_loss(pred_x0, x_clean)
 
         # ----- Phase 2: Flow-matching KD (x_u, u) -> v -----
@@ -48,13 +49,43 @@ class RFTPairDistillTrainer(RFTTrainer):
         # u = 0.5
         # random interpolated point
         u = t_b + torch.rand_like(t_a) * (t_a - t_b)        # [B,F]
-        u_e = u[..., None, None, None]                        # [B,F,1,1,1]
 
-        x_u = x0 + u_e * v                                    # [B,F,C,H,W]
-        t_u = u                                               # [B,F]
+        x_u = x0 + u[..., None, None, None] * v                                    # [B,F,C,H,W]
 
-        pred_v = self.core_fwd(x_u, t_u)
+        with self.autocast_ctx:
+            pred_v = self.core_fwd(x_u, u)
         return F.mse_loss(pred_v, v)
+
+    def fwd_step(self, batch, train_step: int):
+        x_a, t_a, x_b, t_b, x_clean, t_clean = batch  # t_clean unused
+
+        # ----- Phase 1: ODE init (x_a, t_a) -> x_clean -----
+        if train_step < self.train_cfg.finite_difference_step:
+            with self.autocast_ctx:
+                pred_x0 = self.core_fwd(x_a, t_a)
+            return F.mse_loss(pred_x0, x_clean)
+
+        # ----- Phase 2: Flow-matching KD (x_u, u) -> v -----
+        denom = t_b - t_a  # [B,F]
+        if torch.any(denom == 0):
+            raise ValueError("t_b and t_a must differ (got zero Δt in batch).")
+
+        inv = denom.reciprocal()[..., None, None, None]     # [B,F,1,1,1]
+        t_a_e = t_a[..., None, None, None]                    # [B,F,1,1,1]
+
+        v = (x_b - x_a) * inv                                # [B,F,C,H,W]
+
+        # Sample a single u per chunk (per video), then broadcast over frames
+        u = t_b[:, :1] + torch.rand(t_a.size(0), 1, device=t_a.device, dtype=t_a.dtype) * (t_a[:, :1] - t_b[:, :1])  # [B,1]
+        u_full = u.expand_as(t_a)
+
+        # Direct interpolation along the (a,b) segment at that u
+        x_u = x_a + (u_full[..., None, None, None] - t_a_e) * (x_b - x_a) * inv     # [B,F,C,H,W]
+
+        with self.autocast_ctx:
+            pred_v = self.core_fwd(x_u, u_full)
+        return F.mse_loss(pred_v, v)
+
 
     @torch.compile
     def core_fwd(self, *args, **kwargs):

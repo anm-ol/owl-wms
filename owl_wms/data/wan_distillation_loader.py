@@ -43,7 +43,7 @@ class WanPairDataset(Dataset):
         root_dir: str,
         *,
         t_range=(0.25, 0.975),
-        delta_range=(0.025, 0.15),
+        delta_range=(0.05, 0.09),
     ):
         self.root = Path(root_dir)
         self.t_min, self.t_max = t_range
@@ -80,7 +80,7 @@ class WanPairDataset(Dataset):
         """
         Simpler sampling:
           1) sample gap Δ, then sample t_start so [t_start, t_end] ⊂ [t_min, t_max]
-          2) snap each to nearest grid index i = round((1 - t) * (K-1))
+          2) snap to indices using floor/ceil of j = (1 - t) * (K-1)
           3) ensure distinct indices; define 'a' as the higher time (smaller index)
         """
         # 1) sample Δ then t_start
@@ -89,17 +89,18 @@ class WanPairDataset(Dataset):
         t_start = random.uniform(self.t_min, t_start_hi)
         t_end = t_start + delta  # > t_start
 
-        # 2) snap to grid
-        to_idx = lambda t: int(round((1.0 - t) * (K - 1)))
-        i_start = max(0, min(K - 1, to_idx(t_start)))
-        i_end = max(0, min(K - 1, to_idx(t_end)))
+        def to_pair(t0, t1):
+            import math
+            j0 = (1.0 - t0) * (K - 1)
+            j1 = (1.0 - t1) * (K - 1)
+            i0 = int(max(0, min(K - 1, math.floor(j0))))      # floor
+            i1 = int(max(0, min(K - 1, math.ceil(j1))))       # ceil
+            if i1 <= i0:
+                i1 = min(i0 + 1, K - 1) if i0 < K - 1 else i0 - 1
+            return i0, i1
 
-        # 3) ensure distinct & order so time_a >= time_b  (i_a < i_b)
-        if i_start == i_end:
-            i_end = min(i_start + 1, K - 1) if i_start < K - 1 else i_start - 1
-        i_a, i_b = (min(i_start, i_end), max(i_start, i_end))  # i_a < i_b → t_a > t_b
-
-        return i_a, i_b
+        i_start, i_end = to_pair(t_start, t_end)
+        return i_start, i_end
 
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
@@ -130,7 +131,8 @@ class WanPairDataset(Dataset):
 
 def collate_fn(batch, batch_columns: list):
     stacked = {k: torch.stack([item[k] for item in batch]) for k in batch[0]}
-    stacked = {k: (t.bfloat16() if t.dtype == torch.float32 else t) for k, t in stacked.items()}
+    # commented out: need higher precision timesteps
+    # stacked = {k: (t.bfloat16() if t.dtype == torch.float32 else t) for k, t in stacked.items()}
     return [stacked[col] for col in batch_columns]
 
 
@@ -139,8 +141,8 @@ def get_pair_loader(
     dataset_path: str,
     batch_columns: list,
     *,
-    t_range=(0.25, 0.975),
-    delta_range=(0.025, 0.15),
+    t_range=(0, 991 / 999),
+    delta_range=(0.05, 0.09),
 ):
     """Same interface; returns batches of [x_a, time_a, x_b, time_b]."""
     world_size = dist.get_world_size() if dist.is_initialized() else 1
