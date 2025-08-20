@@ -120,13 +120,13 @@ class WanPairDataset(Dataset):
         time_b = torch.full((F,), t_b_scalar, dtype=torch.float32)
 
         # teacher clean endpoint (assume step 39 exists)
-        # x_clean = self._load_step(run_dir, 39)               # [F,C,H,W]
-        # time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(39)=0.0
+        x_clean = self._load_step(run_dir, 39)               # [F,C,H,W]
+        time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(39)=0.0
 
         return {
             "x_a": x_a, "time_a": time_a,
             "x_b": x_b, "time_b": time_b,
-            # "x_clean": x_clean, "time_clean": time_clean,
+            "x_clean": x_clean, "time_clean": time_clean,
         }
 
 
