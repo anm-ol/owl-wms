@@ -16,9 +16,7 @@ create_block_mask = torch.compile(create_block_mask)
 flex_attention = torch.compile(flex_attention)
 
 
-def checkpoint(function, *args, enable_ckpt=True, **kwargs):
-    if not enable_ckpt:
-        return function(*args)
+def checkpoint(function, *args, **kwargs):
     kwargs.setdefault("use_reentrant", False)
     return torch_checkpoint(function, *args, **kwargs)
 
@@ -168,10 +166,11 @@ class DiT(nn.Module):
     def forward(self, x, cond, doc_id=None, kv_cache=None):
         enable_ckpt = self.training and getattr(self.config, "gradient_checkpointing", False)
         block_masks = self.attn_masker(seq_len=x.size(1), doc_id=doc_id, kv_cache=kv_cache, device=x.device)
-
         for block, block_mask in zip(self.blocks, block_masks):
-            # TODO: keep kv_cache captures when enabling checkpointing
-            x = checkpoint(block, x, cond, block_mask, kv_cache, enable_ckpt=enable_ckpt)
+            if enable_ckpt:
+                x = checkpoint(block, x, cond, block_mask, kv_cache)
+            else:
+                x = block(x, cond, block_mask, kv_cache)
         return x
 
 
