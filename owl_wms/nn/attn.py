@@ -16,7 +16,9 @@ create_block_mask = torch.compile(create_block_mask)
 flex_attention = torch.compile(flex_attention)
 
 
-def checkpoint(function, *args, **kwargs):
+def checkpoint(function, *args, enable_ckpt=True, **kwargs):
+    if not enable_ckpt:
+        return function(*args)
     kwargs.setdefault("use_reentrant", False)
     return torch_checkpoint(function, *args, **kwargs)
 
@@ -60,6 +62,31 @@ def get_block_mask(
 
     q_len = n_tokens - q_offset
     return create_block_mask(mask_mod, B=None, H=None, Q_LEN=q_len, KV_LEN=n_tokens, device=device)
+
+
+class AttnMaskScheduler(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.global_period = getattr(self.config, "global_attn_period", 4)
+
+    def forward(self, seq_len, doc_id, kv_cache, device):
+        q_offset = kv_cache.length_at(0) if kv_cache is not None else 0
+        n_tokens = seq_len + q_offset
+        kwargs = dict(
+            n_tokens=n_tokens,
+            tokens_per_frame=self.config.tokens_per_frame,
+            doc_id=doc_id,
+            q_offset=q_offset,
+            is_causal=self.config.causal,
+            device=device
+        )
+        local_bm = get_block_mask(window_len=self.config.local_window, **kwargs)
+        global_bm = get_block_mask(window_len=self.config.global_window, **kwargs)
+        return [
+            global_bm if (i % self.global_period) == 0 else local_bm
+            for i in range(self.config.n_layers)
+        ]
 
 
 class Attn(nn.Module):
@@ -135,36 +162,16 @@ class DiT(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-
-        self.local_layers = [(layer_idx % 4 != 0) for layer_idx in range(config.n_layers)]
+        self.attn_masker = AttnMaskScheduler(config)
         self.blocks = nn.ModuleList([DiTBlock(config, idx) for idx in range(config.n_layers)])
 
-    def get_block_mask(self, seq_len, doc_id, window_len, q_offset, device):
-        n_tokens = seq_len + q_offset
-        return get_block_mask(
-            n_tokens=n_tokens,
-            tokens_per_frame=self.config.tokens_per_frame,
-            window_len=window_len,
-            doc_id=doc_id,
-            q_offset=q_offset,
-            is_causal=self.config.causal,
-            device=device
-        )
-
     def forward(self, x, cond, doc_id=None, kv_cache=None):
-        seq_len, device = x.size(1), x.device
-        q_offset = kv_cache.length_at(0) if kv_cache is not None else 0
+        enable_ckpt = self.training and getattr(self.config, "gradient_checkpointing", False)
+        block_masks = self.attn_masker(seq_len=x.size(1), doc_id=doc_id, kv_cache=kv_cache, device=x.device)
 
-        local_block_mask = self.get_block_mask(seq_len, doc_id, self.config.local_window, q_offset, device)
-        global_block_mask = self.get_block_mask(seq_len, doc_id, self.config.global_window, q_offset, device)
-
-        for layer_idx, block in enumerate(self.blocks):
-            block_mask = local_block_mask if self.local_layers[layer_idx] else global_block_mask
-
-            if self.training and getattr(self.config, "gradient_checkpointing", False):
-                x = checkpoint(block, x, cond, block_mask, kv_cache)
-            else:
-                x = block(x, cond, block_mask, kv_cache)
+        for block, block_mask in zip(self.blocks, block_masks):
+            # TODO: keep kv_cache captures when enabling checkpointing
+            x = checkpoint(block, x, cond, block_mask, kv_cache, enable_ckpt=enable_ckpt)
         return x
 
 
