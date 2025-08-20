@@ -92,7 +92,7 @@ class WanPairDataset(Dataset):
         # 2) snap to grid
         to_idx = lambda t: int(round((1.0 - t) * (K - 1)))
         i_start = max(0, min(K - 1, to_idx(t_start)))
-        i_end   = max(0, min(K - 1, to_idx(t_end)))
+        i_end = max(0, min(K - 1, to_idx(t_end)))
 
         # 3) ensure distinct & order so time_a >= time_b  (i_a < i_b)
         if i_start == i_end:
@@ -118,8 +118,8 @@ class WanPairDataset(Dataset):
         time_b = torch.full((F,), t_b_scalar, dtype=torch.float32)
 
         # teacher clean endpoint (assume step 39 exists)
-        x_clean = self._load_step(run_dir, 39)              # [F,C,H,W]
-        time_clean = torch.zeros((F,), dtype=torch.float32) # WAN t(39)=0.0
+        x_clean = self._load_step(run_dir, 39)               # [F,C,H,W]
+        time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(39)=0.0
 
         return {
             "x_a": x_a, "time_a": time_a,
