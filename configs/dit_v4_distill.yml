@@ -45,7 +45,7 @@ train:
 
   finite_difference_step: 2000
 
-  target_batch_size: 32
+  target_batch_size: 64
   batch_size: 4
 
   epochs: 10000
