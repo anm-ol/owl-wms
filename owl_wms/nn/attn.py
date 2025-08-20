@@ -1,6 +1,7 @@
 import torch
 import einops as eo
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
 from .normalization import rms_norm
@@ -124,6 +125,24 @@ class Attn(nn.Module):
         attn_out = attn_out.permute(0, 2, 1, 3).contiguous().view(x.shape[0], L, -1)
 
         return self.out(attn_out)
+
+
+class CrossAttention(nn.Module):
+    def __init__(self, dim, context_dim=None, heads=8, bias=False):
+        super().__init__()
+        assert dim % heads == 0
+        self.n_heads = heads
+        self.q = nn.Linear(dim, dim, bias=bias)
+        self.kv = nn.Linear(context_dim or dim, dim * 2, bias=bias)
+        self.o = nn.Linear(dim, dim, bias=bias)
+
+    def forward(self, x, context, pad_mask=None):
+        q = eo.rearrange(self.q(x), 'b n (h d) -> b h n d', h=self.n_heads)
+        k, v = eo.rearrange(self.kv(context), "b m (two h d) -> two b h m d", two=2, h=self.n_heads)
+        attn_mask = None if pad_mask is None else pad_mask[:, None, None, :]
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+        out = eo.rearrange(out, 'b h n d -> b n (h d)')
+        return self.o(out)
 
 
 class DiTBlock(nn.Module):
