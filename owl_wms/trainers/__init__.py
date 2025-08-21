@@ -11,6 +11,12 @@ def get_trainer_cls(trainer_id):
         """
         from .tekken_rft_trainer import TekkenRFTTrainer
         return TekkenRFTTrainer
+    if trainer_id == "tekken_rft_v2":
+        """
+        TekkenRFTTrainer is a specialized trainer for the TekkenRFTV2 model.
+        """
+        from .tekken_rft_trainer_v2 import TekkenRFTTrainerV2
+        return TekkenRFTTrainerV2
     if trainer_id == "av":
         """
         Most basic trainer. Does audio + video training.

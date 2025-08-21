@@ -1,4 +1,6 @@
 #!/bin/bash
+
+pip install -r requirements.txt
 cd preproccessing
 huggingface-cli download Summer-193/t3_data_V2 --repo-type dataset --local-dir .
 

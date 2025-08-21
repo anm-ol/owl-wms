@@ -106,7 +106,7 @@ class ActionEmbedding(nn.Module):
 
         # Create a learnable parameter for the button embeddings.
         # Shape: [n_buttons, d_model]
-        self.button_embeddings = nn.Parameter(torch.randn(n_buttons, d_model) * 0.02)
+        self.button_embeddings = nn.Embedding(n_buttons, d_model)
 
     def forward(self, button_presses: torch.Tensor) -> torch.Tensor:
         """
@@ -121,23 +121,24 @@ class ActionEmbedding(nn.Module):
             torch.Tensor: The resulting action embeddings of shape [B, T, D], where D is d_model.
         """
         # Ensure input tensor is of the correct float type for matrix multiplication.
-        button_presses = button_presses.float()
+        # button_presses = button_presses.float()
 
         # Reshape for matrix multiplication:
         # button_presses: [B, T, N] -> [B * T, N]
         # button_embeddings: [N, D]
         # Result of matmul: [B * T, D]
-        b, t, n = button_presses.shape
-        presses_flat = button_presses.view(b * t, n)
+        # b, t, n = button_presses.shape
+        # presses_flat = button_presses.view(b * t, n)
 
         # Perform the matrix multiplication. This effectively selects and sums the embeddings.
         # For each item in the batch and sequence, it computes:
         # embedding_sum = sum(button_presses[i] * self.button_embeddings[i] for i in 1..N)
-        action_embedding_flat = torch.matmul(presses_flat, self.button_embeddings)
+        # action_embedding_flat = torch.matmul(presses_flat, self.button_embeddings)
 
         # Reshape the result back to the original batch and sequence dimensions.
         # [B * T, D] -> [B, T, D]
-        action_embedding = action_embedding_flat.view(b, t, self.d_model)
+        # action_embedding = action_embedding_flat.view(b, t, self.d_model)
+        action_embedding = self.button_embeddings(button_presses)
 
         return action_embedding
 

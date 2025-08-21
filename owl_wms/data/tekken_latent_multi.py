@@ -131,12 +131,18 @@ class TekkenLatentMulti(Dataset):
                 # Actions: reshape from (window_length * 8,) to (window_length, 8)
                 frame_start = start * self.temporal_compression
                 frame_end = frame_start + self.window_length * self.temporal_compression
-                
                 # Safe windowing with padding if needed
                 if frame_end > full_data.shape[0]:
-                    windowed_data = full_data[frame_start:]
+                    if full_data.shape[0] >= frame_start:
+                        print(f"Warning: Frame end {frame_end} exceeds full data length {full_data.shape[0]}, padding needed.")
+                        windowed_data = full_data[frame_start:]
+                    else:
+                        raise ValueError(f"Frame start {frame_start} exceeds full data length {full_data.shape[0]}.")
+                    print(f'full data shape: {full_data.shape}')
+                    print(f'shape before padding: {windowed_data.shape}')
                     # Pad to required length
                     windowed_data = np.pad(windowed_data, (0, frame_end - full_data.shape[0]), mode='constant')
+                    print(f'shape after padding: {windowed_data.shape}')
                 else:
                     windowed_data = full_data[frame_start:frame_end]
                 
@@ -202,7 +208,7 @@ def custom_collate_fn(batch, batch_columns: list = None):
 
 
 # Updated get_loader function
-def get_loader(batch_size, root_dir, window_length=16, **kwargs):
+def get_loader(batch_size, root_dir, window_length=16, temporal_compression=8, **kwargs):
     batch_columns=None
     """
     Create DataLoader for your custom dataset structure.
@@ -215,7 +221,7 @@ def get_loader(batch_size, root_dir, window_length=16, **kwargs):
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     rank = dist.get_rank() if dist.is_initialized() else 0
 
-    ds = TekkenLatentMulti(root_dir, window_length)
+    ds = TekkenLatentMulti(root_dir, window_length, temporal_compression)
 
     if world_size > 1:
         sampler = AutoEpochDistributedSampler(ds, num_replicas=world_size, rank=rank, shuffle=True)

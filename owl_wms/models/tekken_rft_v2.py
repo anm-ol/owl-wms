@@ -46,21 +46,24 @@ class TekkenRFTCoreV2(nn.Module):
         b, n, c, h, w = x.shape
         
         # Time embedding is now the sole conditioning signal for AdaLN layers.
-        t_cond = self.t_embed(t)
+        t_cond = self.t_embed(t)  # [B, T, D_model]
 
         # Generate action embeddings from button presses.
+        print(f'button_presses shape: {button_presses.shape}, dtype: {button_presses.dtype}')
         action_tokens = self.action_embed(button_presses)  # [B, T, 8, D_model]
 
-        if not self.uncond and has_controls is not None:
+        # if not self.uncond and has_controls is not None:
             # Zero out embeddings where has_controls is False for CFG.
-            action_tokens = torch.where(has_controls[:, None, None], action_tokens, torch.zeros_like(action_tokens))
+            # action_tokens = torch.where(has_controls[:, None, None], action_tokens, torch.zeros_like(action_tokens))
 
         # Reshape latents into a sequence of patch tokens.
         x_tokens = eo.rearrange(x, 'b t c h w -> b t (h w) c')
+        # print(x_tokens.shape)  # Debugging: Check shape after rearranging.
         x_tokens = self.proj_in(x_tokens)  # [B, T, H*W, D_model]
 
         # Prepend the action embedding as a special "action token" to each frame's sequence.
-        # action_tokens = action_cond.unsqueeze(2)  # [B, T, 8, D_model]
+        # action_tokens = action_tokens.unsqueeze(2)  # [B, T, 8, D_model]
+        print(f'action_tokens shape: {action_tokens.shape}, x_tokens shape: {x_tokens.shape}')  # Debugging: Check action tokens shape.
         combined_tokens = torch.cat([action_tokens, x_tokens], dim=2) # [B, T, 8 + H*W, D_model]
 
         # Flatten the sequence for the transformer.
@@ -68,7 +71,8 @@ class TekkenRFTCoreV2(nn.Module):
         transformer_input = combined_tokens.view(b, t * s, d)
 
         # The AdaLN conditioning signal is just the time embedding, repeated for each token.
-        cond = t_cond.unsqueeze(2).repeat(1, 1, s).view(b, t * s, d)
+        # Expand t_cond to match the flattened sequence length
+        cond = t_cond.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
 
         # Pass the combined sequence through the transformer.
         processed_tokens = self.transformer(transformer_input, cond, kv_cache)
@@ -82,7 +86,7 @@ class TekkenRFTCoreV2(nn.Module):
         processed_video_tokens = processed_video_tokens.reshape(b, t * (s - self.n_buttons), d)
 
         # Adjust conditioning shape for the final projection layer.
-        video_cond = t_cond.unsqueeze(2).repeat(1, 1, (s - self.n_buttons)).view(b, t * (s - self.n_buttons), d)
+        video_cond = t_cond.unsqueeze(2).expand(b, t, (s - self.n_buttons), d).contiguous().view(b, t * (s - self.n_buttons), d)
         output_latents = self.proj_out(processed_video_tokens, video_cond)
 
         # Reshape back to the original latent format [B, T, C, H, W].
@@ -117,15 +121,18 @@ class TekkenRFTV2(nn.Module):
         target = z - tensor
         return lerp, target
 
-    def forward(self, x, button_presses=None, cfg_prob=None, has_controls=None):
+    def forward(self, x, action_ids=None, cfg_prob=None, has_controls=None):
         B, S = x.size(0), x.size(1)
+        print(x.shape)  # Debugging: Check input shape
         
         if has_controls is None:
             has_controls = torch.ones(B, device=x.device, dtype=torch.bool)
-        if button_presses is None:
+        if action_ids is None:
             has_controls = torch.zeros_like(has_controls)
             # Create a dummy tensor if none is provided.
-            button_presses = torch.zeros(B, S, self.config.n_buttons, device=x.device, dtype=x.float)
+            button_presses = torch.zeros(B, S, self.config.n_buttons, device=x.device, dtype=torch.float)
+        else:
+            button_presses = action_id_to_buttons(action_ids) # (b, t, 1) -> (b, t, 8)
 
         has_controls = self.handle_cfg(has_controls, cfg_prob)
         
@@ -137,3 +144,29 @@ class TekkenRFTV2(nn.Module):
         
         loss = F.mse_loss(pred_video, target_video)
         return loss
+    
+
+def action_id_to_buttons(action_id: torch.Tensor):
+    """Convert action ID tensor to 8-bit button representation.
+    
+    Args:
+        action_id (torch.Tensor): Tensor of shape [B, N, 1] containing action IDs
+        
+    Returns:
+        torch.Tensor: Button presses tensor of shape [B, N, 8]
+    """
+    # Remove the last dimension: [B, N, 1] -> [B, N]
+    action_id = action_id.squeeze(-1)
+    
+    # Create a tensor for bit positions [0, 1, 2, 3, 4, 5, 6, 7]
+    bit_positions = torch.arange(8, device=action_id.device, dtype=action_id.dtype)
+    
+    # Expand dimensions for broadcasting: [B, N] -> [B, N, 1] and [8] -> [1, 1, 8]
+    action_expanded = action_id.unsqueeze(-1)  # [B, N, 1]
+    bit_positions = bit_positions.unsqueeze(0).unsqueeze(0)  # [1, 1, 8]
+    
+    # Right shift action_id by each bit position and check the least significant bit
+    buttons = (action_expanded >> bit_positions) & 1
+    
+    return buttons.int()
+
