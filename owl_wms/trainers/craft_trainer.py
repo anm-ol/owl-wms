@@ -326,10 +326,8 @@ class CraftTrainer(BaseTrainer):
                     self.barrier()
 
     def fwd_step(self, batch, train_step):
-        vid, mouse, btn, doc_id = batch
-        vid, mouse, btn = [x.bfloat16() for x in (vid, mouse, btn)]
         with self.autocast_ctx:
-            loss = self.model(vid, mouse, btn, doc_id)
+            loss = self.model(*batch)
         return loss
 
     @torch.no_grad()
