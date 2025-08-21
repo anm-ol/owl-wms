@@ -30,7 +30,10 @@ class WanEncoderDecoder:
                     where Tpix = 1 + 4 * (T - 1)
     """
     def __init__(self, vae, batch_size: int = 2, dtype=torch.float32):
+        self.vae.decoder = torch.compile(vae.decoder)
+        self.vae.encoder = torch.compile(vae.encoder)
         self.vae = vae.eval()
+
         self.bs  = int(batch_size)
         self.dt  = dtype
         cfg = vae.config
@@ -78,7 +81,6 @@ class WanEncoderDecoder:
         z_pad = torch.cat([z_bcthw, z_bcthw[:, :, -1:].expand(-1, -1, pad, -1, -1)], dim=2)
         return z_pad, T
 
-    @torch.compile()
     @torch.no_grad()
     def encode(self, rgb: torch.Tensor) -> torch.Tensor:
         """
@@ -96,7 +98,6 @@ class WanEncoderDecoder:
         z = torch.cat(parts, dim=0)  # [B,C,T,H,W]
         return z.permute(0, 2, 1, 3, 4).contiguous()  # [B,T,C,H,W]
 
-    @torch.compile()
     @torch.no_grad()
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
