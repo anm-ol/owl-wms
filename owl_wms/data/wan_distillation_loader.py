@@ -115,7 +115,7 @@ class WanPairDataset(Dataset):
         # WAN clock -> normalized [0,1] clock using the actual saved range [0,991]
         tau_a = float(self.wan_scheduler_timesteps[steps[i_a]])  # e.g., 991, 982, ...
         tau_b = float(self.wan_scheduler_timesteps[steps[i_b]])  # ...
-        tau_min, tau_max = 0.0, 991.0
+        tau_min, tau_max = 0.0, 999.0
         t_a_scalar = (tau_a - tau_min) / (tau_max - tau_min)
         t_b_scalar = (tau_b - tau_min) / (tau_max - tau_min)
         assert t_a_scalar > t_b_scalar
