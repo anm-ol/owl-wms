@@ -22,7 +22,7 @@ model:
   cfg_prob: 0.1
 
   causal: true
-  uncond: false
+  uncond: true
   backbone: dit
 
   rope_impl: motion
