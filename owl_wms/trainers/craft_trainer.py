@@ -192,11 +192,11 @@ class CraftTrainer(BaseTrainer):
             self.total_step_counter = state.get("steps", 0)
 
         self.model = self.model.cuda()
+        self.model = torch.compile(self.model)
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank])
         else:
             self.model = self.model
-        self.model = torch.compile(self.model)
 
         self.decoder = self.decoder.cuda().eval()
         self.encoder_decoder = WanEncoderDecoder(self.decoder, self.train_cfg.vae_batch_size)

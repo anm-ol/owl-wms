@@ -100,8 +100,6 @@ class Attn(nn.Module):
         self.rope = get_rope_cls(getattr(config, "rope_impl", "ortho"))(config)
 
     def forward(self, x, block_mask, kv_cache=None):
-        B, L, _ = x.shape
-
         qkv = self.qkv(x)
         q, k, v = eo.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
         q, k = rms_norm(q), rms_norm(k)
@@ -122,7 +120,7 @@ class Attn(nn.Module):
             kv_cache.update(k.clone(), v.clone(), self.layer_idx)
 
         attn_out = flex_attention(q, k, v, block_mask=block_mask)
-        attn_out = attn_out.permute(0, 2, 1, 3).contiguous().view(x.shape[0], L, -1)
+        attn_out = attn_out.permute(0, 2, 1, 3).contiguous().view(x.size(0), x.size(1), -1)
 
         return self.out(attn_out)
 
