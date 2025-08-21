@@ -85,9 +85,6 @@ class AVCachingSampler:
             )
             latents.append(new_frame)
 
-            gc.collect()
-            torch.cuda.empty_cache()
-
         return torch.cat(latents, dim=1)
 
     def prefill_caches(
@@ -134,4 +131,7 @@ class AVCachingSampler:
             t_arr = pre_t[s].to(device=x_new.device, dtype=x_new.dtype).expand(B, 1)
             eps = model(x_new, t_arr, mouse_frame, btn_frame, kv_cache=kv_caches[s])
             x_new = x_new - eps * dt[s]
+
+            gc.collect(); torch.cuda.empty_cache()
+
         return x_new
