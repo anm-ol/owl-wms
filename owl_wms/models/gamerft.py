@@ -69,7 +69,6 @@ class GameRFTCore(nn.Module):
         return eo.rearrange(x, 'b c n h w -> b n c h w')
 
 
-
 class GameRFT(nn.Module):
     def __init__(self, config):
         super().__init__()
