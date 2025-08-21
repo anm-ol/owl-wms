@@ -7,7 +7,7 @@ model:
   n_heads: 16
   d_model: 2048
 
-  n_frames: 1536
+  n_frames: 512
 
   tokens_per_frame: 220
   height: 11
@@ -35,7 +35,7 @@ train:
   trainer_id: craft
   data_id: sequence_packing
   data_kwargs:
-    window_length: 1536
+    window_length: 512
     dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
     batch_columns: ["rgb", "mouse", "buttons"]
 
@@ -73,7 +73,7 @@ train:
   sampler_kwargs:
     n_steps: 16
     cfg_scale: 1.0
-    num_frames: 500  # 1500
+    num_frames: 490  # 1500
     noise_prev: 0.2
     only_return_generated: false
 

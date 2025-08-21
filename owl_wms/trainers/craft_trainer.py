@@ -238,6 +238,7 @@ class CraftTrainer(BaseTrainer):
         else:
             batch = batch.cuda()
             batch = self.encoder_decoder.encode(batch)
+        batch[0] = batch[0].bfloat16()
         return batch
 
     @torch.no_grad()
