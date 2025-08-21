@@ -32,7 +32,7 @@ class GameRFTCore(nn.Module):
         assert patch_size[1:] == patch_stride[1:], "For clean unpatchify, set stride==kernel on H/W."
 
         self.proj_in = nn.Conv3d(
-            config.channels, config.d_model, kernel_size=patch_size, stride=patch_stride, bias=False, padding="same")
+            config.channels, config.d_model, kernel_size=patch_size, stride=patch_stride, bias=False, padding=0)
         self.proj_out = FinalLayer(
             config.d_model, config.channels, kernel_size=patch_size, stride=patch_stride, bias=True)
 
