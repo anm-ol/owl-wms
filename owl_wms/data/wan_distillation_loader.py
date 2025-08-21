@@ -112,10 +112,13 @@ class WanPairDataset(Dataset):
         x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]
         F = x_a.shape[0]
 
-        # index-time clock s = (K-1 - i) / (K-1)
-        denom = float(K)
-        t_a_scalar = float((K - 1 - i_a) / denom)
-        t_b_scalar = float((K - 1 - i_b) / denom)
+        # WAN clock -> normalized [0,1] clock using the actual saved range [0,991]
+        tau_a = float(self.wan_scheduler_timesteps[steps[i_a]])  # e.g., 991, 982, ...
+        tau_b = float(self.wan_scheduler_timesteps[steps[i_b]])  # ...
+        tau_min, tau_max = 0.0, 991.0
+        t_a_scalar = (tau_a - tau_min) / (tau_max - tau_min)
+        t_b_scalar = (tau_b - tau_min) / (tau_max - tau_min)
+        assert t_a_scalar > t_b_scalar
         time_a = torch.full((F,), t_a_scalar, dtype=torch.float32)
         time_b = torch.full((F,), t_b_scalar, dtype=torch.float32)
 
