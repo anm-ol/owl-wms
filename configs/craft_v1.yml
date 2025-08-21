@@ -9,7 +9,7 @@ model:
 
   n_frames: 1536
 
-  tokens_per_frame: 390
+  tokens_per_frame: 220
   height: 11
   width: 20
   patch_size: [1, 4, 4]
