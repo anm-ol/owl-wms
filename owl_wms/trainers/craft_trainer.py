@@ -78,6 +78,7 @@ class WanEncoderDecoder:
         z_pad = torch.cat([z_bcthw, z_bcthw[:, :, -1:].expand(-1, -1, pad, -1, -1)], dim=2)
         return z_pad, T
 
+    @torch.compile()
     @torch.no_grad()
     def encode(self, rgb: torch.Tensor) -> torch.Tensor:
         """
@@ -95,6 +96,7 @@ class WanEncoderDecoder:
         z = torch.cat(parts, dim=0)  # [B,C,T,H,W]
         return z.permute(0, 2, 1, 3, 4).contiguous()  # [B,T,C,H,W]
 
+    @torch.compile()
     @torch.no_grad()
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
@@ -192,11 +194,11 @@ class CraftTrainer(BaseTrainer):
             self.total_step_counter = state.get("steps", 0)
 
         self.model = self.model.cuda()
-        self.model = torch.compile(self.model)
         if self.world_size > 1:
             self.model = DDP(self.model, device_ids=[self.local_rank])
         else:
             self.model = self.model
+        self.model = torch.compile(self.model)
 
         self.decoder = self.decoder.cuda().eval()
         self.encoder_decoder = WanEncoderDecoder(self.decoder, self.train_cfg.vae_batch_size)
