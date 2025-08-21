@@ -58,7 +58,7 @@ class GameRFTCore(nn.Module):
         assert N2 == N, "Temporal size must be preserved (patch_t=1)."
 
         assert self.config.tokens_per_frame == H2 * W2, \
-            f"tokens_per_frame={self.config.tokens_per_frame}, got {H2 * W2}"
+            f"tokens_per_frame={self.config.tokens_per_frame}, got {H2 * W2} ({H2}, {W2})"
 
         tokens = eo.rearrange(x, 'b d n h w -> b (n h w) d')             # [B, N*H2*W2, D]
         tokens = self.transformer(tokens, cond, doc_id, kv_cache)
