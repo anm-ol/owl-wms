@@ -87,7 +87,7 @@ train:
 
   checkpoint_dir: checkpoints/video_craft_v0
   output_path: /mnt/data/owl-wms/checkpoints/craft_v0
-  resume_ckpt: null
+  resume_ckpt: /mnt/data/lapp0/checkpoints/wan_bootstrap_naive/step_8000.pt
 
   sample_interval: 1000
   save_interval: 4000
