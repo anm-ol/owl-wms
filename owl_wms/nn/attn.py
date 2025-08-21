@@ -128,13 +128,13 @@ class Attn(nn.Module):
 
 
 class CrossAttention(nn.Module):
-    def __init__(self, dim, context_dim=None, heads=8, bias=False):
+    def __init__(self, config, context_dim=None):
         super().__init__()
-        assert dim % heads == 0
-        self.n_heads = heads
-        self.q = nn.Linear(dim, dim, bias=bias)
-        self.kv = nn.Linear(context_dim or dim, dim * 2, bias=bias)
-        self.o = nn.Linear(dim, dim, bias=bias)
+        assert config.d_model % config.n_heads == 0
+        self.n_heads = config.n_heads
+        self.q = nn.Linear(config.d_model, config.d_model)
+        self.kv = nn.Linear(context_dim or config.d_model, config.d_model * 2)
+        self.o = nn.Linear(config.d_model, config.d_model)
 
     def forward(self, x, context, pad_mask=None):
         q = eo.rearrange(self.q(x), 'b n (h d) -> b h n d', h=self.n_heads)
