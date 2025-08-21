@@ -381,7 +381,8 @@ class CraftTrainer(BaseTrainer):
             latent_vid, mouse, btn = (x[:, vid.size(1):] if x is not None else None for x in (latent_vid, mouse, btn))
 
         video_out = self.encoder_decoder.decode(latent_vid.float()) if self.encoder_decoder is not None else None
-        video_out = video_out[:, ::4, ...]  # TODO: remove hack
+        mouse = mouse.repeat_interleave(4, dim=1) if mouse is not None else None
+        btn = btn.repeat_interleave(4, dim=1) if btn is not None else None
 
         # ---- Optionally Save Latent Artifacts ----
         if getattr(self.train_cfg, "eval_sample_dir", None):
