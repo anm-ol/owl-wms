@@ -21,7 +21,12 @@ class AVCachingSampler:
             raise NotImplementedError("cfg_scale must be 1.0")
         self.n_steps = n_steps
         self.num_frames = num_frames
+
         self.fm_sched = get_sd3_scheduler(self.n_steps)
+        self.dt = get_sd3_euler(self.n_steps)
+        self.pre_t = 1.0 - torch.cumsum(torch.cat([self.dt.new_zeros(1), self.dt[:-1]]), dim=0)
+        self.pre_t = self.pre_t.clamp_(0, 1)
+
 
     @torch.no_grad()
     def __call__(self, model, x: torch.Tensor, mouse: Optional[Tensor] = None, btn: Optional[Tensor] = None):
@@ -37,11 +42,6 @@ class AVCachingSampler:
         """
         bsz, l0 = x.shape[:2]
 
-        # Euler step sizes and per-step pre-update t in [0, 1].
-        dt = get_sd3_euler(self.n_steps).to(device=x.device, dtype=x.dtype)
-        pre_t = 1.0 - torch.cumsum(torch.cat([dt.new_zeros(1), dt[:-1]]), dim=0)
-        pre_t = pre_t.clamp_(0, 1)
-
         # One KV cache per diffusion step; align device/dtype.
         kv_caches = [KVCache(model.config) for _ in range(self.n_steps)]
         for kc in kv_caches:
@@ -55,7 +55,7 @@ class AVCachingSampler:
             btn = None
 
         # 1) Prefill caches from the clean prefix.
-        self.prefill_caches(model, x, mouse, btn, kv_caches, pre_t)
+        self.prefill_caches(model, x, mouse, btn, kv_caches)
 
         # 2) Autoregressively sample new frames.
         latents = [x]
@@ -72,8 +72,6 @@ class AVCachingSampler:
                 shape_like=x[:, :1],  # single-frame shape
                 mouse_frame=m,
                 btn_frame=b,
-                dt=dt,
-                pre_t=pre_t,
             )
             latents.append(new_frame)
 
@@ -86,7 +84,6 @@ class AVCachingSampler:
         mouse: Optional[Tensor],
         btn: Optional[Tensor],
         kv_caches: list,
-        pre_t: Tensor,
     ) -> None:
         """Re-noise clean prefix to each step's t and write its K/V to that step."""
         bsz, l0 = x.shape[:2]
@@ -100,7 +97,7 @@ class AVCachingSampler:
             timesteps = self.fm_sched.timesteps[s].to(device=x.device).expand(bsz)  # (B,)
             noise = torch.randn_like(x)
             x_t = self.fm_sched.add_noise(x, noise, timesteps)
-            t_arr = pre_t[s].to(device=x.device, dtype=x.dtype).expand(bsz, l0)
+            t_arr = self.pre_t[s].to(device=x.device, dtype=x.dtype).expand(bsz, l0)
             _ = model(x_t, t_arr, prev_mouse, prev_btn, kv_cache=kv_caches[s])
 
     def denoise_one_frame(
@@ -110,16 +107,14 @@ class AVCachingSampler:
         shape_like: Tensor,
         mouse_frame: Optional[Tensor],
         btn_frame: Optional[Tensor],
-        dt: Tensor,
-        pre_t: Tensor,
     ) -> Tensor:
         """Denoise a single new frame and append its K/V at each step."""
         x_new = torch.randn_like(shape_like)
         bsz = x_new.size(0)
 
         for s in range(self.n_steps):
-            t_arr = pre_t[s].to(device=x_new.device, dtype=x_new.dtype).expand(bsz, 1)
+            t_arr = self.pre_t[s].to(device=x_new.device, dtype=x_new.dtype).expand(bsz, 1)
             eps = model(x_new, t_arr, mouse_frame, btn_frame, kv_caches[s])
-            x_new = x_new - eps * dt[s]
+            x_new = x_new - eps * self.dt[s]
 
         return x_new
