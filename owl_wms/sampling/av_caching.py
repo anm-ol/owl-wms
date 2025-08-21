@@ -132,6 +132,4 @@ class AVCachingSampler:
             eps = model(x_new, t_arr, mouse_frame, btn_frame, kv_cache=kv_caches[s])
             x_new = x_new - eps * dt[s]
 
-            gc.collect(); torch.cuda.empty_cache()
-
         return x_new
