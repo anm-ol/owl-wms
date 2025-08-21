@@ -234,7 +234,7 @@ class CraftTrainer(BaseTrainer):
             batch[0] = self.encoder_decoder.encode(batch[0])
             # TODO: clean up this hack
             # keep only every 4th item since WAN compresses batch[0]
-            batch[1:] = [item[:, ::4, ...] for item in batch]
+            batch[1:] = [item[:, ::4, ...] for item in batch[1:]]
         else:
             batch = batch.cuda()
             batch = self.encoder_decoder.encode(batch)
