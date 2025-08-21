@@ -2,6 +2,7 @@ from typing import Optional
 from torch import Tensor
 
 import torch
+import gc
 from tqdm import tqdm
 
 from ..nn.kv_cache import KVCache
@@ -83,6 +84,9 @@ class AVCachingSampler:
                 pre_t=pre_t,
             )
             latents.append(new_frame)
+
+            gc.collect()
+            torch.cuda.empty_cache()
 
         return torch.cat(latents, dim=1)
 
