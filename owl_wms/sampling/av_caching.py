@@ -1,112 +1,125 @@
+from typing import Optional
+from torch import Tensor
+
 import torch
 from tqdm import tqdm
 
 from ..nn.kv_cache import KVCache
-
-from .schedulers import get_sd3_euler
+from .schedulers import get_sd3_euler, get_sd3_scheduler
 
 
 class AVCachingSampler:
-    """
-    Parameters
-    ----------
-    :param n_steps: Number of diffusion steps for each frame
-    :param cfg_scale: Must be 1.0
-    :param num_frames: Number of new frames to sample
-    :param noise_prev: Noise previous frame
-    """
-    def __init__(self, n_steps: int = 16, cfg_scale: float = 1.0, num_frames: int = 60, noise_prev: float = 0.2) -> None:
+    """Causal video diffusion with per-step KV prefill and AR sampling."""
+
+    def __init__(
+        self,
+        n_steps: int = 16,
+        cfg_scale: float = 1.0,
+        num_frames: int = 60,
+    ) -> None:
         if cfg_scale != 1.0:
-            raise NotImplementedError("cfg_scale must be 1.0 until updated to handle")
+            raise NotImplementedError("cfg_scale must be 1.0")
         self.n_steps = n_steps
         self.num_frames = num_frames
-        self.noise_prev = noise_prev
+        self.fm_sched = get_sd3_scheduler(self.n_steps)
 
     @torch.no_grad()
-    def __call__(self, model, x, mouse: torch.Tensor | None, btn: torch.Tensor | None):
-        """Generate `num_frames` new frames and return updated tensors."""
-        batch_size, init_len = x.size(0), x.size(1)
+    def __call__(self, model, x: torch.Tensor, mouse: Optional[Tensor] = None, btn: Optional[Tensor] = None):
+        """
+        Args:
+            model: denoiser; signature model(x, t, mouse, btn, kv_cache=...).
+            x:     [B, L0, C, H, W] clean prefix frames.
+            mouse: optional control timeline [B, Lm, ...].
+            btn:   optional control timeline [B, Lb, ...].
 
+        Returns:
+            Tensor [B, L0 + num_frames, C, H, W]
+        """
+        bsz, l0 = x.shape[:2]
+
+        # Euler step sizes and per-step pre-update t in [0, 1].
         dt = get_sd3_euler(self.n_steps).to(device=x.device, dtype=x.dtype)
+        pre_t = 1.0 - torch.cumsum(torch.cat([dt.new_zeros(1), dt[:-1]]), dim=0)
+        pre_t = pre_t.clamp_(0, 1)
 
-        kv_cache = KVCache(model.config)
-        kv_cache.reset(batch_size)
+        # One KV cache per diffusion step; align device/dtype.
+        kv_caches = [KVCache(model.config) for _ in range(self.n_steps)]
+        for kc in kv_caches:
+            kc.to(device=x.device, dtype=x.dtype).reset(bsz)
+            kc.enable_cache_updates()
 
+        # Normalize empty controls to None.
+        if mouse is not None and mouse.size(1) == 0:
+            mouse = None
+        if btn is not None and btn.size(1) == 0:
+            btn = None
+
+        # 1) Prefill caches from the clean prefix.
+        self.prefill_caches(model, x, mouse, btn, kv_caches, pre_t)
+
+        # 2) Autoregressively sample new frames.
         latents = [x]
+        for i in tqdm(range(self.num_frames), desc="Sampling frames"):
+            # Clamp control indices to their last available frame.
+            j_m = min(l0 + i, mouse.size(1) - 1) if mouse is not None else 0
+            j_b = min(l0 + i, btn.size(1) - 1) if btn is not None else 0
+            m = None if mouse is None else mouse[:, j_m:j_m + 1]
+            b = None if btn is None else btn[:, j_b:j_b + 1]
 
-        # History for the first frame generation step = full clean clip
-        prev_x = x
-        prev_mouse = mouse[:, :init_len] if mouse is not None else None
-        prev_btn = btn[:, :init_len] if btn is not None else None
-
-        for idx in tqdm(range(self.num_frames), desc="Sampling frames"):
-            start = min(init_len + idx, mouse.size(1) - 1) if mouse is not None else init_len + idx
-            curr_mouse = mouse[:, start: start + 1] if mouse is not None else None
-            curr_btn = btn[:, start: start + 1] if btn is not None else None
-
-            x = self.denoise_frame(
-                model, kv_cache,
-                prev_x, prev_mouse, prev_btn,
-                curr_mouse, curr_btn,
+            new_frame = self.denoise_one_frame(
+                model=model,
+                kv_caches=kv_caches,
+                shape_like=x[:, :1],  # single-frame shape
+                mouse_frame=m,
+                btn_frame=b,
                 dt=dt,
+                pre_t=pre_t,
             )
-
-            latents.append(x)
-
-            # all history kv cached except for newly generated from - set the previous as the new state
-            prev_x = x
-            prev_mouse, prev_btn = curr_mouse, curr_btn
+            latents.append(new_frame)
 
         return torch.cat(latents, dim=1)
 
-    @staticmethod
-    def zlerp(x, alpha):
-        z = torch.randn_like(x)
-        return x * (1. - alpha) + z * alpha
-
-    def denoise_frame(
+    def prefill_caches(
         self,
         model,
-        kv_cache: KVCache,
-        prev_video: torch.Tensor,
-        prev_mouse: torch.Tensor,
-        prev_btn: torch.Tensor,
-        curr_mouse: torch.Tensor,
-        curr_btn: torch.Tensor,
-        dt: torch.Tensor,
-    ):
-        """Run all denoising steps for new frame"""
-        batch_size = prev_video.size(0)
+        x: torch.Tensor,
+        mouse: Optional[Tensor],
+        btn: Optional[Tensor],
+        kv_caches: list,
+        pre_t: Tensor,
+    ) -> None:
+        """Re-noise clean prefix to each step's t and write its K/V to that step."""
+        bsz, l0 = x.shape[:2]
+        if l0 == 0:
+            return
 
-        # Partially re-noise history
-        prev_vid = self.zlerp(prev_video, self.noise_prev)
-        t_prev = prev_video.new_full((batch_size, prev_vid.size(1)), self.noise_prev)
+        prev_mouse = None if mouse is None else mouse[:, :l0]
+        prev_btn = None if btn is None else btn[:, :l0]
 
-        # Create new pure-noise frame
-        new_vid = torch.randn_like(prev_video[:, :1])
-        t_new = t_prev.new_ones(batch_size, 1)
+        for s in range(self.n_steps):
+            timesteps = self.fm_sched.timesteps[s].to(device=x.device).expand(bsz)  # (B,)
+            noise = torch.randn_like(x)
+            x_t = self.fm_sched.add_noise(x, noise, timesteps)
+            t_arr = pre_t[s].to(device=x.device, dtype=x.dtype).expand(bsz, l0)
+            _ = model(x_t, t_arr, prev_mouse, prev_btn, kv_cache=kv_caches[s])
 
-        # update kv cache with previous uncached frames
-        kv_cache.enable_cache_updates()
-        eps_v = model(
-            torch.cat([prev_vid, new_vid], dim=1),
-            torch.cat([t_prev, t_new], dim=1),
-            torch.cat([prev_mouse, curr_mouse], dim=1) if prev_mouse is not None else None,
-            torch.cat([prev_btn, curr_btn], dim=1) if prev_btn is not None else None,
-            kv_cache=kv_cache,
-        )
-        kv_cache.disable_cache_updates()
-        kv_cache.truncate(1, front=True)  # new "still-being-denoised" frame from kv cache
+    def denoise_one_frame(
+        self,
+        model,
+        kv_caches: list,
+        shape_like: Tensor,
+        mouse_frame: Optional[Tensor],
+        btn_frame: Optional[Tensor],
+        dt: Tensor,
+        pre_t: Tensor,
+    ) -> Tensor:
+        """Denoise a single new frame and append its K/V at each step."""
+        x_new = torch.randn_like(shape_like)
+        bsz = x_new.size(0)
 
-        # Euler update for step‑0 (affects only the *last* frame)
-        new_vid -= eps_v[:, -1:] * dt[0]
-        t_new -= dt[0]
+        for s in range(self.n_steps):
+            t_arr = pre_t[s].to(device=x_new.device, dtype=x_new.dtype).expand(bsz, 1)
+            eps = model(x_new, t_arr, mouse_frame, btn_frame, kv_caches[s])
+            x_new = x_new - eps * dt[s]
 
-        # Remaining diffusion steps with cached history, denoising denoising only new frame
-        for step in range(1, self.n_steps):
-            eps_vid = model(new_vid, t_new, curr_mouse, curr_btn, kv_cache=kv_cache)
-            new_vid -= eps_vid * dt[step]
-            t_new -= dt[step]
-
-        # Clean frame will be cached automatically in the *next* step‑0
-        return new_vid
+        return x_new
