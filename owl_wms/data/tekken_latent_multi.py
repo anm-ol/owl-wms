@@ -141,7 +141,7 @@ class TekkenLatentMulti(Dataset):
                     windowed_data = full_data[frame_start:frame_end]
                 
                 # Reshape to (window_length, 8)
-                windowed_data = windowed_data.reshape(self.window_length, 8)
+                windowed_data = windowed_data.reshape(self.window_length, self.temporal_compression)
                 result[data_type] = torch.from_numpy(windowed_data.copy())
             
             elif data_type == "states":

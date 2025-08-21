@@ -30,6 +30,10 @@ def get_decoder_only(vae_id, cfg_path, ckpt_path):
             model = AutoencoderKLLTXVideo.from_pretrained(ckpt_path, torch_dtype=torch.bfloat16).cuda().eval()
             del model.encoder
             return model.decoder
+        if vae_id == "wan":
+            model = AutoencoderKLWan.from_pretrained(ckpt_path, torch_dtype=torch.bfloat16).cuda().eval()
+            del model.encoder
+            return model.decoder
         else:
             cfg = Config.from_yaml(cfg_path).model
             model = get_model_cls(cfg.model_id)(cfg)

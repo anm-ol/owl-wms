@@ -1,25 +1,57 @@
 name: owl-wms-multinode
 
 resources:
-  image_id: docker:us-central1-docker.pkg.dev/openworld-main/skypilot/owl-wm-cond@sha256:1076e5243d6eeb93bbe509e20aaec7032f417482d27d1f8c355192ba9e29771b
+  image_id: docker.io/lapp0/owl-wm-cond:latest
   accelerators: H200:8
   cloud: kubernetes
 
-num_nodes: 2
+num_nodes: 1
 
 setup: |
   # Commands to run inside the container
-  echo "Setting up multi-node training environment..."
-  cd /app
+  # cd /app
+
+  # Git sync with repo
+  cd owl=wms
+  git remote remove origin
+  git remote add origin https://github.com/anm-ol/owl-wms.git
+  git fetch
+  git submodule sync --recursive
+  git submodule update --init --recursive
+  git checkout --force origin/distill-from-wan
+
+  # Install new deps
+  pip install -r requirements.txt
+
+  # fix nccl errors
+  apt install rdma-core libibverbs1 libibverbs-dev infiniband-diags -y
   
+  pip install --upgrade torch==2.8.0 torchvision torchaudio
+
+  
+file_mounts:
+  /app/my.env: ./.env
+
 run: |
   export LOGLEVEL=INFO
   cd /app
-  
+  set -a && source /app/my.env && set +a
+
   # Get the head node IP
   MASTER_ADDR=$(echo "$SKYPILOT_NODE_IPS" | head -n1)
   echo "Starting distributed training, head node: $MASTER_ADDR"
-  
+
+  # TODO
+  # Save compiled artifacts
+  # export TRITON_CACHE_DIR=/mnt/data/lapp0/triton_cache
+
+  # DEBUG
+  # export TORCH_LOGS="recompiles"
+  # export CUDA_LAUNCH_BLOCKING=1
+  # export TORCHDYNAMO_VERBOSE=1
+
+  export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
   # Run distributed training with torchrun
   torchrun \
     --nnodes=$SKYPILOT_NUM_NODES \
@@ -27,4 +59,4 @@ run: |
     --master_addr=$MASTER_ADDR \
     --node_rank=${SKYPILOT_NODE_RANK} \
     --master_port=8008 \
-    train.py --config_path configs/av_v5_8x8_weak.yml
+     train.py --config_path configs/dit_v4_distill.yml --nccl_timeout 1000

@@ -6,6 +6,7 @@ import einops as eo
 
 import numpy as np
 from .vis import draw_frames
+from .vis_tekken import draw_tekken_frames
 from moviepy.editor import ImageSequenceClip, CompositeVideoClip
 from moviepy.audio.AudioClip import AudioArrayClip
 
@@ -61,7 +62,7 @@ class LogHelper:
         return final
 
 @torch.no_grad()
-def to_wandb(x, batch_mouse, batch_btn, gather = False, max_samples = 8):
+def to_wandb(x, actions, gather = False, max_samples = 8):
     # x is [b,n,c,h,w]
     x = x.clamp(-1, 1)
     x = x[:max_samples]
@@ -72,14 +73,14 @@ def to_wandb(x, batch_mouse, batch_btn, gather = False, max_samples = 8):
         x = torch.cat(gathered, dim=0)
 
     # Get labels on them
-    x = draw_frames(x, batch_mouse, batch_btn) # -> [b,n,c,h,w] [0,255] uint8 np
+    x = draw_tekken_frames(x, actions) # -> [b,n,c,h,w] [0,255] uint8 np
 
     if max_samples == 8:
         x = eo.rearrange(x, '(r c) n d h w -> n d (r h) (c w)', r = 2, c = 4)
 
-    return wandb.Video(x, format='gif', fps=60)
+    return wandb.Video(x, format='mp4', fps=30)
 
-def to_wandb_gif(x, max_samples = 4, format='gif', fps=16):
+def to_wandb_gif(x, actions, max_samples = 4, format='mp4', fps=16):
     x = x.clamp(-1, 1)
     x = (x + 1) * 127.5
     x = x.to(torch.uint8)
