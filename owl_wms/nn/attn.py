@@ -267,7 +267,7 @@ class FinalLayer(nn.Module):
         self.act = nn.SiLU()
         self.proj = nn.ConvTranspose3d(d_model, channels, **conv_kw)
 
-    def forward(self, x, cond):
+    def forward(self, x, cond, out_hw=None):
         """
         x: (B, D, N, s, s)    cond: (B, N, D)  # per-frame conditioning
         """
@@ -278,4 +278,8 @@ class FinalLayer(nn.Module):
         cond_tok = eo.repeat(cond, 'b n d -> b (n h w) d', h=H2, w=W2)
         x_tok = self.act(self.norm(x_tok, cond_tok))
         x = eo.rearrange(x_tok, 'b (n h w) d -> b d n h w', n=N, h=H2, w=W2)
-        return self.proj(x)  # -> (B, C, N, s*ps[1], s*ps[2])
+        if out_hw is None:
+            return self.proj(x)  # -> (B, C, N, s*ps[1], s*ps[2])
+        else:
+            H, W = out_hw
+            return self.proj(x, output_size=(N, H, W))

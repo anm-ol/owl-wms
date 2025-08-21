@@ -32,7 +32,7 @@ class GameRFTCore(nn.Module):
         assert patch_size[1:] == patch_stride[1:], "For clean unpatchify, set stride==kernel on H/W."
 
         self.proj_in = nn.Conv3d(
-            config.channels, config.d_model, kernel_size=patch_size, stride=patch_stride, bias=False)
+            config.channels, config.d_model, kernel_size=patch_size, stride=patch_stride, bias=False, padding="same")
         self.proj_out = FinalLayer(
             config.d_model, config.channels, kernel_size=patch_size, stride=patch_stride, bias=True)
 
@@ -65,7 +65,7 @@ class GameRFTCore(nn.Module):
         x = eo.rearrange(tokens, 'b (n h w) d -> b d n h w', n=N2, h=H2, w=W2)
 
         # unpatchify
-        x = self.proj_out(x, cond)
+        x = self.proj_out(x, cond, out_hw=(H, W))
         return eo.rearrange(x, 'b c n h w -> b n c h w')
 
 
