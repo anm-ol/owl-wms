@@ -294,6 +294,9 @@ class CraftTrainer(BaseTrainer):
         if isinstance(batch, (list, tuple)):
             batch = [item.cuda() if isinstance(item, torch.Tensor) else item for item in batch]
             batch[0] = self.encoder_decoder.encode(batch[0])
+            # TODO: clean up this hack
+            # keep only every 4th item since WAN compresses batch[0]
+            batch[1:] = [item[:, ::4, ...] for item in batch]
         else:
             batch = batch.cuda()
             batch = self.encoder_decoder.encode(batch)
