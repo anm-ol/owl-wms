@@ -1,7 +1,7 @@
 def get_trainer_cls(trainer_id):
     if trainer_id == "craft":
-        from .rft_pair_distill_trainer import RFTPairDistillTrainer
-        return RFTPairDistillTrainer
+        from .craft_trainer import CraftTrainer
+        return CraftTrainer
     if trainer_id == "rft_pair_distill":
         from .rft_pair_distill_trainer import RFTPairDistillTrainer
         return RFTPairDistillTrainer
