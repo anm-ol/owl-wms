@@ -40,12 +40,12 @@ class AVCachingSampler:
         Returns:
             Tensor [B, L0 + num_frames, C, H, W]
         """
-        bsz, l0 = x.shape[:2]
+        B, S = x.shape[:2]
 
         # One KV cache per diffusion step; align device/dtype.
         kv_caches = [KVCache(model.config) for _ in range(self.n_steps)]
         for kc in kv_caches:
-            kc.to(device=x.device, dtype=x.dtype).reset(bsz)
+            kc.reset(B)
             kc.enable_cache_updates()
 
         # Normalize empty controls to None.
@@ -61,8 +61,8 @@ class AVCachingSampler:
         latents = [x]
         for i in tqdm(range(self.num_frames), desc="Sampling frames"):
             # Clamp control indices to their last available frame.
-            j_m = min(l0 + i, mouse.size(1) - 1) if mouse is not None else 0
-            j_b = min(l0 + i, btn.size(1) - 1) if btn is not None else 0
+            j_m = min(S + i, mouse.size(1) - 1) if mouse is not None else 0
+            j_b = min(S + i, btn.size(1) - 1) if btn is not None else 0
             m = None if mouse is None else mouse[:, j_m:j_m + 1]
             b = None if btn is None else btn[:, j_b:j_b + 1]
 
@@ -86,18 +86,18 @@ class AVCachingSampler:
         kv_caches: list,
     ) -> None:
         """Re-noise clean prefix to each step's t and write its K/V to that step."""
-        bsz, l0 = x.shape[:2]
-        if l0 == 0:
+        B, S = x.shape[:2]
+        if S == 0:
             return
 
-        prev_mouse = None if mouse is None else mouse[:, :l0]
-        prev_btn = None if btn is None else btn[:, :l0]
+        prev_mouse = None if mouse is None else mouse[:, :S]
+        prev_btn = None if btn is None else btn[:, :S]
 
         for s in range(self.n_steps):
-            timesteps = self.fm_sched.timesteps[s].to(device=x.device).expand(bsz)  # (B,)
+            timesteps = self.fm_sched.timesteps[s].expand(B)  # (B,)
             noise = torch.randn_like(x)
             x_t = self.fm_sched.add_noise(x, noise, timesteps)
-            t_arr = self.pre_t[s].to(device=x.device, dtype=x.dtype).expand(bsz, l0)
+            t_arr = self.pre_t[s].to(device=x.device, dtype=x.dtype).expand(B, S)
             _ = model(x_t, t_arr, prev_mouse, prev_btn, kv_cache=kv_caches[s])
 
     def denoise_one_frame(
@@ -110,11 +110,8 @@ class AVCachingSampler:
     ) -> Tensor:
         """Denoise a single new frame and append its K/V at each step."""
         x_new = torch.randn_like(shape_like)
-        bsz = x_new.size(0)
-
         for s in range(self.n_steps):
-            t_arr = self.pre_t[s].to(device=x_new.device, dtype=x_new.dtype).expand(bsz, 1)
+            t_arr = self.pre_t[s].expand(x_new.size(0), 1)
             eps = model(x_new, t_arr, mouse_frame, btn_frame, kv_caches[s])
             x_new = x_new - eps * self.dt[s]
-
         return x_new
