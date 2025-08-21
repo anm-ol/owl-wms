@@ -34,7 +34,7 @@ model:
   rope_ats_delta: 2.0
 
   local_window: 16
-  global_window: null  # full window
+  global_window: 16  # null  # full window
 
 train:
   trainer_id: craft
@@ -96,7 +96,8 @@ train:
   sampler_kwargs:
     n_steps: 16
     cfg_scale: 1.0
-    num_frames: 400
+    # num_frames: 400
+    num_frames: 80
     noise_prev: 0.2
     only_return_generated: false
 
