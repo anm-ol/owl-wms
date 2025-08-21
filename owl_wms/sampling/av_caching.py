@@ -16,6 +16,7 @@ class AVCachingSampler:
         n_steps: int = 16,
         cfg_scale: float = 1.0,
         num_frames: int = 60,
+        noise_prev=None  # TODO: remove
     ) -> None:
         if cfg_scale != 1.0:
             raise NotImplementedError("cfg_scale must be 1.0")
