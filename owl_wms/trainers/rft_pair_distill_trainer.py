@@ -6,6 +6,12 @@ from .rft_trainer import RFTTrainer
 
 
 class RFTPairDistillTrainer(RFTTrainer):
+    def fwd_step(self, batch, train_step: int):
+        if train_step < self.train_cfg.finite_difference_step:
+            return self.ode_fwd(batch)
+        else:
+            return self.flow_matching_fwd(batch)
+
     def ode_fwd(self, batch):
         x_a, t_a, _, _, x_clean, t_clean = batch
         with self.autocast_ctx:
