@@ -38,16 +38,8 @@ class WanPairDataset(Dataset):
     wan_scheduler_timesteps = {0: 991.0, 1: 982.0, 2: 973.0, 3: 963.0, 4: 954.0, 5: 944.0, 6: 933.0, 7: 922.0, 8: 911.0, 9: 899.0, 10: 887.0, 11: 874.0, 12: 861.0, 13: 847.0, 14: 832.0, 15: 817.0, 16: 801.0, 17: 785.0, 18: 767.0, 19: 749.0, 20: 730.0, 21: 710.0, 22: 688.0, 23: 666.0, 24: 642.0, 25: 617.0, 26: 590.0, 27: 562.0, 28: 531.0, 29: 499.0, 30: 465.0, 31: 428.0, 32: 388.0, 33: 345.0, 34: 299.0, 35: 249.0, 36: 195.0, 37: 136.0, 38: 71.0, 39: 0.0}
     wan_max = 999
 
-    def __init__(
-        self,
-        root_dir: str,
-        *,
-        t_range=(0.25, 0.975),
-        delta_range=(0.05, 0.09),
-    ):
+    def __init__(self, root_dir: str):
         self.root = Path(root_dir)
-        self.t_min, self.t_max = t_range
-        self.d_min, self.d_max = delta_range
 
         # 1) find run dirs by presence of the final step file
         self.run_dirs = sorted(
@@ -76,37 +68,21 @@ class WanPairDataset(Dataset):
         x_cf_hw = torch.load(run_dir / f"{i:08d}_latents.pt", map_location="cpu")
         return x_cf_hw.permute(1, 0, 2, 3).contiguous()
 
-    def _pick_pair_indices(self, K: int):
-        """
-        Simpler sampling:
-          1) sample gap Δ, then sample t_start so [t_start, t_end] ⊂ [t_min, t_max]
-          2) snap to indices using floor/ceil of j = (1 - t) * (K-1)
-          3) ensure distinct indices; define 'a' as the higher time (smaller index)
-        """
-        # 1) sample Δ then t_start
-        delta = random.uniform(self.d_min, self.d_max)
-        t_start_hi = self.t_max - delta
-        t_start = random.uniform(self.t_min, t_start_hi)
-        t_end = t_start + delta  # > t_start
-
-        def to_pair(t0, t1):
-            import math
-            j0 = (1.0 - t0) * (K - 1)
-            i0 = int(max(0, min(K - 1, math.floor(j0))))  # floor
-            if i0 >= K - 1:
-                return K - 2, K - 1
-            return i0, i0 + 1
-
-        i_start, i_end = to_pair(t_start, t_end)
-        return i_start, i_end
+    def _pick_pair_indices(self, steps):
+        import random
+        # hack lol
+        while True:
+            i = random.randrange(0, len(steps) - 1)
+            tau_i = float(self.wan_scheduler_timesteps[steps[i]])
+            tau_j = float(self.wan_scheduler_timesteps[steps[i + 1]])
+            if not (800.0 <= tau_i <= 900.0 or 800.0 <= tau_j <= 900.0):
+                return i, i + 1
 
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
         steps = self._steps[run_dir]
-        K = len(steps)
 
-        i_a, i_b = self._pick_pair_indices(K)
-        assert i_b == min(i_a + 1, K - 1) and i_a < i_b, "sampling must return adjacent indices"
+        i_a, i_b = self._pick_pair_indices(steps)
 
         x_a = self._load_step(run_dir, steps[i_a])  # [F,C,H,W]
         x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]
@@ -144,19 +120,12 @@ def get_pair_loader(
     batch_size: int,
     dataset_path: str,
     batch_columns: list,
-    *,
-    t_range=(0, 991 / 999),
-    delta_range=(0.05, 0.09),
 ):
     """Same interface; returns batches of [x_a, time_a, x_b, time_b]."""
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     rank = dist.get_rank() if dist.is_initialized() else 0
 
-    ds = WanPairDataset(
-        dataset_path,
-        t_range=t_range,
-        delta_range=delta_range,
-    )
+    ds = WanPairDataset(dataset_path)
 
     if world_size > 1:
         sampler = AutoEpochDistributedSampler(ds, num_replicas=world_size, rank=rank, shuffle=True)

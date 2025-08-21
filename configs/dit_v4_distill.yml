@@ -32,6 +32,7 @@ model:
 
 train:
   trainer_id: rft_pair_distill
+
   data_id: wan_pair_distill
   data_kwargs:
     dataset_path: /mnt/data/lapp0/datasets/wan_generated/
@@ -81,7 +82,7 @@ train:
     n_steps: 16
     cfg_scale: 1.0
     num_frames: 80
-    noise_prev: 0.05
+    noise_prev: 0.2
     only_return_generated: false
 
   n_samples: 4
