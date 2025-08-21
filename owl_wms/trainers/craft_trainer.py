@@ -30,8 +30,8 @@ class WanEncoderDecoder:
                     where Tpix = 1 + 4 * (T - 1)
     """
     def __init__(self, vae, batch_size: int = 2, dtype=torch.float32):
-        self.vae.decoder = torch.compile(vae.decoder)
-        self.vae.encoder = torch.compile(vae.encoder)
+        vae.decoder = torch.compile(vae.decoder)
+        vae.encoder = torch.compile(vae.encoder)
         self.vae = vae.eval()
 
         self.bs  = int(batch_size)
