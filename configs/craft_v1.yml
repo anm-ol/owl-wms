@@ -39,8 +39,8 @@ model:
 train:
   trainer_id: craft
 
-  sample_data_id: wan_sample
-  sample_data_kwargs:
+  data_id: wan_sample
+  data_kwargs:
     window_length: 21
     dataset_path: /mnt/data/lapp0/datasets/wan_generated/
     batch_columns: ["x"]
