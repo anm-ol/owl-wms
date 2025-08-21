@@ -37,13 +37,15 @@ train:
   data_kwargs:
     window_length: 512
     dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
-    batch_columns: ["rgb", "mouse", "buttons"]
+    batch_columns: ["rgb"]
 
   sample_data_id: cod
   sample_data_kwargs:
     window_length: 60  # size of single ground truth start tokens
     dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
-    batch_columns: ["rgb", "mouse", "buttons"]
+    batch_columns: ["rgb"]
+
+  raw_rgb: true
 
   target_batch_size: 16
   batch_size: 1

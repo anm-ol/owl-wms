@@ -234,13 +234,12 @@ class CraftTrainer(BaseTrainer):
     def prep_batch(self, batch):
         if isinstance(batch, (list, tuple)):
             batch = [item.cuda() if isinstance(item, torch.Tensor) else item for item in batch]
-            batch[0] = self.encoder_decoder.encode(batch[0])
-            # TODO: clean up this hack
-            # keep only every 4th item since WAN compresses batch[0]
-            batch[1:] = [item[:, ::4, ...] for item in batch[1:]]
+            if getattr(self.train_cfg, "raw_rgb", False):
+                batch[0] = self.encoder_decoder.encode(batch[0])
         else:
             batch = batch.cuda()
-            batch = self.encoder_decoder.encode(batch)
+            if getattr(self.train_cfg, "raw_rgb", False):
+                batch = self.encoder_decoder.encode(batch)
         batch[0] = batch[0].bfloat16()
         return batch
 
