@@ -21,68 +21,6 @@ from ..utils import batch_permute_to_length
 from ..muon import init_muon
 
 
-@torch.no_grad()
-def old_make_batched_wan_decode_fn(vae, batch_size: int = 2):
-    cfg = vae.config
-    C   = int(getattr(cfg, "z_dim", getattr(cfg, "latent_channels", 16)))
-    sf  = float(getattr(cfg, "scaling_factor", 1.0))
-    m   = getattr(cfg, "latents_mean", None)
-    s   = getattr(cfg, "latents_std",  None)
-
-    def to_c_first_3d(z: torch.Tensor) -> torch.Tensor:
-        # [B,C,H,W] -> [B,C,1,H,W]
-        if z.ndim == 4:
-            z = z.unsqueeze(2)
-        if z.ndim != 5:
-            raise ValueError(f"Expected 4D/5D latents, got {tuple(z.shape)}")
-        # accept [B,C,T,H,W] or [B,T,C,H,W]
-        if z.shape[1] == C and z.shape[2] != C:
-            return z
-        if z.shape[2] == C and z.shape[1] != C:
-            return z.permute(0, 2, 1, 3, 4).contiguous()
-        if z.shape[1] == C and z.shape[2] == C:
-            raise ValueError(f"Ambiguous: both dim1 and dim2 equal z_dim={C}; pass [B,C,T,H,W].")
-        raise ValueError(f"Neither dim1 nor dim2 equals z_dim={C}; got {tuple(z.shape)}")
-
-    def pad_to_4k_plus_1(x: torch.Tensor) -> tuple[torch.Tensor, int]:
-        # Round UP to the nearest 4k+1 in time, replicating the last latent if needed.
-        T = x.shape[2]
-        target = ((T - 1 + 3) // 4) * 4 + 1
-        if target == T:
-            return x, T
-        pad = target - T
-        x_pad = torch.cat([x, x[:, :, -1:].expand(-1, -1, pad, -1, -1)], dim=2)
-        return x_pad, T
-
-    def to_vae_space(z_model: torch.Tensor) -> torch.Tensor:
-        # Canonical diffusers conversion:
-        #   if mean/std present:  z * (1/std) / sf + mean
-        #   else:                 z / sf
-        if m is not None and s is not None:
-            mean = torch.as_tensor(m, device=z_model.device, dtype=z_model.dtype).view(1, C, 1, 1, 1)
-            std  = torch.as_tensor(s, device=z_model.device, dtype=z_model.dtype).view(1, C, 1, 1, 1)
-            return (z_model / sf) * std + mean
-        return z_model / sf
-
-    def decode(z: torch.Tensor) -> torch.Tensor:
-        x = to_c_first_3d(z)
-        x, orig_T = pad_to_4k_plus_1(x)
-        x = x.to(torch.float32)  # keep VAE fp32
-        outs = []
-        for z_chunk in x.split(batch_size, dim=0):
-            z_in = to_vae_space(z_chunk)
-            pix = vae.decode(z_in, return_dict=True).sample  # [b,3,T,H,W]
-            outs.append(pix)
-        y = torch.cat(outs, dim=0)  # [B,3,Tpix,H,W] where Tpix = 1 + 4*(Tpad-1)
-        # Trim back to the frames implied by the original latent length:
-        want_Tpix = 1 + 4 * (orig_T - 1)
-        if y.shape[2] >= want_Tpix:
-            y = y[:, :, :want_Tpix]
-        return y.permute(0, 2, 1, 3, 4).contiguous()  # [B,Tpix,3,H,W]
-
-    return decode
-
-
 class WanEncoderDecoder:
     """
     Minimal encode/decode wrapper for Diffusers' AutoencoderKLWan.
