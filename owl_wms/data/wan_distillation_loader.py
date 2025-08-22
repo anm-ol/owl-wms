@@ -75,7 +75,7 @@ class WanPairDataset(Dataset):
             i = random.randrange(0, len(steps) - 1)
             tau_i = float(self.wan_scheduler_timesteps[steps[i]])
             tau_j = float(self.wan_scheduler_timesteps[steps[i + 1]])
-            if not (800.0 <= tau_i <= 900.0 or 800.0 <= tau_j <= 900.0):
+            if tau_i > 900.0 or tau_j > 900.0:
                 return i, i + 1
 
     def __getitem__(self, idx):

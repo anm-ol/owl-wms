@@ -53,8 +53,7 @@ class RFTPairDistillTrainer(RFTTrainer):
         # per-example MSE, then weight by |dt| (approximate ∫ over time)
         mse = F.mse_loss(v_pred.float(), v_hat.float(), reduction='none')
         per_ex = mse.reshape(mse.size(0), -1).mean(dim=1)      # [B]
-        w = dt / dt.mean()                             # normalize weights
-        # w = (dt ** 2) / (dt ** 2).mean()               # normalize weights
+        w = (dt ** 2) / (dt ** 2).mean()               # normalize weights
         return (w * per_ex).mean()
 
     @torch.compile
