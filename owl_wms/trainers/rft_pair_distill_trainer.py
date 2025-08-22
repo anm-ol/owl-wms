@@ -18,8 +18,9 @@ class RFTPairDistillTrainer(RFTTrainer):
             pred_x0 = self.core_fwd(x_a, t_a)
         return F.mse_loss(pred_x0.float(), x_clean.float())
 
-    def flow_matching_fwd(self, batch, u_frac=None, noise_std=0.0):
+    def flow_matching_fwd(self, batch, u_frac=0, noise_std=0.0):
         x_a, t_a, x_b, t_b, _, _ = batch
+        assert t_a.dtype == torch.float32
 
         # sample interpolated point
         if u_frac is None:
@@ -39,10 +40,20 @@ class RFTPairDistillTrainer(RFTTrainer):
         dt = dt.reshape(*dt.shape, *([1] * (x_a.dim() - dt.dim())))
         v_hat = (x_b - x_a) / dt
 
+        """
         # 3) model forward + loss
         with self.autocast_ctx:
             v_pred = self.core_fwd(x_u, s_u)
-        return F.mse_loss(v_pred.float(), v_hat.float())
+        return F.mse_loss(v_pred.float(), v_hat.float())  # TODO: scale by dt
+        """
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_u, s_u)
+        # per-example MSE, then weight by |dt| (approximate ∫ over time)
+        mse = F.mse_loss(v_pred.float(), v_hat.float(), reduction='none')
+        per_ex = mse.reshape(mse.size(0), -1).mean(dim=1)      # [B]
+        w = dt / dt.mean()                             # normalize weights
+        # w = (dt ** 2) / (dt ** 2).mean()               # normalize weights
+        return (w * per_ex).mean()
 
     @torch.compile
     def core_fwd(self, *args, **kwargs):
