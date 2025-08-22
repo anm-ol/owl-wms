@@ -18,13 +18,15 @@ class RFTPairDistillTrainer(RFTTrainer):
             pred_x0 = self.core_fwd(x_a, t_a)
         return F.mse_loss(pred_x0.float(), x_clean.float())
 
-    def flow_matching_fwd(self, batch, u_frac=0, noise_std=0.0):
+    def flow_matching_fwd(self, batch, u_frac=0.0, noise_std=0.0):
         x_a, t_a, x_b, t_b, _, _ = batch
         assert t_a.dtype == torch.float32
 
         # sample interpolated point
         if u_frac is None:
             u_frac = torch.rand_like(t_a)
+        else:
+            u_frac = torch.full_like(t_a, u_frac)
 
         # inputs
         lam = u_frac.reshape(*u_frac.shape, *([1] * (x_a.dim() - u_frac.dim())))
