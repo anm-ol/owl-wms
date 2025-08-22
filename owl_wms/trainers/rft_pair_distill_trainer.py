@@ -62,7 +62,6 @@ class RFTPairDistillTrainer(RFTTrainer):
     def ayf_emd(
         self,
         batch,
-        core_fwd,
         use_phi: bool = False,
         tangent_norm: bool = True,
         local_span: float = 0.05,
@@ -106,7 +105,7 @@ class RFTPairDistillTrainer(RFTTrainer):
 
         # ----- direct branch: s → t (grads on) -----
         with self.autocast_ctx:
-            v_a = core_fwd(x_a, t_a_phi)
+            v_a = self.core_fwd(x_a, t_a_phi)
             if tangent_norm:
                 v_a = normalize_tangent(v_a)
         # do the Euler math in fp32 for stability, then cast back
@@ -115,7 +114,7 @@ class RFTPairDistillTrainer(RFTTrainer):
         # ----- via-u branch: u → t (STOP-GRAD) -----
         with torch.no_grad():
             with self.autocast_ctx:
-                v_b = core_fwd(x_b, t_b_phi)
+                v_b = self.core_fwd(x_b, t_b_phi)
                 if tangent_norm:
                     v_b = normalize_tangent(v_b)
             x_via_u = (x_b.float() + dt_u.float() * v_b.float()).to(x_b.dtype)
