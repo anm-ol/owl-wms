@@ -151,7 +151,11 @@ class RFTTrainer(BaseTrainer):
             # Allow legacy checkpoints: strip module and _orig_mod
             pat = r'^(?:(?:_orig_mod\.|module\.)+)?([^.]+\.)?(?:(?:_orig_mod\.|module\.)+)?'
             state["model"] = {re.sub(pat, r'\1', k): v for k, v in state["model"].items()}
-            state["ema"] = {re.sub(pat, r'\1', k): v for k, v in state["ema"].items()}
+            state["ema_model"] = {
+                k.replace("module.", "").replace("_orig_mod.", "").replace("ema_model."): v
+                for k, v in state["ema"].items() if k.startswith("ema_model.")
+            }
+            state["ema_model"] = {re.sub(pat, r'\1', k): v for k, v in state["ema_model"].items()}
 
             self.model.load_state_dict(state["model"], strict=True)
             self.total_step_counter = state.get("steps", 0)
@@ -180,7 +184,7 @@ class RFTTrainer(BaseTrainer):
 
         # ----- optional checkpoint restore -----
         if ckpt:
-            self.ema.load_state_dict(state["ema"])
+            self.ema.ema_model.load_state_dict(state["ema"])
             self.opt.load_state_dict(state["opt"])
             if self.scheduler and "scheduler" in state:
                 self.scheduler.load_state_dict(state["scheduler"])
