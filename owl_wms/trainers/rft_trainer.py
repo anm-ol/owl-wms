@@ -152,7 +152,7 @@ class RFTTrainer(BaseTrainer):
             pat = r'^(?:(?:_orig_mod\.|module\.)+)?([^.]+\.)?(?:(?:_orig_mod\.|module\.)+)?'
             state["model"] = {re.sub(pat, r'\1', k): v for k, v in state["model"].items()}
             state["ema_model"] = {
-                k.replace("module.", "").replace("_orig_mod.", "").replace("ema_model."): v
+                k.replace("module.", "").replace("_orig_mod.", "").replace("ema_model.", ""): v
                 for k, v in state["ema"].items() if k.startswith("ema_model.")
             }
             state["ema_model"] = {re.sub(pat, r'\1', k): v for k, v in state["ema_model"].items()}
