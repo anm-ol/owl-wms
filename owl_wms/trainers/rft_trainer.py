@@ -185,7 +185,10 @@ class RFTTrainer(BaseTrainer):
 
         # ----- optional checkpoint restore -----
         if ckpt:
-            self.ema.ema_model.load_state_dict(state["ema_model"])
+            if self.world_size > 1:
+                self.ema.ema_model.module.load_state_dict(state["ema_model"])
+            else:
+                self.ema.ema_model.load_state_dict(state["ema_model"])
             self.opt.load_state_dict(state["opt"])
             if self.scheduler and "scheduler" in state:
                 self.scheduler.load_state_dict(state["scheduler"])
