@@ -70,13 +70,10 @@ class WanPairDataset(Dataset):
 
     def _pick_pair_indices(self, steps):
         import random
-        # hack lol
-        while True:
-            i = random.randrange(0, len(steps) - 1)
-            tau_i = float(self.wan_scheduler_timesteps[steps[i]])
-            tau_j = float(self.wan_scheduler_timesteps[steps[i + 1]])
-            if tau_i > 900.0 or tau_j > 900.0:
-                return i, i + 1
+        # avoid picking the final clean step as u (dt_u=0); pick a small random gap
+        i = random.randrange(0, len(steps) - 2)            # 0..K-3
+        gap = random.randint(1, min(4, len(steps) - 2 - i))  # ensure i_b <= K-2
+        return i, i + gap
 
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
