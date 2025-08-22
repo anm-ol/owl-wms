@@ -38,6 +38,8 @@ class WanPairDataset(Dataset):
     wan_scheduler_timesteps = {0: 991.0, 1: 982.0, 2: 973.0, 3: 963.0, 4: 954.0, 5: 944.0, 6: 933.0, 7: 922.0, 8: 911.0, 9: 899.0, 10: 887.0, 11: 874.0, 12: 861.0, 13: 847.0, 14: 832.0, 15: 817.0, 16: 801.0, 17: 785.0, 18: 767.0, 19: 749.0, 20: 730.0, 21: 710.0, 22: 688.0, 23: 666.0, 24: 642.0, 25: 617.0, 26: 590.0, 27: 562.0, 28: 531.0, 29: 499.0, 30: 465.0, 31: 428.0, 32: 388.0, 33: 345.0, 34: 299.0, 35: 249.0, 36: 195.0, 37: 136.0, 38: 71.0, 39: 0.0}
     wan_max = 999
 
+    boundary = 0.875  # https://github.com/Wan-Video/Wan2.2/blob/main/wan/configs/wan_t2v_A14B.py#L36
+
     def __init__(self, root_dir: str):
         self.root = Path(root_dir)
 
@@ -71,9 +73,16 @@ class WanPairDataset(Dataset):
     def _pick_pair_indices(self, steps):
         import random
         # avoid picking the final clean step as u (dt_u=0); pick a small random gap
-        i = random.randrange(0, len(steps) - 2)            # 0..K-3
-        gap = random.randint(1, min(4, len(steps) - 2 - i))  # ensure i_b <= K-2
-        return i, i + gap
+        # also keep both indices on the same side of the expert boundary
+        K = len(steps)
+        while True:
+            i = random.randrange(0, K - 2)  # 0..K-3
+            gap = random.randint(1, min(4, K - 2 - i))  # ensure i_b <= K-2
+            a, b = i, i + gap
+            t_a = self.wan_scheduler_timesteps[steps[a]] / self.wan_max
+            t_b = self.wan_scheduler_timesteps[steps[b]] / self.wan_max
+            if (t_a >= self.boundary and t_b >= self.boundary) or (t_a < self.boundary and t_b < self.boundary):
+                return a, b
 
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
