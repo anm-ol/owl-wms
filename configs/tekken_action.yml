@@ -34,7 +34,7 @@ train:
 
   target_batch_size: 4 #512
   batch_size: 1 # 64
-  compile: false
+  compile: true
 
   epochs: 50000
   opt: Muon
@@ -51,12 +51,12 @@ train:
   output_path: checkpoints/tekken_dit_v2_actions
   resume_ckpt: null #checkpoints/tekken_dit_v2/step_24000.pt # Path to your last checkpoint
 
-  sample_interval: 6
+  sample_interval: 1
   save_interval: 5000
-  n_samples: 4 #8
+  n_samples: 8 #8
   eval_sample_dir: samples/tekken_dit_v2_actions
 
-  sampler_id: t3_caching
+  sampler_id: t3_action_caching
   sampler_kwargs:
     n_steps: 16
     # window_length: 8

@@ -5,6 +5,12 @@ def get_sampler_cls(sampler_id):
         """
         from .av_window import AVWindowSampler
         return AVWindowSampler
+    elif sampler_id == "t3_action_caching":
+        """
+        Tekken sampler with KV caching
+        """
+        from .t3_action import TekkenCachingActionSampler
+        return TekkenCachingActionSampler
     elif sampler_id == "t3_caching":
         """
         Tekken sampler with KV caching

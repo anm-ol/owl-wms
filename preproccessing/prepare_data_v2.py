@@ -418,7 +418,7 @@ if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)
     
     # Configuration
-    num_gpus = 2  # Number of GPUs to use
+    num_gpus = 8  # Number of GPUs to use
     batch_size = 2  # Conservative batch size to avoid OOM (was 0)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -430,7 +430,7 @@ if __name__ == "__main__":
     split_output_dir = "preproccessing/data_v3"
     
     # Create train/val split
-    create_split(data1, data2, split_output_dir)
+    # create_split(data1, data2, split_output_dir, split=0.9)
     
     # Process data with multi-GPU support
     cache_dir = "preproccessing/cached_data_v3_wan"

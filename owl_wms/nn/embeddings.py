@@ -86,19 +86,14 @@ class TimestepEmbedding(nn.Module):
 class ActionEmbedding(nn.Module):
     """
     Creates a unique, learnable embedding for each button and combines them based on presses.
-
-    This module learns a separate vector for each possible action (e.g., "W", "A", "SPACE").
-    For each frame, it creates a composite action vector by summing the embeddings of
-    the buttons that are currently pressed. This allows for a more expressive and
-    compositional representation of player actions compared to a single MLP.
     """
     def __init__(self, n_buttons: int, d_model: int):
         """
         Initializes the embedding layer.
 
         Args:
-            n_buttons (int): The number of distinct buttons/actions (e.g., 11).
-            d_model (int): The dimensionality of the model's embedding space (e.g., 1536).
+            [cite_start]n_buttons (int): The number of distinct buttons/actions (e.g., 8 for Tekken). [cite: 60]
+            [cite_start]d_model (int): The dimensionality of the model's embedding space. [cite: 60]
         """
         super().__init__()
         self.n_buttons = n_buttons
@@ -110,38 +105,34 @@ class ActionEmbedding(nn.Module):
 
     def forward(self, button_presses: torch.Tensor) -> torch.Tensor:
         """
-        Generates the composite action embedding for a sequence of button presses.
+        Generates 8 action embeddings, each scaled by its press state (0 or 1).
 
         Args:
-            button_presses (torch.Tensor): A tensor of shape [B, T, N] where B is batch size,
-                                           T is sequence length, and N is n_buttons.
+            button_presses (torch.Tensor): A tensor of shape [B, T, N_buttons].
                                            Values should be 0.0 for not pressed and 1.0 for pressed.
 
         Returns:
-            torch.Tensor: The resulting action embeddings of shape [B, T, D], where D is d_model.
+            torch.Tensor: The resulting scaled action embeddings of shape [B, T, N_buttons, D_model].
         """
-        # Ensure input tensor is of the correct float type for matrix multiplication.
-        # button_presses = button_presses.float()
+        # Ensure input tensor is float for multiplication.
+        button_presses = button_presses.float()
 
-        # Reshape for matrix multiplication:
-        # button_presses: [B, T, N] -> [B * T, N]
-        # button_embeddings: [N, D]
-        # Result of matmul: [B * T, D]
-        # b, t, n = button_presses.shape
-        # presses_flat = button_presses.view(b * t, n)
+        # Get the embedding weight matrix, shape: [N_buttons, D_model]
+        embedding_matrix = self.button_embeddings.weight
 
-        # Perform the matrix multiplication. This effectively selects and sums the embeddings.
-        # For each item in the batch and sequence, it computes:
-        # embedding_sum = sum(button_presses[i] * self.button_embeddings[i] for i in 1..N)
-        # action_embedding_flat = torch.matmul(presses_flat, self.button_embeddings)
+        # Expand dimensions for broadcasting:
+        # button_presses: [B, T, N] -> [B, T, N, 1]
+        # embedding_matrix: [N, D] -> [1, 1, N, D]
+        button_mask = button_presses.unsqueeze(-1)
+        embedding_matrix_expanded = embedding_matrix.unsqueeze(0).unsqueeze(0)
 
-        # Reshape the result back to the original batch and sequence dimensions.
-        # [B * T, D] -> [B, T, D]
-        # action_embedding = action_embedding_flat.view(b, t, self.d_model)
-        action_embedding = self.button_embeddings(button_presses)
+        # Multiply the embeddings by the button press mask (0 or 1).
+        # Broadcasting results in a [B, T, N_buttons, D_model] tensor.
+        scaled_embeddings = embedding_matrix_expanded * button_mask
 
-        return action_embedding
-
+        return scaled_embeddings
+    
+    
 class StepEmbedding(nn.Module):
     def __init__(self, d_out, d_in=512, max_steps=128):
         super().__init__()

@@ -49,7 +49,7 @@ class TekkenRFTCoreV2(nn.Module):
         t_cond = self.t_embed(t)  # [B, T, D_model]
 
         # Generate action embeddings from button presses.
-        print(f'button_presses shape: {button_presses.shape}, dtype: {button_presses.dtype}')
+        # print(f'button_presses shape: {button_presses.shape}, dtype: {button_presses.dtype}')
         action_tokens = self.action_embed(button_presses)  # [B, T, 8, D_model]
 
         # if not self.uncond and has_controls is not None:
@@ -64,12 +64,14 @@ class TekkenRFTCoreV2(nn.Module):
         # Prepend the action embedding as a special "action token" to each frame's sequence.
         # action_tokens = action_tokens.unsqueeze(2)  # [B, T, 8, D_model]
         print(f'action_tokens shape: {action_tokens.shape}, x_tokens shape: {x_tokens.shape}')  # Debugging: Check action tokens shape.
+        if x_tokens.dim() == 4 and action_tokens.dim() == 3:
+            action_tokens = action_tokens.unsqueeze(1) # Shape: [B, 1, 8, D_model]
         combined_tokens = torch.cat([action_tokens, x_tokens], dim=2) # [B, T, 8 + H*W, D_model]
 
         # Flatten the sequence for the transformer.
         b, t, s, d = combined_tokens.shape
         transformer_input = combined_tokens.view(b, t * s, d)
-
+        # print(f'Transformer input: {transformer_input.shape}')
         # The AdaLN conditioning signal is just the time embedding, repeated for each token.
         # Expand t_cond to match the flattened sequence length
         cond = t_cond.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
@@ -90,7 +92,7 @@ class TekkenRFTCoreV2(nn.Module):
         output_latents = self.proj_out(processed_video_tokens, video_cond)
 
         # Reshape back to the original latent format [B, T, C, H, W].
-        output = eo.rearrange(output_latents, 'b (t hw) c -> b t c h w', t=t, h=h, w=w)
+        output = eo.rearrange(output_latents, 'b (t h w) c -> b t c h w', t=t, h=h, w=w)
         return output
 
 class TekkenRFTV2(nn.Module):
@@ -123,7 +125,7 @@ class TekkenRFTV2(nn.Module):
 
     def forward(self, x, action_ids=None, cfg_prob=None, has_controls=None):
         B, S = x.size(0), x.size(1)
-        print(x.shape)  # Debugging: Check input shape
+        # print(x.shape)  # Debugging: Check input shape
         
         if has_controls is None:
             has_controls = torch.ones(B, device=x.device, dtype=torch.bool)
@@ -140,6 +142,7 @@ class TekkenRFTV2(nn.Module):
             ts = torch.randn(B, S, device=x.device, dtype=x.dtype).sigmoid()
             lerpd_video, target_video = self.noise(x, ts[:, :, None, None, None])
 
+        
         pred_video = self.core(lerpd_video, ts, button_presses, has_controls)
         
         loss = F.mse_loss(pred_video, target_video)
