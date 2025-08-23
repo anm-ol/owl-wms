@@ -56,13 +56,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Final stage: For torch compile, ensure we are using correct python and have python-dev
-RUN apt remove --purge python3.10 python3.10-* && apt autoremove --purge
-RUN apt-get update && apt-get install -y build-essential python3.12-dev
-RUN uv pip install --system --break-system-packages --no-cache-dir --upgrade torch
+#RUN apt remove --purge python3.10 python3.10-* && apt autoremove --purge
+#RUN apt-get update && apt-get install -y build-essential python3.12-dev
+#RUN uv pip install --system --break-system-packages --no-cache-dir --upgrade torch
 
 # Copy installed packages from builder stage
+#COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
+#COPY --from=builder /usr/local/bin /usr/local/bin
+
+# new order
+RUN apt-get update && apt-get install -y build-essential python3.12-dev
+
+# Copy installed packages AND uv executable from builder stage FIRST
 COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
 COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Now you can use the uv command
+RUN uv pip install --system --break-system-packages --no-cache-dir --upgrade torch
 
 # Create working directory
 WORKDIR /app
