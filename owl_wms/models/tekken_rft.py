@@ -3,8 +3,9 @@ from torch import nn
 import torch.nn.functional as F
 import einops as eo
 
-from ..nn.embeddings import TimestepEmbedding
+from ..nn.embeddings import TimestepEmbedding, ActionEmbedding
 from ..nn.attn import DiT, FinalLayer
+from .tekken_rft_v2 import action_id_to_buttons
 
 class TekkenRFTCore(nn.Module):
     """
@@ -25,8 +26,8 @@ class TekkenRFTCore(nn.Module):
         # --- KEY CHANGE ---
         # Replace separate mouse/button embeddings with a single embedding for discrete action IDs.
         # The number of actions is 256, based on the 8-button binary combinations.
-        self.action_embed = nn.Embedding(config.n_actions, config.d_model)
-
+        # self.action_embed = nn.Embedding(config.n_actions, config.d_model)
+        self.action_embed = ActionEmbedding(8, config.d_model)
         # Projection layers for mapping latents to/from the transformer's dimension.
         self.proj_in = nn.Linear(config.channels, config.d_model, bias=False)
         self.proj_out = FinalLayer(config.sample_size, config.d_model, config.channels)
@@ -48,12 +49,13 @@ class TekkenRFTCore(nn.Module):
         
         # Create conditioning signal from timestep and action embeddings.
         t_cond = self.t_embed(t)
-
+        print(f'Time embeddings shape: {t_cond.shape}')  # [B, T, D]
         if not self.uncond:
             action_cond = self.action_embed(action_ids)  # [B, T] -> [B, T, D]
             if has_controls is not None:
+                pass
                 # Zero out embeddings where has_controls is False for CFG.
-                action_cond = torch.where(has_controls[:, None, None], action_cond, torch.zeros_like(action_cond))
+                # action_cond = torch.where(has_controls[:, None, None], action_cond, torch.zeros_like(action_cond))
             cond = t_cond + action_cond
         else:
             cond = t_cond
@@ -112,7 +114,8 @@ class TekkenRFT(nn.Module):
         if action_ids is None:
             # If no actions are provided, treat all samples as unconditional.
             has_controls = torch.zeros_like(has_controls)
-
+        else:
+            action_ids = action_id_to_buttons(action_ids)
         # Apply classifier-free guidance dropout.
         # has_controls = self.handle_cfg(has_controls, cfg_prob)
         

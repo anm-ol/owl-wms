@@ -1,15 +1,19 @@
 # configs/tekken_rft_train.yml
 model:
-  model_id: tekken_rft
+  model_id: tekken_rft_v2
   sample_size: [14, 23]     # Latent H, W from your VAE
   channels: 128             # Latent channels from your VAE
-  n_actions: 256            # For the action embedding layer
-  n_layers: 16
+  n_buttons: 8            # For the action embedding layer
+  n_layers: 16 #16
   n_heads: 16
-  d_model: 768
+  d_model: 768 #1536
   # tokens_per_frame will be calculated inside the model as 14*23=322
+  # tokens_per_frame: 
+  action_tokens_per_frame: null
+  image_tokens_per_frame: null
+  # rope_impl: "tekken"
   n_frames: 1000              # This is the window length
-  cfg_prob: 0.1
+  cfg_prob: 0.0
   causal: true
   uncond: false
   backbone: dit
@@ -19,20 +23,22 @@ model:
   global_window: 8
 
 train:
-  trainer_id: tekken_rft
+  trainer_id: tekken_rft_v2
   data_id: tekken_multi
   data_kwargs:
     window_length: 8
-    root_dir: "preproccessing/cached_data_v3_wan/train"
+    temporal_compression: 4
+    root_dir: "preproccessing/cached_data_v3_ltx/train"
 
-  compile: false
   sample_data_id: tekken_multi
   sample_data_kwargs:
     window_length: 8  # size of single ground truth start tokens
-    root_dir: "preproccessing/cached_data_v3_wan/val"
+    temporal_compression: 4
+    root_dir: "preproccessing/cached_data_v3_ltx/val"
 
   target_batch_size: 512
-  batch_size: 32 # Adjust based on your GPU memory
+  batch_size: 32
+  compile: true
 
   epochs: 50000
   opt: Muon
@@ -45,32 +51,32 @@ train:
     adamw_betas: [0.9, 0.95]
     adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
 
-  checkpoint_dir: checkpoints/tekken_dit_v2
-  output_path: checkpoints/tekken_dit_v2_ema
-  resume_ckpt: null # checkpoints/tekken_dit_v2/step_8000.pt # Path to your last checkpoint
+  checkpoint_dir: checkpoints/tekken_dit_v2_actions
+  output_path: checkpoints/tekken_dit_v2_actions
+  resume_ckpt: null #checkpoints/tekken_dit_v2/step_24000.pt # Path to your last checkpoint
 
-  sample_interval: 500
-  save_interval: 4000
-  n_samples: 1
-  eval_sample_dir: samples/tekken_dit_v2
+  sample_interval: 2000
+  save_interval: 5000
+  n_samples: 8 #8
+  eval_sample_dir: samples/tekken_dit_v2_actions
 
-  sampler_id: t3_caching
+  sampler_id: t3_action_caching
   sampler_kwargs:
     n_steps: 16
-    # window_length: 16
+    # window_length: 8
     cfg_scale: 1.0
-    num_frames: 16
+    num_frames: 16 # 16
     noise_prev: 0.2
     only_return_generated: false
 
   # VAE settings for decoding samples
-  vae_id: ltx # Not a built-in HF VAE
+  vae_id: ltx
   vae_cfg_path: null # Path to your VAE config
   vae_ckpt_path: "preproccessing/checkpoints/LTXV/vae" # Path to your VAE checkpoint
   vae_scale: 1.0 # Adjust if your VAE has a scaling factor
-  vae_batch_size: 32
+  vae_batch_size: 64
 
 wandb:
   name: d-fusion
   project: OWL
-  run_name: tekken-rft-v2
+  run_name: tekken-rft-v2-actions

@@ -144,7 +144,8 @@ class TekkenRFTTrainerV2(BaseTrainer):
 
         metrics = LogHelper()
         if self.rank == 0:
-            wandb.watch(self.get_module(), log='all')
+            pass
+            # wandb.watch(self.get_module(), log='all')
 
         loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size, **self.train_cfg.data_kwargs)
         print(f"Data loader created with {len(loader)} batches.")

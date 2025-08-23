@@ -434,10 +434,19 @@ if __name__ == "__main__":
     
     # Process data with multi-GPU support
     cache_dir = "preproccessing/cached_data_v3_wan"
+    cache_dir_ltx = "preproccessing/cached_data_v3_ltx"
+    # process_data(
+    #     data_dir=split_output_dir,
+    #     output_dir=cache_dir,
+    #     vae_ckpt_dir=wan_path,
+    #     enable_tiling=False,
+    #     num_gpus=num_gpus,
+    #     batch_size=batch_size
+    # )
     process_data(
         data_dir=split_output_dir,
-        output_dir=cache_dir,
-        vae_ckpt_dir=wan_path,
+        output_dir=cache_dir_ltx,
+        vae_ckpt_dir=ltx_path,
         enable_tiling=False,
         num_gpus=num_gpus,
         batch_size=batch_size

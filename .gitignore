@@ -3,6 +3,7 @@
 *.json
 *.pth
 *.pt
+send_pr.py
 
 # data
 wandb/*

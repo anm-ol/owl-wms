@@ -50,6 +50,8 @@ class TekkenRFTCoreV2(nn.Module):
 
         # Generate action embeddings from button presses.
         action_tokens = self.action_embed(button_presses)  # [B, T, 8, D_model]
+        action_emb = action_tokens.mean(dim=2)  # [B, T, D_model]
+        cond_emb = t_cond + action_emb  # [B, T, D_model]
 
         # if not self.uncond and has_controls is not None:
             # Zero out embeddings where has_controls is False for CFG.
@@ -60,11 +62,11 @@ class TekkenRFTCoreV2(nn.Module):
         x_tokens = self.proj_in(x_tokens)  # [B, T, H*W, D_model]
 
         # Prepend the action embedding as a special "action token" to each frame's sequence.
-        combined_tokens = torch.cat([x_tokens, action_tokens], dim=2) # [B, T, 8 + H*W, D_model]
+        # combined_tokens = torch.cat([x_tokens, action_tokens], dim=2) # [B, T, 8 + H*W, D_model]
 
         # Flatten the sequence for the transformer.
-        b, t, s, d = combined_tokens.shape
-        transformer_input = combined_tokens.view(b, t * s, d)
+        b, t, s, d = x_tokens.shape
+        transformer_input = x_tokens.view(b, t * s, d)
         # The AdaLN conditioning signal is just the time embedding, repeated for each token.
         # Expand t_cond to match the flattened sequence length
         cond = t_cond.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
@@ -74,14 +76,16 @@ class TekkenRFTCoreV2(nn.Module):
 
         # Separate the processed action tokens from the video tokens.
         processed_tokens = processed_tokens.view(b, t, s, d)
-        _processed_action_tokens = processed_tokens[:, :, 0, :] # We can discard this.
-        processed_video_tokens = processed_tokens[:, :, self.n_buttons:, :]
+        # _processed_action_tokens = processed_tokens[:, :, 0, :] # We can discard this.
+        # processed_video_tokens = processed_tokens[:, :, self.n_buttons:, :]
 
         # Reshape video tokens and project them back to the latent space.
-        processed_video_tokens = processed_video_tokens.reshape(b, t * (s - self.n_buttons), d)
+        # processed_video_tokens = processed_tokens.reshape(b, t * (s - self.n_buttons), d)
+        processed_video_tokens = processed_tokens.reshape(b, t * s, d)
 
         # Adjust conditioning shape for the final projection layer.
-        video_cond = t_cond.unsqueeze(2).expand(b, t, (s - self.n_buttons), d).contiguous().view(b, t * (s - self.n_buttons), d)
+        video_cond = t_cond.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
+        # video_cond = t_cond.unsqueeze(2).expand(b, t, (s - self.n_buttons), d).contiguous().view(b, t * (s - self.n_buttons), d)
         output_latents = self.proj_out(processed_video_tokens, video_cond)
 
         # Reshape back to the original latent format [B, T, C, H, W].
