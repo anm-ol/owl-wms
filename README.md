@@ -1,7 +1,7 @@
 # owl_wms
 Basic world models
 
-## Training
+## Training model
 
 ### Deploy Training Codebase and Train on SkyPilot
 
