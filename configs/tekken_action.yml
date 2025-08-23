@@ -4,10 +4,14 @@ model:
   sample_size: [56, 92]     # Latent H, W from your VAE
   channels: 16             # Latent channels from your VAE
   n_buttons: 8            # For the action embedding layer
-  n_layers: 4 #16
+  n_layers: 16 #16
   n_heads: 16
   d_model: 768 #1536
   # tokens_per_frame will be calculated inside the model as 14*23=322
+  tokens_per_frame: 5160
+  action_tokens_per_frame: null
+  image_tokens_per_frame: null
+  # rope_impl: "tekken"
   n_frames: 1000              # This is the window length
   cfg_prob: 0.0
   causal: true
@@ -32,8 +36,8 @@ train:
     temporal_compression: 4
     root_dir: "preproccessing/cached_data_v3_wan/val"
 
-  target_batch_size: 4 #512
-  batch_size: 1 # 64
+  target_batch_size: 64
+  batch_size: 2
   compile: true
 
   epochs: 50000
@@ -51,7 +55,7 @@ train:
   output_path: checkpoints/tekken_dit_v2_actions
   resume_ckpt: null #checkpoints/tekken_dit_v2/step_24000.pt # Path to your last checkpoint
 
-  sample_interval: 1
+  sample_interval: 2000
   save_interval: 5000
   n_samples: 8 #8
   eval_sample_dir: samples/tekken_dit_v2_actions
@@ -61,7 +65,7 @@ train:
     n_steps: 16
     # window_length: 8
     cfg_scale: 1.0
-    num_frames: 16
+    num_frames: 16 # 16
     noise_prev: 0.2
     only_return_generated: false
 

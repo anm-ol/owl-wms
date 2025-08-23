@@ -26,7 +26,7 @@ TAG=${1:-${DEFAULT_TAG:-latest}}
 
 # Constructed image names
 LOCAL_TAG="${LOCAL_REGISTRY}/${LOCAL_PROJECT}/${LOCAL_REPOSITORY}:${TAG}"
-REMOTE_TAG="${REGISTRY}/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${TAG}"
+REMOTE_TAG="${REGISTRY}/${PROJECT_ID}/${IMAGE_NAME}:${TAG}"
 
 echo "Building Docker image..."
 docker build -t $LOCAL_TAG .

@@ -114,7 +114,7 @@ class TekkenRFT(nn.Module):
             has_controls = torch.zeros_like(has_controls)
 
         # Apply classifier-free guidance dropout.
-        has_controls = self.handle_cfg(has_controls, cfg_prob)
+        # has_controls = self.handle_cfg(has_controls, cfg_prob)
         
         with torch.no_grad():
             # Sample random timesteps and create noisy inputs and targets.

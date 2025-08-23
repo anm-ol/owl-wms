@@ -4,9 +4,9 @@ model:
   sample_size: [14, 23]     # Latent H, W from your VAE
   channels: 128             # Latent channels from your VAE
   n_actions: 256            # For the action embedding layer
-  n_layers: 12
+  n_layers: 16
   n_heads: 16
-  d_model: 768
+  d_model: 1536
   # tokens_per_frame will be calculated inside the model as 14*23=322
   n_frames: 1000              # This is the window length
   cfg_prob: 0.0
@@ -23,15 +23,15 @@ train:
   data_id: tekken_multi
   data_kwargs:
     window_length: 8
-    root_dir: "preproccessing/cached_data_v3/train"
+    root_dir: "preproccessing/cached_data_v3_wan/train"
 
   sample_data_id: tekken_multi
   sample_data_kwargs:
     window_length: 8  # size of single ground truth start tokens
     root_dir: "preproccessing/cached_data_v3/val"
 
-  target_batch_size: 32
-  batch_size: 8 # Adjust based on your GPU memory
+  target_batch_size: 128
+  batch_size: 4 # Adjust based on your GPU memory
   compile: false
 
   epochs: 50000

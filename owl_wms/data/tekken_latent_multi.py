@@ -58,31 +58,42 @@ class TekkenLatentMulti(Dataset):
                 continue
             
             # Get sequence length from latents (which are temporally compressed)
-            latents_file = data_files.get("latents")
-            if latents_file:
+            # First try with actions and then latents
+            actions_file = data_files.get("actions")
+            if actions_file:
                 try:
-                    # Load just to get shape, then close
-                    sample_data = np.load(latents_file, mmap_mode='r')
-                    # IMPORTANT: Get the temporal dimension after transpose
-                    # Your latents are stored as (channels, time, h, w) but you transpose to (time, channels, h, w)
-                    seq_len = sample_data.shape[1]  # Time dimension before transpose
-                    del sample_data  # Free memory
+                    sample_data = np.load(actions_file, mmap_mode='r')
+                    frame_count = sample_data.shape[0] if len(sample_data.shape) > 0 else 0
+                    seq_len = frame_count // self.temporal_compression  # Convert to latent temporal resolution
+                    del sample_data
                 except:
-                    continue
+                    # If actions fails, try latents
+                    latents_file = data_files.get("latents")
+                    if latents_file:
+                        try:
+                            sample_data = np.load(latents_file, mmap_mode='r')
+                            # IMPORTANT: Get the temporal dimension after transpose
+                            # Your latents are stored as (channels, time, h, w) but you transpose to (time, channels, h, w)
+                            seq_len = sample_data.shape[1]  # Time dimension before transpose
+                            del sample_data  # Free memory
+                        except:
+                            continue
+                    else:
+                        continue
             else:
-                # If no latents file, get from actions and divide by 8
-                actions_file = data_files.get("actions")
-                if actions_file:
+                # If no actions file, get from latents
+                latents_file = data_files.get("latents")
+                if latents_file:
                     try:
-                        sample_data = np.load(actions_file, mmap_mode='r')
-                        frame_count = sample_data.shape[0] if len(sample_data.shape) > 0 else 0
-                        seq_len = frame_count // self.temporal_compression  # Convert to latent temporal resolution
-                        del sample_data
+                        sample_data = np.load(latents_file, mmap_mode='r')
+                        # IMPORTANT: Get the temporal dimension after transpose
+                        # Your latents are stored as (channels, time, h, w) but you transpose to (time, channels, h, w)
+                        seq_len = sample_data.shape[1]  # Time dimension before transpose
+                        del sample_data  # Free memory
                     except:
                         continue
                 else:
                     continue
-            
             # Skip if sequence is too short
             if seq_len < self.min_sequence_length:
                 # print(f"Skipping {round_name}: seq_len {seq_len} < min_length {self.min_sequence_length}")
@@ -123,9 +134,6 @@ class TekkenLatentMulti(Dataset):
                 # Now safely window - we know this will work because of the bounds checking in _build_index
                 windowed_data = transposed_data[start:start + self.window_length]
                 result[data_type] = torch.from_numpy(windowed_data.copy())
-                
-                # Debug info (remove after testing)
-                # print(f'Round: {round_info["round_name"]}, Windowing latents from {start} to {start + self.window_length}, got shape: {windowed_data.shape}')
 
             elif data_type == "actions":
                 # Actions: reshape from (window_length * 8,) to (window_length, 8)
@@ -134,15 +142,11 @@ class TekkenLatentMulti(Dataset):
                 # Safe windowing with padding if needed
                 if frame_end > full_data.shape[0]:
                     if full_data.shape[0] >= frame_start:
-                        print(f"Warning: Frame end {frame_end} exceeds full data length {full_data.shape[0]}, padding needed.")
                         windowed_data = full_data[frame_start:]
                     else:
                         raise ValueError(f"Frame start {frame_start} exceeds full data length {full_data.shape[0]}.")
-                    print(f'full data shape: {full_data.shape}')
-                    print(f'shape before padding: {windowed_data.shape}')
                     # Pad to required length
                     windowed_data = np.pad(windowed_data, (0, frame_end - full_data.shape[0]), mode='constant')
-                    print(f'shape after padding: {windowed_data.shape}')
                 else:
                     windowed_data = full_data[frame_start:frame_end]
                 

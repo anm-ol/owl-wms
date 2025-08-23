@@ -51,7 +51,7 @@ class TekkenCachingActionSampler:
         prev_latents_noised = self.zlerp(prev_latents, self.noise_prev)
         t_prev = prev_latents.new_full((batch_size, prev_latents.size(1)), self.noise_prev)
         
-        new_latent = torch.randn_like(prev_latents[:, :1])
+        new_latent = torch.randn_like(prev_latents[:, :1]) # (b, 1, c, h, w)
         t_new = t_prev.new_ones(batch_size, 1)
 
         # Step 2: Populate the KV Cache with the context
@@ -59,10 +59,10 @@ class TekkenCachingActionSampler:
         
         full_input_latents = torch.cat([prev_latents_noised, new_latent], dim=1)
         full_ts = torch.cat([t_prev, t_new], dim=1)
-        full_actions = torch.cat([prev_actions, curr_actions], dim=1)
-        
-        # full_actions = action_id_to_buttons(full_actions)
-        
+        full_actions = torch.cat([prev_actions, curr_actions], dim=1) # (b, window_length+1, 8)
+        # Convert action IDs to button presses for the model
+        full_actions = action_id_to_buttons(full_actions) # (b, window_length+1, 8, d)
+        curr_actions = action_id_to_buttons(curr_actions) # (b, 1, 8, d)
 
         # Single forward pass to populate cache (no CFG complexity)
         _ = model(full_input_latents, full_ts, full_actions, kv_cache=kv_cache)
@@ -98,11 +98,11 @@ class TekkenCachingActionSampler:
         
         # Start with the initial context
         prev_latents = initial_latents
-        prev_actions = action_ids[:, :init_len]
+        prev_actions = action_ids[:, :init_len] # (b, window_length, 8)
 
         for idx in tqdm(range(self.num_frames), desc="Sampling Tekken Frames (Caching)"):
             # Get the action for the new frame we are about to generate
-            curr_actions = action_ids[:, init_len + idx: init_len + idx + 1]
+            curr_actions = action_ids[:, init_len + idx: init_len + idx + 1] # (b, 1, 8)
             
             # Denoise the next frame
             new_latent = self.denoise_frame(
@@ -114,8 +114,8 @@ class TekkenCachingActionSampler:
 
             all_latents.append(new_latent)
 
-            # Update context for next iteration - keep sliding window
-            # Use the newly generated frame as the new context
+            # Update context for next iteration - maintain sliding window
+            # For now, let's just use the last frame as context - simplest approach
             prev_latents = new_latent
             prev_actions = curr_actions
 

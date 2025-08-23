@@ -1,7 +1,7 @@
 name: owl-wms-multinode
 
 resources:
-  image_id: docker.io/lapp0/owl-wm-cond:latest
+  image_id: anm5704/d-fusion:latest
   accelerators: H200:8
   cloud: kubernetes
 
@@ -18,7 +18,6 @@ setup: |
   git fetch
   git submodule sync --recursive
   git submodule update --init --recursive
-  git checkout --force origin/distill-from-wan
 
   # Install new deps
   pip install -r requirements.txt
@@ -52,6 +51,7 @@ run: |
 
   export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+  # bash preproccessing/data.sh
   # Run distributed training with torchrun
   torchrun \
     --nnodes=$SKYPILOT_NUM_NODES \
@@ -59,4 +59,4 @@ run: |
     --master_addr=$MASTER_ADDR \
     --node_rank=${SKYPILOT_NODE_RANK} \
     --master_port=8008 \
-     train.py --config_path configs/dit_v4_distill.yml --nccl_timeout 1000
+     train.py --config_path configs/tekken_action.yml --nccl_timeout 1000

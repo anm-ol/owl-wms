@@ -62,7 +62,7 @@ class LogHelper:
         return final
 
 @torch.no_grad()
-def to_wandb(x, actions, gather = False, max_samples = 8):
+def to_wandb(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
     # x is [b,n,c,h,w]
     x = x.clamp(-1, 1)
     x = x[:max_samples]
@@ -78,7 +78,7 @@ def to_wandb(x, actions, gather = False, max_samples = 8):
     if max_samples == 8:
         x = eo.rearrange(x, '(r c) n d h w -> n d (r h) (c w)', r = 2, c = 4)
 
-    return wandb.Video(x, format='mp4', fps=30)
+    return wandb.Video(x, format=format, fps=fps)
 
 def to_wandb_gif(x, actions, max_samples = 4, format='mp4', fps=16):
     x = x.clamp(-1, 1)

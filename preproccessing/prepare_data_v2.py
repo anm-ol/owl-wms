@@ -430,7 +430,7 @@ if __name__ == "__main__":
     split_output_dir = "preproccessing/data_v3"
     
     # Create train/val split
-    # create_split(data1, data2, split_output_dir, split=0.9)
+    create_split(data1, data2, split_output_dir, split=0.9)
     
     # Process data with multi-GPU support
     cache_dir = "preproccessing/cached_data_v3_wan"

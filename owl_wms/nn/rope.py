@@ -13,6 +13,8 @@ def get_rope_cls(cls_name):
         return OrthoRoPE
     elif cls_name == "motion":
         return MotionRoPE
+    elif cls_name == "tekken":
+        return TekkenRoPE
     else:
         raise ValueError(f"Invalid RoPE class: {cls_name}")
 
@@ -20,7 +22,7 @@ class RoPE(nn.Module):
     def __init__(self, config):
         super().__init__()
         freqs = self.get_freqs(config)
-
+        self.config = config
         if not config.has_audio:
             # subclasses freqs include audio by default, remove last item from each frame
             freqs = freqs.view(config.n_frames, -1, freqs.size(-1))[:, :-1].flatten(0, 1)
@@ -41,6 +43,54 @@ class RoPE(nn.Module):
 
     def get_freqs(self, config):
         raise NotImplementedError
+
+class TekkenRoPE(RoPE):
+    """
+    A specialized RoPE module for Tekken that applies spatial rotations
+    only to image patch tokens, leaving action tokens untouched.
+    """
+    def get_freqs(self, config):
+        # This part is identical to OrthoRoPE, but it only calculates
+        # frequencies for the image patches.
+        try:
+            p_h, p_w = config.sample_size
+        except (TypeError, ValueError):
+            p_h = p_w = config.sample_size
+
+        head_dim = config.d_model // config.n_heads
+
+        pos_emb = RotaryEmbedding(
+            dim=head_dim // 2, # Note: RoPE is applied to pairs, so dim is half of what's needed.
+            freqs_for='pixel',
+            max_freq=256
+        )
+        
+        # Frequencies are calculated ONLY for the image grid
+        freqs = pos_emb.get_axial_freqs(
+            config.n_frames, p_h, p_w
+        ).flatten(0, 2)
+        
+        return freqs[..., ::2] # Subsampling for sin/cos pairs
+
+    def forward(self, x, offset: int = 0):
+        # x is the full sequence [B, H, L, Dh]
+        
+        # Determine how many action/image tokens are in this sequence based on the full frame structure
+        action_toks = self.config.action_tokens_per_frame
+        image_toks = self.config.image_tokens_per_frame
+        total_toks_per_frame = action_toks + image_toks
+
+        # De-interleave the tokens
+        x = eo.rearrange(x, 'b h (f n) d -> b h f n d', n=total_toks_per_frame)
+        x_actions, x_images = x.split([action_toks, image_toks], dim=3)
+
+        # Apply RoPE *only* to the image tokens
+        x_images_rotated = super().forward(x_images.flatten(2,3), offset=offset)
+        x_images_rotated = eo.rearrange(x_images_rotated, 'b h (f n) d -> b h f n d', f=self.config.n_frames)
+        
+        # Re-interleave the tokens
+        x_out = torch.cat([x_actions, x_images_rotated], dim=3)
+        return x_out.flatten(2,3)
 
 
 class OrthoRoPE(RoPE):

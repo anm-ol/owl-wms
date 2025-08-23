@@ -116,7 +116,6 @@ class ActionEmbedding(nn.Module):
         """
         # Ensure input tensor is float for multiplication.
         button_presses = button_presses.float()
-
         # Get the embedding weight matrix, shape: [N_buttons, D_model]
         embedding_matrix = self.button_embeddings.weight
 
@@ -131,7 +130,6 @@ class ActionEmbedding(nn.Module):
         scaled_embeddings = embedding_matrix_expanded * button_mask
 
         return scaled_embeddings
-    
     
 class StepEmbedding(nn.Module):
     def __init__(self, d_out, d_in=512, max_steps=128):

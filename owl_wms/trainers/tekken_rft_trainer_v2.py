@@ -86,10 +86,10 @@ class TekkenRFTTrainerV2(BaseTrainer):
         initial_latents = vid_for_sample.cuda().bfloat16() / self.train_cfg.vae_scale
         
         num_repeats = (sampler.num_frames // actions_for_sample.shape[1]) + 2
-        actions_for_sample = actions_for_sample.repeat(1, num_repeats, 1)
+        actions_for_sample = actions_for_sample.repeat(1, num_repeats, 1) # (b, t*repeat, 8)
         
         # Using your existing action conversion logic for compatibility.
-        action_ids = actions_for_sample.cuda()[:, :, -1].int()
+        action_ids = actions_for_sample.cuda()[:, :, -1].int() # (b, t, 8) -> (b, t)
 
         with torch.no_grad(), torch.amp.autocast('cuda', torch.bfloat16):
             ema_core = self.get_module(ema=True).core if self.world_size > 1 else self.get_module(ema=True).core
@@ -103,7 +103,7 @@ class TekkenRFTTrainerV2(BaseTrainer):
             )
         video_out = video_out.permute(0, 2, 1, 3, 4)
         print(f'Generated video shape: {video_out.shape}')
-        wandb_videos = to_wandb(video_out.cpu(), format='mp4', fps=30)
+        wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', fps=30)
 
         print("Evaluation step finished.")
         return {"samples": wandb_videos}
@@ -160,7 +160,7 @@ class TekkenRFTTrainerV2(BaseTrainer):
                 # NOTE: This is your current action handling logic. For best results, consider
                 # converting the full 8-bit vector to an integer ID.
                 # print(f'Shape of batch_vid: {batch_vid.shape}, actions: {batch_actions.shape}, states: {batch_states.shape}')
-                action_ids = batch_actions[:, :, -1].int()
+                action_ids = batch_actions[:, :, -1].int() # (b, t, 8) -> (b, t)
                 
                 batch_vid = batch_vid.bfloat16() / self.train_cfg.vae_scale
                 with ctx:
