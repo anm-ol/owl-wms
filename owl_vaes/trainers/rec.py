@@ -22,6 +22,7 @@ from ..losses.basic import latent_reg_loss
 from ..losses.dwt import dwt_loss_fn
 
 from ..nn.crt import CRT
+from tqdm import tqdm
 
 class RecTrainer(BaseTrainer):
     """
@@ -158,10 +159,17 @@ class RecTrainer(BaseTrainer):
 
         # Dataset setup
         loader = get_loader(self.train_cfg.data_id, self.train_cfg.batch_size, **self.train_cfg.data_kwargs)
-
+        # Calculate the steps per epoch. We'll use the number of original files as a proxy.
+        try:
+            total_files = len(loader.dataset.original_files)
+            steps_per_epoch = total_files // self.train_cfg.batch_size
+        except AttributeError:
+            # Fallback if the dataset doesn't have original_files, or to just show progress.
+            steps_per_epoch = None
         local_step = 0
-        for _ in range(self.train_cfg.epochs):
-            for batch in loader:
+        for epoch_idx in range(self.train_cfg.epochs):
+            # Pass the calculated steps_per_epoch to the `total` argument.
+            for batch in tqdm(loader, desc=f"Epoch {epoch_idx + 1}", total=steps_per_epoch, disable=self.rank != 0):
                 total_loss = 0.
                 batch = batch.to(self.device).bfloat16()
                 with ctx:
@@ -178,7 +186,7 @@ class RecTrainer(BaseTrainer):
                         crt_loss = self.crt(z_flat) / accum_steps
                         metrics.log('crt_loss', crt_loss)
                         total_loss += warmup_crt_weight() * crt_loss
- 
+
                     if kl_weight > 0.0:
                         reg_loss = latent_reg_loss(mu, logvar) / accum_steps
                         total_loss += reg_loss * kl_weight

@@ -19,3 +19,6 @@ my_data/
 *.pt
 *.log
 *.err
+t3_pose/
+t3_data/
+.env

@@ -28,3 +28,6 @@ def get_loader(data_id: str, batch_size: int, **data_kwargs):
         from .s3_cod_features import get_loader
         #from .s3_cod_features_shuffle import get_loader
         return get_loader(batch_size, **data_kwargs)
+    if data_id == "t3_live_merge_4channel":
+        from .t3_live_merge_loader import get_loader
+        return get_loader(batch_size, **data_kwargs)

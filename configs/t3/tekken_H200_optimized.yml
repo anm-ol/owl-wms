@@ -1,0 +1,59 @@
+# In configs/t3/tekken_H200_optimized.yml
+#for training : torchrun --nproc_per_node=2 -m train --config_path configs/t3/tekken_H200_optimized.yml
+model:
+  model_id: dcae
+  sample_size: [256, 256] 
+  channels: 4 # RGB + Pose
+  latent_size: 8
+  latent_channels: 32
+  ch_0: 128
+  ch_max: 512
+  encoder_blocks_per_stage: [4, 4, 4, 4, 4]
+  decoder_blocks_per_stage: [4, 4, 4, 4, 4]
+  use_middle_block: false
+
+train:
+  trainer_id: rec
+  data_id: t3_live_merge_4channel
+  data_kwargs:
+    # <-- IMPORTANT: Make sure these paths are correct for your system
+    root: "t3_data/"
+    pose_root: "t3_pose/"
+    target_size: [256, 256]
+    pose_suffix: "_two_player_poses.npz" 
+
+  # <-- OPTIMIZED: Massively increased batch size for H200s
+  target_batch_size: 400 # Effective global batch size (256 * 2 GPUs)
+  batch_size: 200    # Per-GPU batch size. You can likely increase this even more.
+
+  epochs: 500
+
+  opt: AdamW
+  opt_kwargs:
+    lr: 3.0e-5
+    weight_decay: 1.0e-4
+    betas: [0.9, 0.95]
+    eps: 1.0e-15
+
+  lpips_type: convnext
+  loss_weights:
+    kl: 1.0e-6
+    lpips: 12.0
+    l2: 1.0
+
+  scheduler: LinearWarmup
+  scheduler_kwargs:
+    warmup_steps: 500
+    min_lr: 3.0e-6
+
+  checkpoint_dir: checkpoints/tekken_vae_H200_v1
+  resume_ckpt: null
+
+  sample_interval: 200
+  save_interval: 500
+
+wandb:
+  name: ${env:praymesh}
+  project: t3VAE
+  # A more descriptive run name for the new hardware
+  run_name: tekken_vae_H200_v2

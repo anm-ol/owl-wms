@@ -21,7 +21,7 @@ source /home/venky/ankitd/miniconda3/bin/activate
 conda activate owl
 export OMP_NUM_THREADS=12
 # Change to the working directory
-cd /mnt/venky/ankitd/anmol/WM/owl-vaes
-torchrun --nproc_per_node=2 -m train --config_path configs/t3/simple.yml
+cd /owl-wms/owl-vaes
+torchrun --nproc_per_node=2 -m train --config_path configs/t3/tekken_H200_optimized.yml
 # Run the pipeline - each task will process a subset of videos
 

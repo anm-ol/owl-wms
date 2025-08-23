@@ -124,25 +124,14 @@ def log_audio_to_wandb(
 ) -> dict[str, wandb.Audio]:
     """
     Log audio samples to Weights & Biases.
-
-    Args:
-        original: Original audio tensor (B, C, T)
-        reconstructed: Reconstructed audio tensor (B, C, T)
-        sample_rate: Audio sample rate
-        max_samples: Maximum number of samples to log
-
-    Returns:
-        Dictionary for wandb logging
     """
     batch_size = min(original.size(0), max_samples)
     audio_logs = {}
 
     for i in range(batch_size):
-        # Convert to numpy and ensure correct shape for wandb
-        orig_audio = original[i].detach().cpu().numpy()  # (C, T)
-        rec_audio = reconstructed[i].detach().cpu().numpy()  # (C, T)
+        orig_audio = original[i].detach().cpu().numpy()
+        rec_audio = reconstructed[i].detach().cpu().numpy()
 
-        # For stereo audio, mix down to mono for logging
         if orig_audio.shape[0] == 2:
             orig_mono = np.mean(orig_audio, axis=0)
             rec_mono = np.mean(rec_audio, axis=0)
@@ -150,7 +139,6 @@ def log_audio_to_wandb(
             orig_mono = orig_audio[0]
             rec_mono = rec_audio[0]
 
-        # Ensure audio is in correct range [-1, 1]
         orig_mono = np.clip(orig_mono, -1.0, 1.0)
         rec_mono = np.clip(rec_mono, -1.0, 1.0)
 
@@ -162,3 +150,29 @@ def log_audio_to_wandb(
         )
 
     return audio_logs
+
+# <<<<<<< NEW FUNCTION ADDED HERE >>>>>>>
+def to_wandb_video(x1_batch, x2_batch, fps=30):
+    """Logs a batch of images as a side-by-side video to W&B."""
+    
+    # We use the whole batch to create a short video clip
+    x1 = x1_batch
+    x2 = x2_batch
+
+    # Combine side-by-side
+    x = torch.cat([x1, x2], dim=-1) # dim=-1 is the width dimension
+    
+    # Select the first 3 (RGB) channels for visualization if more are present
+    if x.shape[1] > 3:
+        x = x[:, :3] 
+
+    x = x.clamp(-1, 1)
+    
+    # Denormalize from [-1, 1] to [0, 255]
+    x = (x.detach().float().cpu() + 1) * 127.5
+    
+    # Reshape for wandb.Video: (Time, Channels, Height, Width)
+    # The batch dimension (dim 0) becomes the Time dimension for the video
+    video_tensor = x.permute(0, 2, 3, 1).numpy().astype(np.uint8) # T, H, W, C
+    
+    return wandb.Video(video_tensor, fps=fps, format="mp4")
