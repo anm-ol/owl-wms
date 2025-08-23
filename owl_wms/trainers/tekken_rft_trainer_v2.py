@@ -94,7 +94,7 @@ class TekkenRFTTrainerV2(BaseTrainer):
         with torch.no_grad(), torch.amp.autocast('cuda', torch.bfloat16):
             ema_core = self.get_module(ema=True).core if self.world_size > 1 else self.get_module(ema=True).core
             # print(f'this is the EMA core: {ema_core}')
-            video_out, _, _ = sampler(
+            video_out, _, out_actions = sampler(
                 ema_core,
                 initial_latents,
                 action_ids,
@@ -102,9 +102,13 @@ class TekkenRFTTrainerV2(BaseTrainer):
                 vae_scale=self.train_cfg.vae_scale
             )
         video_out = video_out.permute(0, 2, 1, 3, 4)
-        print(f'Generated video shape: {video_out.shape}')
+        print(f'Generated video shape: {video_out.shape}, actions: {out_actions.shape}')
         wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', fps=30)
 
+        del video_out, out_actions, initial_latents, actions_for_sample, action_ids, vid_for_sample
+        gc.collect()
+        torch.cuda.empty_cache()
+        
         print("Evaluation step finished.")
         return {"samples": wandb_videos}
 

@@ -73,6 +73,9 @@ def to_wandb(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
         x = torch.cat(gathered, dim=0)
 
     # Get labels on them
+    b, _ = actions.shape
+    temporal_compression = x.size(1) // actions.size(1) + 1
+    actions = actions.unsqueeze(-1).repeat(1, 1, temporal_compression).view(b, -1)
     x = draw_tekken_frames(x, actions) # -> [b,n,c,h,w] [0,255] uint8 np
 
     if max_samples == 8:

@@ -55,7 +55,7 @@ train:
   output_path: checkpoints/tekken_dit_v2_actions
   resume_ckpt: null #checkpoints/tekken_dit_v2/step_24000.pt # Path to your last checkpoint
 
-  sample_interval: 2000
+  sample_interval: 200
   save_interval: 5000
   n_samples: 8 #8
   eval_sample_dir: samples/tekken_dit_v2_actions
