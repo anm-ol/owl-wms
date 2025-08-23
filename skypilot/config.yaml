@@ -27,6 +27,7 @@ setup: |
   
   pip install --upgrade torch==2.8.0 torchvision torchaudio
 
+
   
 file_mounts:
   /app/my.env: ./.env
@@ -51,7 +52,7 @@ run: |
 
   export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-  # bash preproccessing/data.sh
+  bash scripts/data.sh
   # Run distributed training with torchrun
   torchrun \
     --nnodes=$SKYPILOT_NUM_NODES \

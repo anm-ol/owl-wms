@@ -413,13 +413,44 @@ def get_frames_from_npz(file_path):
     return video_tensor  # [t, c, h, w]
 
 
+def detect_cuda_devices():
+    """
+    Detect the number of available CUDA devices on the system.
+    
+    Returns:
+        int: Number of available CUDA devices. Returns 0 if CUDA is not available.
+    """
+    if not torch.cuda.is_available():
+        print("CUDA is not available on this system.")
+        return 0
+    
+    num_devices = torch.cuda.device_count()
+    print(f"Detected {num_devices} CUDA device(s):")
+    
+    for i in range(num_devices):
+        device_name = torch.cuda.get_device_name(i)
+        memory_gb = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+        print(f"  GPU {i}: {device_name} ({memory_gb:.1f} GB)")
+    
+    return num_devices
+
+
 if __name__ == "__main__":
     # Set multiprocessing start method at the very beginning
     mp.set_start_method('spawn', force=True)
     
+    # Detect available CUDA devices
+    available_gpus = detect_cuda_devices()
+    
     # Configuration
-    num_gpus = 8  # Number of GPUs to use
+    num_gpus = min(available_gpus, 8)  # Use detected GPUs, max 8
+    if num_gpus == 0:
+        print("No CUDA devices available. Exiting.")
+        exit(1)
+    
     batch_size = 2  # Conservative batch size to avoid OOM (was 0)
+    
+    print(f"Using {num_gpus} out of {available_gpus} available GPU(s)")
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     wan_path = "preproccessing/checkpoints/Wan2.1/vae"
