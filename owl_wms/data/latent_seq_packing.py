@@ -127,14 +127,16 @@ class WindowedViewDataset(Dataset):
 
 
 def collate_fn(batch, batch_columns: list):
+    batch_columns = batch_columns + ["doc_id"]  # needed for sequence packing
     stacked = {k: torch.stack([item[k] for item in batch]) for k in batch[0]}
     # TODO: fix hack, buttons should be preprocessed as float
     stacked = {
         k: t.bfloat16() if (t.dtype == torch.float32 or k == "buttons") else t
         for k, t in stacked.items()
+        if k in batch_columns
     }
-    columns = batch_columns + ["doc_id"]
-    return [stacked[col] for col in columns]
+    assert len(stacked) == len(batch_columns)
+    return stacked
 
 
 def get_loader(batch_size, dataset_path, window_length, batch_columns):

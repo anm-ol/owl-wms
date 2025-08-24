@@ -75,8 +75,10 @@ def collate_fn(batch, batch_columns: list):
     stacked = {
         k: t.bfloat16() if (t.dtype == torch.float32 or k == "buttons") else t
         for k, t in stacked.items()
+        if k in batch_columns
     }
-    return [stacked[col] for col in batch_columns]
+    assert len(stacked) == len(batch_columns)
+    return stacked
 
 
 def get_loader(batch_size, dataset_path, window_length, batch_columns):

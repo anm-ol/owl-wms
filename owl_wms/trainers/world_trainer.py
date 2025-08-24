@@ -136,19 +136,14 @@ class WorldTrainer(BaseTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        model_id = self.model_cfg.model_id
-        self.model = get_model_cls(model_id)(self.model_cfg).train()
+        self.model = get_model_cls(self.model_cfg.model_id)(self.model_cfg).train()
+        self.ema = None
+        self.opt = None
+        self.total_step_counter = 0
 
-        # Print model size
         if self.rank == 0:
             n_params = sum(p.numel() for p in self.model.parameters())
             print(f"Model has {n_params:,} parameters")
-
-        self.ema = None
-        self.opt = None
-        self.scheduler = None
-
-        self.total_step_counter = 0
 
         from diffusers import AutoencoderKLWan
         self.decoder = AutoencoderKLWan.from_pretrained(
@@ -187,7 +182,7 @@ class WorldTrainer(BaseTrainer):
 
         self.ema = EMA(self.model, beta=0.999, update_after_step=0, update_every=1)
 
-        assert self.train_cfg.opt.lower() == "muon"  #
+        assert self.train_cfg.opt.lower() == "muon"
         self.opt = init_muon(self.model, rank=self.rank, world_size=self.world_size, **self.train_cfg.opt_kwargs)
 
         ckpt = getattr(self.train_cfg, "resume_ckpt", None)
@@ -200,15 +195,11 @@ class WorldTrainer(BaseTrainer):
             del state  # free memory
 
     def prep_batch(self, batch):
-        if isinstance(batch, (list, tuple)):
-            batch = [item.cuda() if isinstance(item, torch.Tensor) else item for item in batch]
-            if getattr(self.train_cfg, "raw_rgb", False):
-                batch[0] = self.encoder_decoder.encode(batch[0])
-        else:
-            batch = batch.cuda()
-            if getattr(self.train_cfg, "raw_rgb", False):
-                batch = self.encoder_decoder.encode(batch)
-        batch[0] = batch[0].bfloat16()
+        batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        if "rgb" in batch:
+            assert "x" not in batch, "passed rgb to convert, but already have batch item `x` (latents)"
+            raw_rgb = batch.pop("rgb")
+            batch["x"] = self.encoder_decoder.encode(raw_rgb).type_as(raw_rgb)
         return batch
 
     @torch.no_grad()
