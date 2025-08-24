@@ -330,10 +330,10 @@ class WorldTrainer(BaseTrainer):
                 eval_batch["mouse"], eval_batch["btn"], sampler.num_frames + eval_batch["x"].size(1)
             )
 
-        with self.autocast_ctx:
-            latent_vid = sampler(ema_model, **eval_batch)
+        vid, mouse, btn = [eval_batch.get(k) for k in ("x", "mouse", "btn")]
 
-        mouse, btn, vid = [eval_batch.get(k) for k in ("mouse", "btn", "x")]
+        with self.autocast_ctx:
+            latent_vid = sampler(ema_model, vid, mouse, btn)
 
         if self.sampler_only_return_generated:
             latent_vid, mouse, btn = (x[:, vid.size(1):] if x is not None else None for x in (latent_vid, mouse, btn))
