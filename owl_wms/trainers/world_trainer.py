@@ -218,6 +218,21 @@ class WorldTrainer(BaseTrainer):
 
         buf_ema.copy_(buf_online)
 
+    def train_loader(self):
+        return get_loader(
+            self.train_cfg.data_id,
+            self.train_cfg.batch_size,
+            **self.train_cfg.data_kwargs
+        )
+
+    def eval_loader(self):
+        n_samples = (self.train_cfg.n_samples + self.world_size - 1) // self.world_size  # round up to next world_size
+        return get_loader(
+            self.train_cfg.sample_data_id,
+            n_samples,
+            **self.train_cfg.sample_data_kwargs
+        )
+
     def train(self):
         torch.cuda.set_device(self.local_rank)
         print(f"Device used: rank={self.rank}")
@@ -231,27 +246,17 @@ class WorldTrainer(BaseTrainer):
             wandb.watch(self.get_module(), log='all')
 
         # Dataset setup
-        loader = get_loader(
-            self.train_cfg.data_id,
-            self.train_cfg.batch_size,
-            **self.train_cfg.data_kwargs
-        )
+        train_loader = self.train_loader()
+        eval_loader = iter(self.eval_loader())
 
-        n_samples = (self.train_cfg.n_samples + self.world_size - 1) // self.world_size  # round up to next world_size
-        sample_loader = iter(get_loader(
-            self.train_cfg.sample_data_id,
-            n_samples,
-            **self.train_cfg.sample_data_kwargs
-        ))
-
+        # TODO: clean up sampler use
         self.sampler_only_return_generated = self.train_cfg.sampler_kwargs.pop("only_return_generated")
         sampler = get_sampler_cls(self.train_cfg.sampler_id)(**self.train_cfg.sampler_kwargs)
 
-        batched_train_loader = itertools.batched(loader, n=self.accum_steps)
         for epoch in range(self.train_cfg.epochs):
             for mini_batches in tqdm.tqdm(
-                    batched_train_loader,
-                    total=len(loader) // self.accum_steps,
+                    itertools.batched(train_loader, n=self.accum_steps),
+                    total=len(train_loader) // self.accum_steps,
                     disable=self.rank != 0,
                     desc=f"Epoch: {epoch}"
             ):
@@ -260,7 +265,7 @@ class WorldTrainer(BaseTrainer):
 
                 self.ema.update()
 
-                self.log_step(metrics, timer, sample_loader, sampler)
+                self.log_step(metrics, timer, eval_loader, sampler)
 
                 self.total_step_counter += 1
                 if self.total_step_counter % self.train_cfg.save_interval == 0:
