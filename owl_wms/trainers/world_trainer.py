@@ -3,7 +3,7 @@ from pathlib import Path
 import tqdm
 import wandb
 import gc
-import re
+import itertools
 
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -12,7 +12,6 @@ import torch.distributed as dist
 from .base import BaseTrainer
 
 from ..utils import freeze, Timer
-from ..schedulers import get_scheduler_cls
 from ..models import get_model_cls
 from ..sampling import get_sampler_cls
 from ..data import get_loader
@@ -155,6 +154,9 @@ class WorldTrainer(BaseTrainer):
 
         self.autocast_ctx = torch.amp.autocast('cuda', torch.bfloat16)
 
+        accum_steps = self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size
+        self.accum_steps = max(1, accum_steps)
+
     @staticmethod
     def get_raw_model(model):
         return getattr(model, "module", model)
@@ -221,15 +223,9 @@ class WorldTrainer(BaseTrainer):
         torch.cuda.set_device(self.local_rank)
         print(f"Device used: rank={self.rank}")
 
-        # Grad accum setup and scaler
-        accum_steps = self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size
-        accum_steps = max(1, accum_steps)
-
         self.load()
 
-        # Timer reset
         timer = Timer()
-        timer.reset()
         metrics = LogHelper()
 
         if self.rank == 0:
@@ -252,38 +248,41 @@ class WorldTrainer(BaseTrainer):
         self.sampler_only_return_generated = self.train_cfg.sampler_kwargs.pop("only_return_generated")
         sampler = get_sampler_cls(self.train_cfg.sampler_id)(**self.train_cfg.sampler_kwargs)
 
-        local_step = 0
+        batched_train_loader = itertools.batched(loader, n=self.accum_steps)
         for epoch in range(self.train_cfg.epochs):
-            for batch in tqdm.tqdm(loader, total=len(loader), disable=self.rank != 0, desc=f"Epoch: {epoch}"):
-                train_steps = local_step // accum_steps
+            for step, batches in enumerate(tqdm.tqdm(
+                    batched_train_loader,
+                    total=len(loader) // self.accum_steps,
+                    disable=self.rank != 0,
+                    desc=f"Epoch: {epoch}"
+            )):
+                train_loss = self.train_step(batches)
+                metrics.log('train_loss', train_loss)
 
-                batch = self.prep_batch(batch)
-                loss = self.fwd_step(batch, train_steps)
-                loss = loss / accum_steps
-                loss.backward()
+                self.ema.update()
 
-                metrics.log('loss', loss)
+                self.log_step(metrics, timer, sample_loader, sampler)
 
-                local_step += 1
-                if local_step % accum_steps == 0:
+                self.total_step_counter += 1
+                if self.total_step_counter % self.train_cfg.save_interval == 0:
+                    self.save()
 
-                    # Optimizer updates
-                    if self.train_cfg.opt.lower() != "muon":
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
-                    self.opt.step()
-                    self.opt.zero_grad(set_to_none=True)
+                self.barrier()
 
-                    if self.scheduler is not None:
-                        self.scheduler.step()
-                    self.ema.update()
+    def train_step(self, mini_batches, step):
+        # fwd-bwd over all mini batches
+        loss_sum = 0
+        for batch in mini_batches:
+            batch = self.prep_batch(batch)
+            loss = self.fwd_step(batch, step) / self.accum_steps
+            loss.backward()
+            loss_sum += loss.item()
 
-                    self.log_step(metrics, timer, sample_loader, sampler)
+        # optimizer step
+        self.opt.step()
+        self.opt.zero_grad(set_to_none=True)
 
-                    self.total_step_counter += 1
-                    if self.total_step_counter % self.train_cfg.save_interval == 0:
-                        self.save()
-
-                    self.barrier()
+        return loss_sum / self.accum_steps
 
     def fwd_step(self, batch, train_step):
         with self.autocast_ctx:
@@ -296,7 +295,7 @@ class WorldTrainer(BaseTrainer):
         wandb_dict['time'] = timer.hit()
         timer.reset()
 
-        # Sampling commented out for now
+        # eval / sample step
         if self.total_step_counter % self.train_cfg.sample_interval == 0:
             eval_wandb_dict = self.eval_step(sample_loader, sampler)
             gc.collect()
@@ -341,7 +340,8 @@ class WorldTrainer(BaseTrainer):
             latent_vid, mouse, btn = (x[:, vid.size(1):] if x is not None else None for x in (latent_vid, mouse, btn))
 
         video_out = self.encoder_decoder.decode(latent_vid.float()) if self.encoder_decoder is not None else None
-        if getattr(self.train_cfg, "raw_rgb", False):
+        # TODO: remove this hack
+        if getattr(self.train_cfg, "rgb", False):
             mouse = mouse.repeat_interleave(4, dim=1) if mouse is not None else None
             btn = btn.repeat_interleave(4, dim=1) if btn is not None else None
 

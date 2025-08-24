@@ -12,9 +12,12 @@ def unfreeze(module : nn.Module):
         param.requires_grad = True
 
 class Timer:
+    def __init__(self):
+        self.start_time = time.time()
+
     def reset(self):
         self.start_time = time.time()
-    
+
     def hit(self):
         return time.time() - self.start_time
 
@@ -44,12 +47,12 @@ def versatile_load(path):
             prefix = 'module.'
         else:
             prefix = None
-    
+
     if prefix is None:
         return ckpt
     else:
         ckpt = {k[len(prefix):] : v for (k,v) in ckpt.items() if k.startswith(prefix)}
-    
+
     return ckpt
 
 def find_unused_params(model):
@@ -85,10 +88,10 @@ def batch_permute_to_length(mouse, button, length):
     """
     Calls batch_permute with a factor that ensures output length >= target length,
     then truncates to exact length needed.
-    
+
     Args:
         mouse: [b,n,2] tensor
-        button: [b,n,n_button] tensor 
+        button: [b,n,n_button] tensor
         length: Target sequence length
     Returns:
         mouse, button tensors with sequence length = length
@@ -100,12 +103,10 @@ def batch_permute_to_length(mouse, button, length):
     while doubled_length < length:
         factor += 1
         doubled_length *= 2
-        
+
     # Do the permutation and truncate to exact size needed
     mouse, button = batch_permute(mouse, button, factor=factor)
     mouse = mouse[:,:length]
     button = button[:,:length]
-    
-    return mouse, button
-    
 
+    return mouse, button
