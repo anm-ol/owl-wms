@@ -131,8 +131,8 @@ class WanEncoderDecoder:
         return y.permute(0, 2, 1, 3, 4).contiguous()
 
 
-class CraftTrainer(BaseTrainer):
-    """Trainer for Craft model"""
+class WorldTrainer(BaseTrainer):
+    """Trainer for WorldModel"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

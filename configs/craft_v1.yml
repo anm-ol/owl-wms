@@ -37,7 +37,7 @@ model:
   global_window: null  # full window
 
 train:
-  trainer_id: craft
+  trainer_id: world
 
   #  data_id: wan_sample
   #  data_kwargs:
