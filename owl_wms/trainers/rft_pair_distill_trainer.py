@@ -7,9 +7,9 @@ from .craft_trainer import CraftTrainer
 
 class RFTPairDistillTrainer(CraftTrainer):
     def fwd_step(self, batch, train_step: int):
-        if train_step % 8 == 0:
-            return self.flow_matching_fwd2(batch)
-        else:
+        #if train_step % 8 == 0:
+        #    return self.flow_matching_fwd2(batch)
+        if True: #else:
             with self.autocast_ctx:
                 return self.model(*batch)
 
