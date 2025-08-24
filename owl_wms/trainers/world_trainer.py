@@ -195,6 +195,7 @@ class WorldTrainer(BaseTrainer):
             del state  # free memory
 
     def prep_batch(self, batch):
+        """Move to cuda, and if necessary use encoder to convert rgb to latent (x)"""
         batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         if "rgb" in batch:
             assert "x" not in batch, "passed rgb to convert, but already have batch item `x` (latents)"
@@ -286,7 +287,7 @@ class WorldTrainer(BaseTrainer):
 
     def fwd_step(self, batch, train_step):
         with self.autocast_ctx:
-            loss = self.model(*batch)
+            loss = self.model(**batch)
         return loss
 
     @torch.no_grad()
