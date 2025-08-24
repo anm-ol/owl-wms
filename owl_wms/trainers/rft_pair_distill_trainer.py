@@ -7,7 +7,8 @@ from .craft_trainer import CraftTrainer
 
 class RFTPairDistillTrainer(CraftTrainer):
     def fwd_step(self, batch, train_step: int):
-        return self.ayf_emd(batch)
+        return self.flow_matching_fwd2(batch)
+        # return self.ayf_emd(batch)
         """
         if train_step < self.train_cfg.finite_difference_step:
             return self.ode_fwd(batch)
@@ -20,6 +21,34 @@ class RFTPairDistillTrainer(CraftTrainer):
         with self.autocast_ctx:
             pred_x0 = self.core_fwd(x_a, t_a)
         return F.mse_loss(pred_x0.float(), x_clean.float())
+
+    def flow_matching_fwd2(self, batch, u_frac=None, noise_std=0.0):
+        x_a, t_a, x_b, t_b, _, _ = batch            # x_*: [B,F,C,H,W], t_*: [B,F] (constant per sample)
+
+        # 1) λ ~ U(0,1) unless explicitly fixed
+        if u_frac is None:
+            u_frac = torch.rand_like(t_a)           # [B,F]
+        else:
+            u_frac = torch.full_like(t_a, float(u_frac))
+
+        # 2) Interpolate state and time
+        lam = u_frac.view(*u_frac.shape, *([1] * (x_a.dim() - u_frac.dim())))  # -> [B,F,1,1,1]
+        x_u = (1 - lam) * x_a + lam * x_b
+        if noise_std:
+            x_u = x_u + noise_std * torch.randn_like(x_u)
+
+        s_u = ((1 - u_frac) * t_a + u_frac * t_b).to(dtype=x_u.dtype)  # cast time to match latent dtype
+
+        # 3) Constant-velocity target (use one dt per sample)
+        dt = (t_b[:, 0] - t_a[:, 0])                                   # [B], note t_b < t_a
+        dt = torch.where(dt.abs() < 1e-4, dt.sign() * 1e-4, dt)        # avoid tiny gaps
+        dt = dt.view(-1, 1, 1, 1, 1)                                   # -> [B,1,1,1,1]
+        v_hat = (x_b - x_a) / dt                                       # [B,F,C,H,W]
+
+        # 4) Predict v(x_u, s_u) and plain MSE
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_u, s_u)                           # core(x:[B,F,C,H,W], t:[B,F])
+        return F.mse_loss(v_pred.float(), v_hat.float())
 
     def flow_matching_fwd(self, batch, u_frac=0.0, noise_std=0.0):
         x_a, t_a, x_b, t_b, _, _ = batch
