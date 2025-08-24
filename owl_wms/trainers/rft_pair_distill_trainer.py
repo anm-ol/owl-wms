@@ -6,7 +6,7 @@ from .craft_trainer import CraftTrainer
 
 class RFTPairDistillTrainer(CraftTrainer):
     def fwd_step(self, batch, train_step: int):
-        if train_step % 8 == 0:
+        if train_step % 8 == -1:
             # Flow matching loss
             return self.flow_matching(batch)
         else:
