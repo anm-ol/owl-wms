@@ -201,8 +201,7 @@ class WorldTrainer(BaseTrainer):
         batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         if "rgb" in batch:
             assert "x" not in batch, "passed rgb to convert, but already have batch item `x` (latents)"
-            raw_rgb = batch.pop("rgb")
-            batch["x"] = self.encoder_decoder.encode(raw_rgb).bfloat16()
+            batch["x"] = self.encoder_decoder.encode(batch.pop("rgb")).bfloat16()
         return batch
 
     @torch.no_grad()
