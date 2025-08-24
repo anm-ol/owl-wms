@@ -167,71 +167,37 @@ class WorldTrainer(BaseTrainer):
     def save(self):
         if self.rank != 0:
             return
-
-        save_dict = {
+        super().save({
             'model': self.get_raw_model(self.model).state_dict(),
-            'ema': self.get_raw_model(self.ema).state_dict(),
+            'ema_model': self.get_raw_model(self.ema.ema_model).state_dict(),
             'opt': self.opt.state_dict(),
             'steps': self.total_step_counter
-        }
-        if self.scheduler is not None:
-            save_dict['scheduler'] = self.scheduler.state_dict()
-        super().save(save_dict)
+        })
 
     def load(self) -> None:
-        """Build runtime objects and optionally restore a checkpoint."""
-        # ----- model & helpers -----
-        ckpt = getattr(self.train_cfg, "resume_ckpt", None)
-        state = None
-        if ckpt:
-            state = super().load(ckpt)
-
-            # Allow legacy checkpoints: strip module and _orig_mod
-            pat = r'^(?:(?:_orig_mod\.|module\.)+)?([^.]+\.)?(?:(?:_orig_mod\.|module\.)+)?'
-            state["model"] = {re.sub(pat, r'\1', k): v for k, v in state["model"].items()}
-            state["ema_model"] = {
-                k.replace("module.", "").replace("_orig_mod.", "").replace("ema_model.", ""): v
-                for k, v in state["ema"].items() if k.startswith("ema_model.")
-            }
-            state["ema_model"] = {re.sub(pat, r'\1', k): v for k, v in state["ema_model"].items()}
-
-            self.model.load_state_dict(state["model"], strict=True)
-            self.total_step_counter = state.get("steps", 0)
-
-        self.model = self.model.cuda()
-        if self.world_size > 1:
-            self.model = DDP(self.model, device_ids=[self.local_rank])
-        else:
-            self.model = self.model
-
-        self.model = torch.compile(self.model)
-
+        # VAE
         self.decoder = self.decoder.cuda().eval()
         self.encoder_decoder = WanEncoderDecoder(self.decoder, self.train_cfg.vae_batch_size)
 
+        # Online model, EMO, Optimizer
+        self.model = self.model.cuda()
+        if self.world_size > 1:
+            self.model = DDP(self.model, device_ids=[self.local_rank])
+        self.model = torch.compile(self.model)
+
         self.ema = EMA(self.model, beta=0.999, update_after_step=0, update_every=1)
 
-        # ----- optimiser, scheduler -----
-        if self.train_cfg.opt.lower() == "muon":
-            self.opt = init_muon(self.model, rank=self.rank, world_size=self.world_size, **self.train_cfg.opt_kwargs)
-        else:
-            self.opt = getattr(torch.optim, self.train_cfg.opt)(self.model.parameters(), **self.train_cfg.opt_kwargs)
+        assert self.train_cfg.opt.lower() == "muon"  #
+        self.opt = init_muon(self.model, rank=self.rank, world_size=self.world_size, **self.train_cfg.opt_kwargs)
 
-        if self.train_cfg.scheduler:
-            sched_cls = get_scheduler_cls(self.train_cfg.scheduler)
-            self.scheduler = sched_cls(self.opt, **self.train_cfg.scheduler_kwargs)
-
-        # ----- optional checkpoint restore -----
+        ckpt = getattr(self.train_cfg, "resume_ckpt", None)
         if ckpt:
-            if self.world_size > 1:
-                self.ema.ema_model.module.load_state_dict(state["ema_model"])
-            else:
-                self.ema.ema_model.load_state_dict(state["ema_model"])
+            state = super().load(ckpt)
+            self.get_raw_model(self.ema.ema_model).load_state_dict(state["ema_model"], strict=True)
+            self.get_raw_model(self.model).load_state_dict(state["model"], strict=True)
             self.opt.load_state_dict(state["opt"])
-            if self.scheduler and "scheduler" in state:
-                self.scheduler.load_state_dict(state["scheduler"])
-
-        del state
+            self.total_step_counter = int(state.get("steps", 0))
+            del state  # free memory
 
     def prep_batch(self, batch):
         if isinstance(batch, (list, tuple)):

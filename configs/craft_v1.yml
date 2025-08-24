@@ -67,7 +67,7 @@ train:
 
   raw_rgb: true
 
-  target_batch_size: 16
+  target_batch_size: 8
   batch_size: 1
 
   epochs: 10000
@@ -90,7 +90,7 @@ train:
   resume_ckpt: null
 
   sample_interval: 1000
-  save_interval: 4000
+  save_interval: 2000
 
   sampler_id: av_caching
   sampler_kwargs:
