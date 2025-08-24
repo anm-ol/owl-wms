@@ -7,7 +7,12 @@ from .craft_trainer import CraftTrainer
 
 class RFTPairDistillTrainer(CraftTrainer):
     def fwd_step(self, batch, train_step: int):
-        return self.flow_matching_fwd2(batch)
+        if train_step % 8 == 0:
+            return self.flow_matching_fwd2(batch)
+        else:
+            with self.autocast_ctx:
+                return self.model(*batch)
+
         # return self.ayf_emd(batch)
         """
         if train_step < self.train_cfg.finite_difference_step:
