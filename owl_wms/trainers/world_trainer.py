@@ -249,13 +249,13 @@ class WorldTrainer(BaseTrainer):
 
         batched_train_loader = itertools.batched(loader, n=self.accum_steps)
         for epoch in range(self.train_cfg.epochs):
-            for step, batches in enumerate(tqdm.tqdm(
+            for mini_batches in tqdm.tqdm(
                     batched_train_loader,
                     total=len(loader) // self.accum_steps,
                     disable=self.rank != 0,
                     desc=f"Epoch: {epoch}"
-            )):
-                train_loss = self.train_step(batches)
+            ):
+                train_loss = self.train_step(mini_batches)
                 metrics.log('train_loss', train_loss)
 
                 self.ema.update()
@@ -268,12 +268,12 @@ class WorldTrainer(BaseTrainer):
 
                 self.barrier()
 
-    def train_step(self, mini_batches, step):
+    def train_step(self, mini_batches):
         # fwd-bwd over all mini batches
         loss_sum = 0
         for batch in mini_batches:
             batch = self.prep_batch(batch)
-            loss = self.fwd_step(batch, step) / self.accum_steps
+            loss = self.fwd_step(batch) / self.accum_steps
             loss.backward()
             loss_sum += loss.item()
 
@@ -283,7 +283,7 @@ class WorldTrainer(BaseTrainer):
 
         return loss_sum / self.accum_steps
 
-    def fwd_step(self, batch, train_step):
+    def fwd_step(self, batch):
         with self.autocast_ctx:
             loss = self.model(**batch)
         return loss
