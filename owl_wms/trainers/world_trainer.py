@@ -325,15 +325,15 @@ class WorldTrainer(BaseTrainer):
 
         # ---- Generate Samples ----
         eval_batch = self.prep_batch(next(sample_loader))
-        if len(eval_batch) == 3:
-            vid, mouse, btn = eval_batch
-            mouse, btn = batch_permute_to_length(mouse, btn, sampler.num_frames + vid.size(1))
-        else:
-            vid, = eval_batch
-            mouse, btn = None, None
+        if "mouse" in eval_batch:
+            eval_batch["mouse"], eval_batch["btn"] = batch_permute_to_length(
+                eval_batch["mouse"], eval_batch["btn"], sampler.num_frames + eval_batch["x"].size(1)
+            )
 
         with self.autocast_ctx:
-            latent_vid = sampler(ema_model, vid, mouse, btn)
+            latent_vid = sampler(ema_model, **eval_batch)
+
+        mouse, btn, vid = [eval_batch.get(k) for k in ("mouse", "btn", "x")]
 
         if self.sampler_only_return_generated:
             latent_vid, mouse, btn = (x[:, vid.size(1):] if x is not None else None for x in (latent_vid, mouse, btn))
