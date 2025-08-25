@@ -6,8 +6,8 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.standard_loss_with_intermediate(batch)
-        # return self.standard_loss(batch)  # verified
+        #return self.standard_loss_with_intermediate(batch)
+        return self.standard_loss(batch)  #
         #return self.consistency_step(batch)  # bad
         #return self.fixed_rectified_flow_teacher(batch)  # bad
         #return self.rf_clean_to_step(batch)  # okay
@@ -33,8 +33,8 @@ class RFTPairDistillTrainer(WorldTrainer):
         B, N = x0.size(0), x0.size(1)
 
         with torch.no_grad():
-            ts = torch.rand(B, N, device=x0.device, dtype=x0.dtype)
-            x1 = torch.randn_like(x0).sigmoid()  # gaussian input @ timestep 1.0
+            ts = torch.randn(B, N, device=x0.device, dtype=x0.dtype).sigmoid()
+            x1 = torch.randn_like(x0)  # gaussian input @ timestep 1.0
             x_t = x0 + (x1 - x0) * ts.view(B, N, 1, 1, 1)  # lerp to noise level @ ts
             v_target = x1 - x0
 
