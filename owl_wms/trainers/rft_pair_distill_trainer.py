@@ -5,8 +5,8 @@ from .world_trainer import WorldTrainer
 
 
 class RFTPairDistillTrainer(WorldTrainer):
-    def fwd_step(self, batch, train_step: int):
-        if train_step % 8 == 0:
+    def fwd_step(self, batch):
+        if self.total_step_counter % 8 == 0:
             # Flow matching loss
             return self.flow_matching(batch)
         else:
