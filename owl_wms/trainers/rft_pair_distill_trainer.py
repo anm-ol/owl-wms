@@ -6,7 +6,8 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.fixed_rectified_flow_teacher(batch)
+        return self.consistency_step(batch)
+        #return self.fixed_rectified_flow_teacher(batch)
         #return self.rf_clean_to_step(batch)
         #return self.rectified_flow_teacher(batch)
         #with self.autocast_ctx:
