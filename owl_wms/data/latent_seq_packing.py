@@ -49,9 +49,9 @@ class WindowedViewDataset(Dataset):
         seq_len, miss, trunc = [np.asarray(x) for x in self.table[["seq_len", "missing", "truncated"]]]
         mask = np.ones_like(seq_len, bool)
         if not include_missing_features:
-            mask &= ~np.asarray(miss, dtype=bool)
+            mask &= ~miss
         if not include_truncated:
-            mask &= ~np.asarray(trunc, dtype=bool)
+            mask &= ~trunc
 
         self._docs = np.nonzero(mask)[0]
         self._lens = seq_len[mask].astype(np.int64)
