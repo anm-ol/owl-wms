@@ -37,8 +37,9 @@ class RFTPairDistillTrainer(WorldTrainer):
             x_t = x0 + (x1 - x0) * ts.view(B, N, 1, 1, 1)  # lerp to noise level @ ts
             v_target = x1 - x0
 
-        v_pred = self.core_fwd(x_t, ts)
-        return F.mse_loss(v_pred, v_target)
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_t, ts)
+        return F.mse_loss(v_pred.float(), v_target.float())
 
 
     def to_clean_via_flow(self, batch):
