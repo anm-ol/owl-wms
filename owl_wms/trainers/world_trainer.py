@@ -196,14 +196,6 @@ class WorldTrainer(BaseTrainer):
             self.total_step_counter = int(state.get("steps", 0))
             del state  # free memory
 
-    def prep_batch(self, batch):
-        """Move to cuda, and if necessary use encoder to convert rgb to latent (x)"""
-        batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-        if "rgb" in batch:
-            assert "x" not in batch, "passed rgb to convert, but already have batch item `x` (latents)"
-            batch["x"] = self.encoder_decoder.encode(batch.pop("rgb")).bfloat16()
-        return batch
-
     @torch.no_grad()
     def update_buffer(self, name: str, value: torch.Tensor, value_ema: torch.Tensor | None = None):
         """Set the buffer `name` (e.g. 'core.transformer.foo') across ranks and EMA."""
@@ -217,6 +209,14 @@ class WorldTrainer(BaseTrainer):
             dist.broadcast(buf_online, 0)
 
         buf_ema.copy_(buf_online)
+
+    def prep_batch(self, batch):
+        """Move to cuda, and if necessary use encoder to convert rgb to latent (x)"""
+        batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        if "rgb" in batch:
+            assert "x" not in batch, "passed rgb to convert, but already have batch item `x` (latents)"
+            batch["x"] = self.encoder_decoder.encode(batch.pop("rgb")).bfloat16()
+        return batch
 
     def train_loader(self):
         return get_loader(

@@ -116,7 +116,7 @@ def collate_fn(batch, batch_columns: list):
     stacked = {k: torch.stack([item[k] for item in batch]) for k in batch[0]}
     # commented out: need higher precision timesteps
     # stacked = {k: (t.bfloat16() if t.dtype == torch.float32 else t) for k, t in stacked.items()}
-    return [stacked[col] for col in batch_columns]
+    return {k: v for k, v in stacked.items() if k in batch_columns}
 
 
 def get_pair_loader(
