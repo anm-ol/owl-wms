@@ -1,10 +1,10 @@
 import torch
 import torch.nn.functional as F
 
-from .craft_trainer import CraftTrainer
+from .world_trainer import WorldTrainer
 
 
-class RFTPairDistillTrainer(CraftTrainer):
+class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch, train_step: int):
         if train_step % 8 == 0:
             # Flow matching loss
