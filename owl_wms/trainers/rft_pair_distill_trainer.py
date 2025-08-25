@@ -16,7 +16,7 @@ class RFTPairDistillTrainer(WorldTrainer):
                 return self.model(clean_x)
 
     def flow_matching(self, batch, u_frac=None, noise_std=0.0):
-        x_a, t_a, x_b, t_b = batch["x_a"], batch["t_a"], batch["x_b"], batch["t_b"]
+        x_a, t_a, x_b, t_b = batch["x_a"], batch["time__a"], batch["x_b"], batch["time_b"]
 
         # 1) λ ~ U(0,1) unless explicitly fixed
         if u_frac is None:
