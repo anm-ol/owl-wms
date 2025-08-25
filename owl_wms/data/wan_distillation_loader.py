@@ -1,6 +1,7 @@
 import random
 from pathlib import Path
 from functools import partial
+from diffusers import FlowMatchEulerDiscreteScheduler
 
 import torch
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
@@ -34,9 +35,9 @@ class WanPairDataset(Dataset):
       Snap both to the discrete K-step grid (files 00000000..000000{K-1}).
     """
 
-    # pure noise: 999
-    wan_scheduler_timesteps = {0: 991.0, 1: 982.0, 2: 973.0, 3: 963.0, 4: 954.0, 5: 944.0, 6: 933.0, 7: 922.0, 8: 911.0, 9: 899.0, 10: 887.0, 11: 874.0, 12: 861.0, 13: 847.0, 14: 832.0, 15: 817.0, 16: 801.0, 17: 785.0, 18: 767.0, 19: 749.0, 20: 730.0, 21: 710.0, 22: 688.0, 23: 666.0, 24: 642.0, 25: 617.0, 26: 590.0, 27: 562.0, 28: 531.0, 29: 499.0, 30: 465.0, 31: 428.0, 32: 388.0, 33: 345.0, 34: 299.0, 35: 249.0, 36: 195.0, 37: 136.0, 38: 71.0, 39: 0.0}
-    wan_max = 999
+    sch = FlowMatchEulerDiscreteScheduler(shift=3, num_train_timesteps=1000)
+    sch.set_timesteps(40)
+    sigmas = sch.sigmas
 
     boundary = 0.875  # https://github.com/Wan-Video/Wan2.2/blob/main/wan/configs/wan_t2v_A14B.py#L36
 
@@ -47,7 +48,7 @@ class WanPairDataset(Dataset):
         self.run_dirs = sorted(
             p.parent
             for d in self.root.iterdir() if d.is_dir() and "." not in d.name
-            for p in d.rglob("00000039_latents.pt")
+            for p in d.rglob("00000040_latents.pt")
             if all("." not in part for part in p.parent.relative_to(self.root).parts)
         )
         if not self.run_dirs:
@@ -79,8 +80,8 @@ class WanPairDataset(Dataset):
             i = random.randrange(0, K - 2)  # 0..K-3
             gap = random.randint(1, min(4, K - 2 - i))  # ensure i_b <= K-2
             a, b = i, i + gap
-            t_a = self.wan_scheduler_timesteps[steps[a]] / self.wan_max
-            t_b = self.wan_scheduler_timesteps[steps[b]] / self.wan_max
+            t_a = self.sigmas[steps[a]]
+            t_b = self.sigmas[steps[b]]
             if (t_a >= self.boundary and t_b >= self.boundary) or (t_a < self.boundary and t_b < self.boundary):
                 return a, b
 
@@ -94,19 +95,15 @@ class WanPairDataset(Dataset):
         x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]
         F = x_a.shape[0]
 
-        # WAN clock -> normalized [0,1] clock using the actual saved range [0,991]
-        tau_a = float(self.wan_scheduler_timesteps[steps[i_a]])  # e.g., 991, 982, ...
-        tau_b = float(self.wan_scheduler_timesteps[steps[i_b]])  # ...
-        tau_min, tau_max = 0.0, 999.0
-        t_a_scalar = (tau_a - tau_min) / (tau_max - tau_min)
-        t_b_scalar = (tau_b - tau_min) / (tau_max - tau_min)
-        assert t_a_scalar > t_b_scalar
-        time_a = torch.full((F,), t_a_scalar, dtype=torch.float32)
-        time_b = torch.full((F,), t_b_scalar, dtype=torch.float32)
+        sig_a = float(self.sigmas[steps[i_a]])  # e.g., 991, 982, ...
+        sig_b = float(self.sigmas[steps[i_b]])  # ...
+        assert sig_a > sig_b
+        time_a = torch.full((F,), sig_a, dtype=torch.float32)
+        time_b = torch.full((F,), sig_b, dtype=torch.float32)
 
-        # teacher clean endpoint (assume step 39 exists)
-        x_clean = self._load_step(run_dir, 39)               # [F,C,H,W]
-        time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(39)=0.0
+        # teacher clean endpoint (assume step 40 exists)
+        x_clean = self._load_step(run_dir, 40)               # [F,C,H,W]
+        time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(40)=0.0
 
         return {
             "x_a": x_a, "time_a": time_a,
@@ -157,9 +154,9 @@ class WanGTWindowDataset(Dataset):
     Returns a single tensor per item:
       x_gt: [W, C, H, W] where W is window_length (or full F if window_length=None)
 
-    Each item is sampled from step-39 (fully denoised) of one run directory.
+    Each item is sampled from step-40 (fully denoised) of one run directory.
     """
-    def __init__(self, root_dir: str, *, window_length: int | None = None, step_index: int = 39):
+    def __init__(self, root_dir: str, *, window_length: int | None = None, step_index: int = 40):
         self.root = Path(root_dir)
         self.window_length = window_length
         self.step_index = step_index
