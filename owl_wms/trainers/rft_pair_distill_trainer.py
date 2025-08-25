@@ -6,7 +6,8 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.consistency_step(batch)
+        return self.standard_loss(batch)
+        #return self.consistency_step(batch)
         #return self.fixed_rectified_flow_teacher(batch)
         #return self.rf_clean_to_step(batch)
         #return self.rectified_flow_teacher(batch)
@@ -22,6 +23,23 @@ class RFTPairDistillTrainer(WorldTrainer):
             with self.autocast_ctx:
                 return self.model(batch["x_clean"])
         """
+
+    def standard_loss(self, batch):
+        """
+        x0: [B, N, C, H, W] clean latents (timestep 0.0)
+        """
+        x0 = batch["x_clean"]
+        B, N = x0.size(0), x0.size(1)
+
+        with torch.no_grad():
+            ts = torch.rand(B, N, device=x0.device, dtype=x0.dtype)
+            x1 = torch.randn_like(x0).sigmoid()  # gaussian input @ timestep 1.0
+            x_t = x0 + (x1 - x0) * ts.view(B, N, 1, 1, 1)  # lerp to noise level @ ts
+            v_target = x1 - x0
+
+        v_pred = self.core_fwd(x_t, ts)
+        return F.mse_loss(v_pred, v_target)
+
 
     def to_clean_via_flow(self, batch):
         x_t, t = batch["x_a"], batch["time_a"]
