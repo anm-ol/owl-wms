@@ -14,8 +14,7 @@ class RFTPairDistillTrainer(WorldTrainer):
         assert K >= 2, "Need at least two samples per path to bracket ts."
 
         # Normalize times to [B,N,K]
-        if t.dim() == 1:
-            t = t.view(1, 1, K).expand(B, N, K)
+        t = t.view(B, 1, K).expand(B, N, K)
 
         # Do time math in float32 for stability (important if xs is fp16/bf16)
         t32 = t.to(device=xs.device, dtype=torch.float32).reshape(-1, K)   # [BN,K]
