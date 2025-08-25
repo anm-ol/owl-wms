@@ -6,9 +6,10 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
+        return self.rf_clean_to_step(batch)
         #return self.rectified_flow_teacher(batch)
-        with self.autocast_ctx:
-            return self.model(batch["x_clean"])
+        #with self.autocast_ctx:
+        #    return self.model(batch["x_clean"])
 
         """
         if self.total_step_counter % 8 == 0:
@@ -19,6 +20,31 @@ class RFTPairDistillTrainer(WorldTrainer):
             with self.autocast_ctx:
                 return self.model(batch["x_clean"])
         """
+
+    def rf_clean_to_step(self, batch, u_eps: float = 0.02):
+        """
+        Rectified-Flow (displacement) loss on the truncated horizon [0, t_a]:
+          endpoints: (x_clean, 0) -> (x_a, t_a)
+          input:     x_u at exact time s in (0, t_a)
+          target:    x_a - x_clean   (displacement; no /dt)
+        """
+        x0, t0 = batch["x_clean"], batch["time_clean"]      # t0 == 0
+        xa, ta = batch["x_a"],     batch["time_a"]          # ta in (0, 1]
+
+        assert torch.all(ta != t0)
+
+        # sample absolute time s ∈ (ε*ta, (1-ε)*ta)  (timestep-exact, no extra noise)
+        s01 = torch.rand_like(ta).clamp(u_eps, 1.0 - u_eps)
+        s   = (s01 * ta).float()                            # keep times in fp32
+
+        # place state exactly at time s on the straight chord clean→x_a
+        lam = (s / ta).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,F,1,1,1]
+        xu  = x0 + (xa - x0) * lam
+
+        v_hat = xa - x0                                     # displacement target (like GameRFT form)
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(xu, s)                   # t in fp32 into the embedding
+        return F.mse_loss(v_pred.float(), v_hat.float())
 
     def rectified_flow_teacher(self, batch, u_frac: float | None = None, noise_std: float = 0.0):
         """
