@@ -6,8 +6,9 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        #return self.standard_loss_with_intermediate(batch)
-        return self.standard_loss(batch)  #
+        return self.standard_loss_teacher(batch)
+        #return self.standard_loss_with_intermediate(batch)  # bad
+        # return self.standard_loss(batch)  #
         #return self.consistency_step(batch)  # bad
         #return self.fixed_rectified_flow_teacher(batch)  # bad
         #return self.rf_clean_to_step(batch)  # okay
@@ -24,6 +25,23 @@ class RFTPairDistillTrainer(WorldTrainer):
             with self.autocast_ctx:
                 return self.model(batch["x_clean"])
         """
+
+    def standard_loss_teacher(self, batch):
+        x0 = batch["x_clean"]                                     # [B, N, C, H, W]
+        B, N = x0.size(0), x0.size(1)
+
+        assert torch.allclose(batch["time_clean"], 0.0)
+        assert torch.allclose(batch["time_noise"], 1.0)
+
+        with torch.no_grad():
+            ts = torch.randn(B, N, device=x0.device, dtype=x0.dtype).sigmoid()
+            x1 = batch["x_noise"]  # teachers input noise
+            x_t = x0 + (x1 - x0) * ts.view(B, N, 1, 1, 1)  # lerp to noise level @ ts
+            v_target = x1 - x0
+
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_t, ts)
+        return F.mse_loss(v_pred.float(), v_target.float())
 
     def standard_loss(self, batch):
         """

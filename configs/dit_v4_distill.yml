@@ -36,13 +36,15 @@ train:
   data_id: wan_pair_distill
   data_kwargs:
     dataset_path: /mnt/data/lapp0/datasets/wan_generated_v2/
-    batch_columns: ["x_a", "time_a", "x_b", "time_b", "x_clean", "time_clean"]
+    batch_columns: ["x_a", "time_a", "x_b", "time_b", "x_clean", "time_clean", "x_noise", "time_noise"]
+    bf16: ["x_a", "x_b", "x_clean"]
 
   sample_data_id: wan_sample
   sample_data_kwargs:
     window_length: 10  # size of single ground truth start tokens
     dataset_path: /mnt/data/lapp0/datasets/wan_generated_v2/
     batch_columns: ["x"]
+    bf16: ["x"]
 
   finite_difference_step: 0
 

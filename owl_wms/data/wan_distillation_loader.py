@@ -104,10 +104,14 @@ class WanPairDataset(Dataset):
         x_clean = self._load_step(run_dir, 40)               # [F,C,H,W]
         time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(40)=0.0
 
+        x_noise = self._load_step(run_dir, 0)               # [F,C,H,W]
+        time_noise = torch.ones((F,), dtype=torch.float32)  # WAN t(40)=0.0
+
         return {
             "x_a": x_a, "time_a": time_a,
             "x_b": x_b, "time_b": time_b,
             "x_clean": x_clean, "time_clean": time_clean,
+            "x_noise": x_noise, "time_noise": time_noise,
         }
 
 
