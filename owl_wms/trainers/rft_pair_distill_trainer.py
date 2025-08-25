@@ -11,9 +11,8 @@ class RFTPairDistillTrainer(WorldTrainer):
             return self.flow_matching(batch)
         else:
             # Standard loss
-            clean_x = batch["clean_x"]
             with self.autocast_ctx:
-                return self.model(clean_x)
+                return self.model(batch["x_clean"])
 
     def flow_matching(self, batch, u_frac=None, noise_std=0.0):
         x_a, t_a, x_b, t_b = batch["x_a"], batch["time_a"], batch["x_b"], batch["time_b"]
