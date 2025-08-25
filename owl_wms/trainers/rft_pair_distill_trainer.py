@@ -6,11 +6,12 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.standard_loss(batch)
-        #return self.consistency_step(batch)
-        #return self.fixed_rectified_flow_teacher(batch)
-        #return self.rf_clean_to_step(batch)
-        #return self.rectified_flow_teacher(batch)
+        return self.standard_loss_with_intermediate(batch)
+        # return self.standard_loss(batch)  # verified
+        #return self.consistency_step(batch)  # bad
+        #return self.fixed_rectified_flow_teacher(batch)  # bad
+        #return self.rf_clean_to_step(batch)  # okay
+        #return self.rectified_flow_teacher(batch)  # bad
         #with self.autocast_ctx:
         #    return self.model(batch["x_clean"])
 
@@ -39,6 +40,24 @@ class RFTPairDistillTrainer(WorldTrainer):
 
         with self.autocast_ctx:
             v_pred = self.core_fwd(x_t, ts)
+        return F.mse_loss(v_pred.float(), v_target.float())
+
+    def standard_loss_with_intermediate(self, batch):
+        """
+        Same as standard_loss, but uses the (student/teacher) intermediate latent (x_a, t_a)
+        instead of fresh Gaussian noise (x1, 1.0).
+        """
+        x0, xa, ta = batch["x_clean"], batch["x_a"], batch["time_a"].float()
+        B, N = x0.size(0), x0.size(1)
+
+        with torch.no_grad():
+            ts = torch.rand(B, N, device=x0.device)
+            s = ts * ta
+            x_t = x0 + (xa - x0) * ts.view(B, N, 1, 1, 1)
+            v_target = xa - x0
+
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_t, s)
         return F.mse_loss(v_pred.float(), v_target.float())
 
 
