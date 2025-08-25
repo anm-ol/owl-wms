@@ -2,17 +2,10 @@ from diffusers import FlowMatchEulerDiscreteScheduler
 import torch
 
 
-def get_sd3_scheduler(n_steps):
-    return FlowMatchEulerDiscreteScheduler(
-        shift=3,
-        num_train_timesteps=n_steps
-    )
-
-
 def get_sd3_euler(n_steps):
-    scheduler = get_sd3_scheduler(n_steps)
-    ts = scheduler.timesteps / n_steps
-    ts = torch.cat([ts, torch.zeros(1, dtype=ts.dtype, device=ts.device)])
+    scheduler = FlowMatchEulerDiscreteScheduler(shift=3.0)
+    scheduler.set_timesteps(n_steps)
+    ts = scheduler.sigmas
     dt = ts[:-1] - ts[1:]
     return dt
 
