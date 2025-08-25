@@ -30,8 +30,8 @@ class RFTPairDistillTrainer(WorldTrainer):
         x0 = batch["x_clean"]                                     # [B, N, C, H, W]
         B, N = x0.size(0), x0.size(1)
 
-        assert torch.allclose(batch["time_clean"], 0.0)
-        assert torch.allclose(batch["time_noise"], 1.0)
+        assert torch.all(batch["time_clean"] == 0.0)
+        assert torch.all(batch["time_noise"] == 1.0)
 
         with torch.no_grad():
             ts = torch.randn(B, N, device=x0.device, dtype=x0.dtype).sigmoid()
