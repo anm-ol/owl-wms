@@ -6,7 +6,8 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.rf_clean_to_step(batch)
+        return self.fixed_rectified_flow_teacher(batch)
+        #return self.rf_clean_to_step(batch)
         #return self.rectified_flow_teacher(batch)
         #with self.autocast_ctx:
         #    return self.model(batch["x_clean"])
@@ -20,6 +21,24 @@ class RFTPairDistillTrainer(WorldTrainer):
             with self.autocast_ctx:
                 return self.model(batch["x_clean"])
         """
+
+    def to_clean_via_flow(self, batch):
+        x_t, t = batch["x_a"], batch["time_a"]
+        x0      = batch["x_clean"]
+        with self.autocast_ctx:
+            v = self.core_fwd(x_t, t.float())             # predicts displacement
+            x0_pred = x_t - t[...,None,None,None] * v
+        return F.mse_loss(x0_pred.float(), x0.float())
+
+    def consistency_step(self, batch, dt_eps=1e-6):
+        x_a, t_a = batch["x_a"], batch["time_a"]          # [B,F,C,H,W], [B,F]
+        x_b, t_b = batch["x_b"], batch["time_b"]
+
+        dt = (t_a - t_b).clamp_min(dt_eps)[..., None, None, None]
+        with self.autocast_ctx:
+            v = self.core_fwd(x_a, t_a.float())           # your head predicts *displacement* (RF)
+            x_pred = x_a - dt * v                         # Euler update using student's v
+        return F.mse_loss(x_pred.float(), x_b.float())
 
     def rf_clean_to_step(self, batch, u_eps: float = 0.02):
         """
@@ -44,6 +63,28 @@ class RFTPairDistillTrainer(WorldTrainer):
         v_hat = xa - x0                                     # displacement target (like GameRFT form)
         with self.autocast_ctx:
             v_pred = self.core_fwd(xu, s)                   # t in fp32 into the embedding
+        return F.mse_loss(v_pred.float(), v_hat.float())
+
+    def fixed_rectified_flow_teacher(self, batch, u_frac: float | None = None, noise_std: float = 0.0, u_eps: float = 0.02):
+        x_a, t_a = batch["x_a"], batch["time_a"]      # earlier (noisier) state, higher t
+        x_b, t_b = batch["x_b"], batch["time_b"]      # later (cleaner) state, lower t
+
+        # λ ∈ (u_eps, 1-u_eps) to avoid endpoint conflicts at (x_a, t_a) or (x_b, t_b)
+        u = torch.rand_like(t_a) if u_frac is None else torch.full_like(t_a, float(u_frac))
+        if u_eps > 0: u = u.clamp(u_eps, 1.0 - u_eps)
+
+        lam = u[..., None, None, None]
+        x_u = x_a + (x_b - x_a) * lam
+        if noise_std:
+            x_u = x_u + noise_std * torch.randn_like(x_u)
+
+        s_u = (t_a + (t_b - t_a) * u).float()        # keep times fp32
+
+        # >>> key change: target should point NOISEWARD to match the sampler’s minus sign
+        v_hat = x_a - x_b                             # not (x_b - x_a)
+
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_u, s_u)
         return F.mse_loss(v_pred.float(), v_hat.float())
 
     def rectified_flow_teacher(self, batch, u_frac: float | None = None, noise_std: float = 0.0):
