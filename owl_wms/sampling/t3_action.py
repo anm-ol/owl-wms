@@ -84,7 +84,7 @@ class TekkenCachingActionSampler:
         return new_latent
 
     @torch.no_grad()
-    def __call__(self, model, initial_latents, action_ids, decode_fn=None, vae_scale=1.0):
+    def __call__(self, model, initial_latents, action_ids, decode_fn=None, means=None, stds=None, vae_scale=1.0):
         model.eval()
         batch_size, init_len, c, h, w = initial_latents.shape
         dt = get_sd3_euler(self.n_steps).to(device=initial_latents.device, dtype=initial_latents.dtype)
@@ -128,7 +128,11 @@ class TekkenCachingActionSampler:
             final_latents = generated_latents
             final_actions = action_ids[:, :generated_latents.shape[1]]
 
-        video_out = decode_fn(final_latents * vae_scale) if decode_fn is not None else None
+        if means is not None:
+            final_latents = (final_latents + means) * stds
+        else:
+            final_latents = final_latents * vae_scale
+        video_out = decode_fn(final_latents) if decode_fn is not None else None
         
         return video_out, final_latents, final_actions
   

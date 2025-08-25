@@ -35,6 +35,23 @@ class TekkenRFTTrainerV2(BaseTrainer):
         self.total_step_counter = 0
 
         # VAE decoder is only needed on the main process for logging samples.
+        mean_values = self.train_cfg.get('per_channel_mean', None)
+        std_values = self.train_cfg.get('per_channel_std', None)
+
+        if mean_values is not None and std_values is not None:
+            # Get the number of channels from the model config
+            C = self.model_cfg.channels
+            
+            # Convert lists to tensors and reshape for broadcasting
+            # Assuming video tensor shape is (B, C, T, H, W) or (B, T, C, H, W)
+            # The key is to align the C dimension. Let's assume the data loader
+            # provides a tensor of shape (B, T, H, W, C), which is common.
+            # If your shape is (B, C, T, H, W), use .view(1, C, 1, 1, 1) instead.
+            self.per_channel_mean = torch.tensor(mean_values).view(1, 1, C, 1, 1)
+            self.per_channel_std = torch.tensor(std_values).view(1, 1, C, 1, 1)
+            if self.rank == 0:
+                print("✓ Using per-channel mean and std for normalization.")
+
         self.decoder = None
         if self.rank == 0:
             self.decoder = get_decoder_only(
@@ -83,7 +100,18 @@ class TekkenRFTTrainerV2(BaseTrainer):
             print(f"Failed to get sample data: {e}")
             return {}
         
-        initial_latents = vid_for_sample.cuda().bfloat16() / self.train_cfg.vae_scale
+
+        if self.per_channel_mean is not None:
+            # Broadcasting now works correctly
+            initial_latents = (vid_for_sample.cuda().bfloat16() - self.per_channel_mean) / self.per_channel_std
+        else:
+            initial_latents = vid_for_sample.cuda().bfloat16() / self.train_cfg.vae_scale
+
+        # Compute validation loss using EMA model
+        action_ids_val = actions_for_sample.cuda()[:, :, -1].int()
+        with torch.no_grad(), torch.amp.autocast('cuda', torch.bfloat16):
+            ema_model = self.get_module(ema=True)
+            val_loss = ema_model(initial_latents, action_ids=action_ids_val)
         
         num_repeats = (sampler.num_frames // actions_for_sample.shape[1]) + 2
         actions_for_sample = actions_for_sample.repeat(1, num_repeats, 1) # (b, t*repeat, 8)
@@ -99,18 +127,20 @@ class TekkenRFTTrainerV2(BaseTrainer):
                 initial_latents,
                 action_ids,
                 decode_fn=decode_fn,
+                means = self.per_channel_mean,
+                stds = self.per_channel_std,
                 vae_scale=self.train_cfg.vae_scale
             )
         video_out = video_out.permute(0, 2, 1, 3, 4)
         print(f'Generated video shape: {video_out.shape}, actions: {out_actions.shape}')
-        wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', fps=30)
+        wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=30)
 
         del video_out, out_actions, initial_latents, actions_for_sample, action_ids, vid_for_sample
         gc.collect()
         torch.cuda.empty_cache()
         
         print("Evaluation step finished.")
-        return {"samples": wandb_videos}
+        return {"samples": wandb_videos, "val_loss": val_loss.item()}
 
     def train(self):
         torch.cuda.set_device(self.local_rank)
@@ -144,6 +174,12 @@ class TekkenRFTTrainerV2(BaseTrainer):
         accum_steps = max(1, self.train_cfg.target_batch_size // self.train_cfg.batch_size // self.world_size)
         ctx = torch.amp.autocast('cuda', torch.bfloat16)
 
+        # get latents mean and std if there in the config
+        # Check if mean and std are provided in the config
+        if self.per_channel_mean is not None:
+            self.per_channel_mean = self.per_channel_mean.cuda()
+            self.per_channel_std = self.per_channel_std.cuda()
+
         self.load()
 
         metrics = LogHelper()
@@ -166,8 +202,15 @@ class TekkenRFTTrainerV2(BaseTrainer):
                 # converting the full 8-bit vector to an integer ID.
                 # print(f'Shape of batch_vid: {batch_vid.shape}, actions: {batch_actions.shape}, states: {batch_states.shape}')
                 action_ids = batch_actions[:, :, -1].int() # (b, t, 8) -> (b, t)
+
+                if self.per_channel_mean is not None:
+                    # Broadcasting now works correctly
+                    batch_vid = (batch_vid - self.per_channel_mean) / self.per_channel_std
+                else:
+                    batch_vid = batch_vid / self.train_cfg.vae_scale
                 
-                batch_vid = batch_vid.bfloat16() / self.train_cfg.vae_scale
+                batch_vid = batch_vid.bfloat16()
+
                 with ctx:
                     loss = self.model(batch_vid, action_ids=action_ids)
                     loss = loss / accum_steps
