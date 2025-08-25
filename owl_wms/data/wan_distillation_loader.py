@@ -21,24 +21,15 @@ class AutoEpochDistributedSampler(DistributedSampler):
 
 class WanPairDataset(Dataset):
     """
-    Emits one sampled pair per run dir per epoch:
+    Emits all K steps per run dir per epoch for interpolation training:
       returns dict with:
-        'x_a': [F,C,H,W], 'time_a': [F],  # higher time (earlier in denoising)
-        'x_b': [F,C,H,W], 'time_b': [F],  # lower  time (later   in denoising)
-        'x_clean': [F,C,H,W], 'time_clean': [F],  # teacher clean endpoint (last step)
-
-    Pair sampling:
-      Δ ~ Uniform(delta_range)
-      t_start ~ Uniform(t_min, t_max - Δ)
-      t_end   = t_start + Δ
-      Snap both to the discrete K-step grid (files 00000000..000000{K-1}).
+        'x_samples': [F, K, C, H, W]  # K from clean (t≈0) to noise (t≈1)
+        'times':     [K]              # ascending in [0,1], aligned with K
     """
 
     sch = FlowMatchEulerDiscreteScheduler(shift=3, num_train_timesteps=1000)
     sch.set_timesteps(40)
     sigmas = sch.sigmas
-
-    boundary = 0.875  # https://github.com/Wan-Video/Wan2.2/blob/main/wan/configs/wan_t2v_A14B.py#L36
 
     def __init__(self, root_dir: str):
         self.root = Path(root_dir)
@@ -61,7 +52,7 @@ class WanPairDataset(Dataset):
                 self._steps[d] = steps
 
     def __len__(self):
-        # one pair per run per epoch
+        # one item (all steps) per run per epoch
         return len(self.run_dirs)
 
     @staticmethod
@@ -70,49 +61,24 @@ class WanPairDataset(Dataset):
         x_cf_hw = torch.load(run_dir / f"{i:08d}_latents.pt", map_location="cpu")
         return x_cf_hw.permute(1, 0, 2, 3).contiguous()
 
-    def _pick_pair_indices(self, steps):
-        import random
-        # avoid picking the final clean step as u (dt_u=0); pick a small random gap
-        # also keep both indices on the same side of the expert boundary
-        K = len(steps)
-        while True:
-            i = random.randrange(0, K - 2)  # 0..K-3
-            gap = random.randint(1, min(4, K - 2 - i))  # ensure i_b <= K-2
-            a, b = i, i + gap
-            t_a = self.sigmas[steps[a]]
-            t_b = self.sigmas[steps[b]]
-            if (t_a >= self.boundary and t_b >= self.boundary) or (t_a < self.boundary and t_b < self.boundary):
-                return a, b
-
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
         steps = self._steps[run_dir]
 
-        i_a, i_b = self._pick_pair_indices(steps)
+        # Arrange K from clean (step ~40) -> noise (step ~0) so times are ascending.
+        steps_by_time = list(reversed(steps))
 
-        x_a = self._load_step(run_dir, steps[i_a])  # [F,C,H,W]
-        x_b = self._load_step(run_dir, steps[i_b])  # [F,C,H,W]
-        F = x_a.shape[0]
+        # Load all steps and stack along K: [F, K, C, H, W]
+        xs_list = [self._load_step(run_dir, s) for s in steps_by_time]
+        x_samples = torch.stack(xs_list, dim=1)
 
-        sig_a = float(self.sigmas[steps[i_a]])  # e.g., 991, 982, ...
-        sig_b = float(self.sigmas[steps[i_b]])  # ...
-        assert sig_a > sig_b
-        time_a = torch.full((F,), sig_a, dtype=torch.float32)
-        time_b = torch.full((F,), sig_b, dtype=torch.float32)
+        # Build ascending times in [0,1] from scheduler sigmas, aligned to steps_by_time.
+        sig = torch.tensor([float(self.sigmas[s]) for s in steps_by_time], dtype=torch.float32)
+        s_min, s_max = sig.min(), sig.max()
+        denom = (s_max - s_min).clamp_min(torch.finfo(torch.float32).eps)
+        times = (sig - s_min) / denom  # 0 at clean, 1 at noise, ascending with K
 
-        # teacher clean endpoint (assume step 40 exists)
-        x_clean = self._load_step(run_dir, 40)               # [F,C,H,W]
-        time_clean = torch.zeros((F,), dtype=torch.float32)  # WAN t(40)=0.0
-
-        x_noise = self._load_step(run_dir, 0)               # [F,C,H,W]
-        time_noise = torch.ones((F,), dtype=torch.float32)  # WAN t(40)=0.0
-
-        return {
-            "x_a": x_a, "time_a": time_a,
-            "x_b": x_b, "time_b": time_b,
-            "x_clean": x_clean, "time_clean": time_clean,
-            "x_noise": x_noise, "time_noise": time_noise,
-        }
+        return {"x_samples": x_samples, "times": times}
 
 
 def collate_fn(batch, batch_columns: list):
@@ -127,7 +93,7 @@ def get_pair_loader(
     dataset_path: str,
     batch_columns: list,
 ):
-    """Same interface; returns batches of [x_a, time_a, x_b, time_b]."""
+    """returns batches with keys ['x_samples', 'times']."""
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     rank = dist.get_rank() if dist.is_initialized() else 0
 
@@ -197,7 +163,7 @@ def get_sample_loader(
     batch_columns: "list[str]",
     window_length: int | None = None,
     *,
-    step_index: int = 39,
+    step_index: int = 40,
 ):
     """
     Returns a DataLoader that yields only a single tensor per batch:

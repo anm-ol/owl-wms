@@ -6,25 +6,48 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.standard_loss_teacher(batch)
-        #return self.standard_loss_with_intermediate(batch)  # bad
-        # return self.standard_loss(batch)  #
-        #return self.consistency_step(batch)  # bad
-        #return self.fixed_rectified_flow_teacher(batch)  # bad
-        #return self.rf_clean_to_step(batch)  # okay
-        #return self.rectified_flow_teacher(batch)  # bad
-        #with self.autocast_ctx:
-        #    return self.model(batch["x_clean"])
+        return self.diffusion_forcing_distillation(batch)
 
-        """
-        if self.total_step_counter % 8 == 0:
-            # Flow matching loss
-            return self.flow_matching(batch)
-        else:
-            # Standard loss
-            with self.autocast_ctx:
-                return self.model(batch["x_clean"])
-        """
+    def diffusion_forcing_distillation(self, batch):
+        xs, t = batch["x_samples"], batch["times"]                 # xs: [B,N,K,C,H,W], t: [K] or [B,N,K] (ascending)
+        B, N, K, C, H, W = xs.shape
+        assert K >= 2, "Need at least two samples per path to bracket ts."
+
+        # Normalize times to [B,N,K]
+        if t.dim() == 1:
+            t = t.view(1, 1, K).expand(B, N, K)
+
+        # Do time math in float32 for stability (important if xs is fp16/bf16)
+        t32 = t.to(device=xs.device, dtype=torch.float32).reshape(-1, K)   # [BN,K]
+        xsf = xs.reshape(-1, K, C, H, W)                                   # [BN,K,C,H,W]
+        BN = xsf.size(0)
+
+        with torch.no_grad():
+            # Match the original sampling shape; use sigmoid(N(0,1)) like the prior code.
+            ts32 = torch.randn(BN, device=xs.device, dtype=torch.float32).sigmoid()  # or torch.rand(BN, ...) if you prefer U[0,1]
+
+            # Find neighbors: t_lo <= ts < t_hi
+            hi = torch.searchsorted(t32, ts32[:, None], right=True).clamp_(1, K - 1).squeeze(1)
+            lo = hi - 1
+            r = torch.arange(BN, device=xs.device)
+
+            t_lo, t_hi = t32[r, lo], t32[r, hi]
+            denom = (t_hi - t_lo).abs().clamp_min(torch.finfo(t32.dtype).eps)  # robust eps
+
+            w32 = ((ts32 - t_lo) / denom).view(BN, 1, 1, 1)                   # [BN,1,1,1]
+            x_lo, x_hi = xsf[r, lo], xsf[r, hi]                                # [BN,C,H,W]
+            x_t = torch.lerp(x_lo, x_hi, w32.to(dtype=xsf.dtype))              # keep dtype consistent with xs
+
+            # Velocity target from endpoints (unchanged design)
+            v_target = xsf[:, -1] - xsf[:, 0]                                  # [BN,C,H,W]
+
+        x_t = x_t.reshape(B, N, C, H, W)
+        ts = ts32.reshape(B, N).to(dtype=xs.dtype)                              # ts shape matches original calls
+        v_target = v_target.reshape(B, N, C, H, W)
+
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_t, ts)
+        return F.mse_loss(v_pred.float(), v_target.float())
 
     def standard_loss_teacher(self, batch):
         x0 = batch["x_clean"]                                     # [B, N, C, H, W]
