@@ -6,6 +6,8 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
+        return self.rectified_flow_teacher(batch)
+        """
         if self.total_step_counter % 8 == 0:
             # Flow matching loss
             return self.flow_matching(batch)
@@ -13,6 +15,31 @@ class RFTPairDistillTrainer(WorldTrainer):
             # Standard loss
             with self.autocast_ctx:
                 return self.model(batch["x_clean"])
+        """
+
+    def rectified_flow_teacher(self, batch, u_frac: float | None = None, noise_std: float = 0.0):
+        """
+        Rectified-Flow (displacement) loss along the teacher segment (x_a → x_b).
+        Uses a point on the straight path at s_u and targets (x_b - x_a).
+        """
+        x_a, t_a = batch["x_a"], batch["time_a"]      # [B,F,C,H,W], [B,F]
+        x_b, t_b = batch["x_b"], batch["time_b"]      # [B,F,C,H,W], [B,F]
+
+        # λ ∈ [0,1]
+        u = torch.rand_like(t_a) if u_frac is None else torch.full_like(t_a, float(u_frac))
+
+        # Interpolate state and time (keep times in fp32 into the embed)
+        lam = u[..., None, None, None]                # [B,F,1,1,1]
+        x_u = x_a + (x_b - x_a) * lam
+        if noise_std:
+            x_u = x_u + noise_std * torch.randn_like(x_u)
+        s_u = (t_a + (t_b - t_a) * u).float()         # [B,F]
+
+        # Displacement target and MSE
+        v_hat = x_b - x_a                              # [B,F,C,H,W]
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_u, s_u)          # core(x:[B,F,C,H,W], t:[B,F])
+        return F.mse_loss(v_pred.float(), v_hat.float())
 
     def flow_matching(self, batch, u_frac=None, noise_std=0.0):
         x_a, t_a, x_b, t_b = batch["x_a"], batch["time_a"], batch["x_b"], batch["time_b"]
