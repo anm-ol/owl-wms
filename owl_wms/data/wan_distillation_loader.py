@@ -149,7 +149,8 @@ class WanGTWindowDataset(Dataset):
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
         x_fchw = self._load_step(run_dir, self.step_index)   # [F,C,H,W]
-        return {"x": x_fchw[: self.window_length]}  # [W,C,H,W]
+        prompt = (run_dir / "prompt.txt").read_text(encoding="utf-8").strip()
+        return {"x": x_fchw[: self.window_length], "prompt": prompt}
 
 
 def get_sample_loader(
