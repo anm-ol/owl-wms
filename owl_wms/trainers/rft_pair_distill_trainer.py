@@ -6,7 +6,7 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.chord_distillation(batch)
+        return self.standard_loss(batch)
 
     def standard_loss_teacher(self, batch):
         xs, t = batch["x_samples"], batch["times"]   # [B,N,K,C,H,W]
@@ -116,7 +116,7 @@ class RFTPairDistillTrainer(WorldTrainer):
         """
         x0: [B, N, C, H, W] clean latents (timestep 0.0)
         """
-        x0 = batch["x_clean"]
+        x0 = batch["x"]
         B, N = x0.size(0), x0.size(1)
 
         with torch.no_grad():
