@@ -60,12 +60,13 @@ class RFTPairDistillTrainer(WorldTrainer):
             d_flat   = d.flatten(2).float()
             num      = ((x_teach - x0).flatten(2).float() * d_flat).sum(-1)           # [B,N]
             den      = (d_flat * d_flat).sum(-1).clamp_min(torch.finfo(torch.float32).eps)
-            alpha    = (num / den).clamp_(0.0, 1.0)                                   # [B,N]
+            eps = 1e-3
+            alpha    = (num / den).clamp_(0.0, 1.0 - eps)                                   # [B,N]
 
             # RF-style inputs/targets
             x_t      = x0 + alpha[..., None, None, None].to(xs.dtype) * d             # [B,N,C,H,W]
             v_target = d                                                              # [B,N,C,H,W]
-            ts       = alpha.float()                                                  # time input
+            ts       = ts_teacher.float()
 
         with self.autocast_ctx:
             v_pred = self.core_fwd(x_t, ts)
