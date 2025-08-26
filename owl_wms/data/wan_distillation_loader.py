@@ -55,29 +55,23 @@ class WanPairDataset(Dataset):
         # one item (all steps) per run per epoch
         return len(self.run_dirs)
 
-    @staticmethod
-    def _load_step(run_dir: Path, i: int) -> torch.Tensor:
-        """file 000000{i}_latents.pt is [C,F,H,W]; return [F,C,H,W]."""
-        x_cf_hw = torch.load(run_dir / f"{i:08d}_latents.pt", map_location="cpu")
-        return x_cf_hw.permute(1, 0, 2, 3).contiguous()
+    def load_item(self, run_dir: Path, steps_by_time: list[int]):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(steps_by_time))) as ex:
+            xs_list = list(ex.map(
+                partial(torch.load, map_location="cpu"),
+                [run_dir / f"{s:08d}_latents.pt" for s in steps_by_time]
+            ))  # each [C,F,H,W]
+        x_cfkhw = torch.stack(xs_list, dim=0)                           # [K,C,F,H,W]
+        x_samples = x_cfkhw.permute(2, 0, 1, 3, 4).contiguous()          # [F,K,C,H,W]
+        sig = self.sigmas[steps_by_time].to(torch.float32)               # [K]
+        times = (sig - sig.min()) / (sig.max() - sig.min() + 1e-8)       # [K] in [0,1]
+        return x_samples, times
 
     def __getitem__(self, idx):
         run_dir = self.run_dirs[idx]
-        steps = self._steps[run_dir]
-
-        # Arrange K from clean (step ~40) -> noise (step ~0) so times are ascending.
-        steps_by_time = list(reversed(steps))
-
-        # Load all steps and stack along K: [F, K, C, H, W]
-        xs_list = [self._load_step(run_dir, s) for s in steps_by_time]
-        x_samples = torch.stack(xs_list, dim=1)
-
-        # Build ascending times in [0,1] from scheduler sigmas, aligned to steps_by_time.
-        sig = torch.tensor([float(self.sigmas[s]) for s in steps_by_time], dtype=torch.float32)
-        s_min, s_max = sig.min(), sig.max()
-        denom = (s_max - s_min).clamp_min(torch.finfo(torch.float32).eps)
-        times = (sig - s_min) / denom  # 0 at clean, 1 at noise, ascending with K
-
+        steps_by_time = list(reversed(self._steps[run_dir]))
+        x_samples, times = self.load_item(run_dir, steps_by_time)
         return {"x_samples": x_samples, "times": times}
 
 
