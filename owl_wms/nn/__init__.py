@@ -1,7 +1,7 @@
 from .attn import checkpoint  # TODO: move elsewhere
 from .attn import FinalLayer  # TODO: move elsewhere
 
-from .attn import get_block_mask, AttnMaskScheduler, Attn
+from .attn import get_block_mask, AttnMaskScheduler, Attn, CrossAttention
 from .embeddings import TimestepEmbedding, ControlEmbedding
 from .mlp import MLP, MLPCustom
 from .modulation import cond_adaln, cond_gate, Gate, AdaLN

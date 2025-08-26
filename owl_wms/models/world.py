@@ -24,8 +24,13 @@ class PromptEncoder:
     @torch.inference_mode()
     def __call__(self, texts: List[str]):
         texts = [ftfy.fix_text(t) for t in texts]
-        inputs = self.tok(texts, return_tensors="pt", padding="max_length", truncation=True, max_length=512)
-        inputs = inputs.to(self.device)
+        inputs = self.tok(
+            texts,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=512
+        ).to(self.device)
         emb = self.encoder(**inputs).last_hidden_state
         pad_mask = ~inputs["attention_mask"].bool()  # True = PAD (ignore)
         return TensorDict({"emb": emb, "pad_mask": pad_mask}, batch_size=[emb.size(0)])
