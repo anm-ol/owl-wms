@@ -56,12 +56,7 @@ class WanPairDataset(Dataset):
         return len(self.run_dirs)
 
     def load_item(self, run_dir: Path, steps_by_time: list[int]):
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(8, len(steps_by_time))) as ex:
-            xs_list = list(ex.map(
-                partial(torch.load, map_location="cpu"),
-                [run_dir / f"{s:08d}_latents.pt" for s in steps_by_time]
-            ))  # each [C,F,H,W]
+        xs_list = [torch.load(run_dir / f"{s:08d}_latents.pt", map_location="cpu") for s in steps_by_time]
         x_cfkhw = torch.stack(xs_list, dim=0)                           # [K,C,F,H,W]
         x_samples = x_cfkhw.permute(2, 0, 1, 3, 4).contiguous()          # [F,K,C,H,W]
         sig = self.sigmas[steps_by_time].to(torch.float32)               # [K]
@@ -103,10 +98,10 @@ def get_pair_loader(
         ds,
         batch_size=batch_size,
         collate_fn=partial(collate_fn, batch_columns=batch_columns),
-        num_workers=2,
+        num_workers=4,
         drop_last=True,
         pin_memory=True,
-        prefetch_factor=2,
+        prefetch_factor=4,
         persistent_workers=True,
         **loader_kwargs,
     )
