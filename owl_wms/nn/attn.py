@@ -139,7 +139,7 @@ class CrossAttention(nn.Module):
         k, v = eo.rearrange(self.kv(context), "b m (two h d) -> two b h m d", two=2, h=self.n_heads)
         attn_mask = None if context_pad_mask is None else context_pad_mask[:, None, None, :]
         out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
-        out = eo.rearrange(out, 'b h n d -> b n (h d)')
+        out = out.transpose(1, 2).contiguous().reshape(x.size(0), x.size(1), -1)
         return self.o(out)
 
 
