@@ -148,6 +148,8 @@ class WorldModel(nn.Module):
         controller_inputs: [???, ]
         doc_id: [???, ]
         """
+        B, N, C, H, W = x.shape
+
         # embed
         ts_emb = self.timestep_emb(ts)  # [B, N, d]
         ctrl_emb = self.ctrl_emb(controller_inputs) if controller_inputs is not None else None
@@ -166,5 +168,5 @@ class WorldModel(nn.Module):
         x = eo.rearrange(x, 'b (n h w) d -> b d n h w', n=n, h=h, w=w)
 
         # unpatchify
-        x = self.proj_out(x, cond, out_hw=(h, w)).contiguous()
+        x = self.proj_out(x, cond, out_hw=(H, W)).contiguous()
         return eo.rearrange(x, 'b c n h w -> b n c h w')
