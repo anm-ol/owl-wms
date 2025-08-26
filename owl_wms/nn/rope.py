@@ -1,7 +1,6 @@
 from rotary_embedding_torch import RotaryEmbedding
 import torch
 from torch import nn
-from torch.cuda.amp import autocast
 
 import einops as eo
 from einops._torch_specific import allow_ops_in_compiled_graph  # requires einops>=0.6.1
@@ -30,7 +29,7 @@ class RoPE(nn.Module):
         self.cos = nn.Buffer(freqs.cos().contiguous(), persistent=False)
         self.sin = nn.Buffer(freqs.sin().contiguous(), persistent=False)
 
-    @autocast(device_type="cuda", enabled=False)
+    @torch.autocast("cuda", enabled=False)
     def forward(self, x, offset: int = 0):
         assert self.cos.dtype == torch.float32
         cos = self.cos[..., offset:offset + x.size(2), :]

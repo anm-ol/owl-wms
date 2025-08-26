@@ -1,16 +1,11 @@
 import torch
 from torch import nn
-import torch.nn.functional as F
-from torch.cuda.amp import autocast
 
 import math
 
 from .mlp import MLPCustom
 
-from rotary_embedding_torch import (
-    RotaryEmbedding,
-    apply_rotary_emb
-)
+
 
 class LearnedPosEnc(nn.Module):
     def __init__(self, n_seq, dim):
@@ -35,7 +30,7 @@ class SinCosEmbed(nn.Module):
         self.theta = theta
         self.mult = mult
 
-    @autocast(device_type="cuda", enabled=False)
+    @torch.autocast("cuda", enabled=False)
     def forward(self, x):
         x = x.float()
         # Handle different input types
