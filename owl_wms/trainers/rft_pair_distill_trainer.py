@@ -6,7 +6,7 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.standard_loss_teacher(batch)
+        return self.chord_distillation(batch)
 
     def standard_loss_teacher(self, batch):
         xs, t = batch["x_samples"], batch["times"]   # [B,N,K,C,H,W]
@@ -31,6 +31,41 @@ class RFTPairDistillTrainer(WorldTrainer):
             x0 = self.sample_xs_at_ts(xs, t, ts.new_zeros(B, N))
             x1 = self.sample_xs_at_ts(xs, t, ts.new_ones(B, N))
             v_target = x1 - x0
+
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_t, ts)
+        return F.mse_loss(v_pred.float(), v_target.float())
+
+    def chord_distillation(self, batch):
+        """
+        Option A (project to the chord):
+          - Sample a teacher state x_teach at random ts
+          - Project x_teach onto the chord [x0 -> x1] to get alpha in [0,1]
+          - Train RF-style on x_t = (1-alpha)*x0 + alpha*x1 with target v = x1 - x0
+        """
+        xs, t = batch["x_samples"], batch["times"]   # [B,N,K,C,H,W]
+        B, N = xs.shape[:2]
+
+        with torch.no_grad():
+            # teacher time + state
+            ts_teacher = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
+            x_teach = self.sample_xs_at_ts(xs, t, ts_teacher)           # [B,N,C,H,W]
+
+            # chord endpoints (t=0,1)
+            x0 = self.sample_xs_at_ts(xs, t, ts_teacher.new_zeros(B, N))
+            x1 = self.sample_xs_at_ts(xs, t, ts_teacher.new_ones (B, N))
+            d  = x1 - x0                                                # [B,N,C,H,W]
+
+            # projection alpha = <x_teach - x0, d> / ||d||^2  (fp32 math)
+            d_flat   = d.flatten(2).float()
+            num      = ((x_teach - x0).flatten(2).float() * d_flat).sum(-1)           # [B,N]
+            den      = (d_flat * d_flat).sum(-1).clamp_min(torch.finfo(torch.float32).eps)
+            alpha    = (num / den).clamp_(0.0, 1.0)                                   # [B,N]
+
+            # RF-style inputs/targets
+            x_t      = x0 + alpha[..., None, None, None].to(xs.dtype) * d             # [B,N,C,H,W]
+            v_target = d                                                              # [B,N,C,H,W]
+            ts       = alpha.float()                                                  # time input
 
         with self.autocast_ctx:
             v_pred = self.core_fwd(x_t, ts)
