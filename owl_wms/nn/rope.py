@@ -30,7 +30,7 @@ class RoPE(nn.Module):
         self.cos = nn.Buffer(freqs.cos().contiguous(), persistent=False)
         self.sin = nn.Buffer(freqs.sin().contiguous(), persistent=False)
 
-    @autocast("cuda", enabled=False)
+    @autocast(device_type="cuda", enabled=False)
     def forward(self, x, offset: int = 0):
         assert self.cos.dtype == torch.float32
         cos = self.cos[..., offset:offset + x.size(2), :]

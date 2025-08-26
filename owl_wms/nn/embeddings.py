@@ -35,7 +35,7 @@ class SinCosEmbed(nn.Module):
         self.theta = theta
         self.mult = mult
 
-    @autocast("cuda", enabled=False)
+    @autocast(device_type="cuda", enabled=False)
     def forward(self, x):
         x = x.float()
         # Handle different input types
