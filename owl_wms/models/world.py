@@ -12,6 +12,11 @@ from .. import nn as owl_nn
 from transformers import AutoTokenizer, UMT5EncoderModel
 import ftfy
 
+import einops as eo
+from einops._torch_specific import allow_ops_in_compiled_graph
+allow_ops_in_compiled_graph()
+
+
 
 class PromptEncoder(nn.Module):
     """Callable for text -> UMT5 embedding"""
