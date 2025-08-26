@@ -16,39 +16,41 @@ class RFTPairDistillTrainer(WorldTrainer):
         # Normalize times to [B,N,K]
         t = t.view(B, 1, K).expand(B, N, K)
 
-        # Time arithmetic in fp32; keep latents in their native dtype (fp16/bf16)
+        # time math in fp32; latents stay in their native dtype
         t32 = t.to(device=xs.device, dtype=torch.float32)
 
         with torch.no_grad():
-            # Match other methods' sampling: ts ~ sigmoid(N(0,1))) with shape [B,N]
+            # sample ts like the other losses
             ts = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
             ts32 = ts.to(torch.float32)
 
-            # Batched neighbor lookup along K (dim=2): t_lo <= ts < t_hi
+            # neighbor indices along K (dim=2)
             hi = torch.searchsorted(t32, ts32.unsqueeze(-1), right=True).clamp_(1, K - 1)  # [B,N,1]
             lo = hi - 1
 
-            # Gather neighbor times along dim=2
-            t_lo = torch.take_along_dim(t32, lo, dim=2).squeeze(2)  # [B,N]
-            t_hi = torch.take_along_dim(t32, hi, dim=2).squeeze(2)  # [B,N]
+            # gather neighbor times
+            t_lo = torch.gather(t32, 2, lo).squeeze(2)  # [B,N]
+            t_hi = torch.gather(t32, 2, hi).squeeze(2)  # [B,N]
 
             denom = (t_hi - t_lo).abs().clamp_min(torch.finfo(torch.float32).eps)
             w = ((ts32 - t_lo) / denom).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1]
 
-            # Gather neighbor samples along K with a single-dim gather (fast & coalesced)
-            idx_lo = lo.expand(B, N, 1, C, H, W)
-            idx_hi = hi.expand(B, N, 1, C, H, W)
-            x_lo = torch.take_along_dim(xs, idx_lo, dim=2).squeeze(2)  # [B,N,C,H,W]
-            x_hi = torch.take_along_dim(xs, idx_hi, dim=2).squeeze(2)  # [B,N,C,H,W]
+            # -- gather neighbor samples along K safely --
+            # add trailing singleton dims *first*, then expand to match xs
+            idx_lo = lo[..., None, None, None, None].expand(B, N, 1, C, H, W)  # [B,N,1,C,H,W]
+            idx_hi = hi[..., None, None, None, None].expand(B, N, 1, C, H, W)
 
-            # Interpolate to x_t at ts
-            x_t = torch.lerp(x_lo, x_hi, w.to(dtype=xs.dtype))         # keep dtype same as xs
+            x_lo = torch.gather(xs, 2, idx_lo).squeeze(2)  # [B,N,C,H,W]
+            x_hi = torch.gather(xs, 2, idx_hi).squeeze(2)  # [B,N,C,H,W]
 
-            # Endpoint velocity target (unchanged)
-            v_target = xs[:, :, -1] - xs[:, :, 0]                      # [B,N,C,H,W]
+            # interpolate
+            x_t = torch.lerp(x_lo, x_hi, w.to(dtype=xs.dtype)).contiguous()
+
+            # endpoint velocity target
+            v_target = xs[:, :, -1] - xs[:, :, 0]  # [B,N,C,H,W]
 
         with self.autocast_ctx:
-            v_pred = self.core_fwd(x_t.contiguous(), ts)               # .contiguous() can help memory access
+            v_pred = self.core_fwd(x_t, ts)
         return F.mse_loss(v_pred.float(), v_target.float())
 
     def standard_loss_teacher(self, batch):
