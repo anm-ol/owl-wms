@@ -171,7 +171,7 @@ def get_sample_loader(
     """
 
     # uses 39 latent from non-v2
-    assert not step_index == 39
+    assert step_index == 39
     assert not dataset_path.endswith("v2")
 
     ds = WanGTWindowDataset(
