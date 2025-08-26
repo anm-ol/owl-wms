@@ -12,11 +12,6 @@ from .. import nn as owl_nn
 from transformers import AutoTokenizer, UMT5EncoderModel
 import ftfy
 
-import einops as eo
-from einops._torch_specific import allow_ops_in_compiled_graph
-allow_ops_in_compiled_graph()
-
-
 
 class PromptEncoder(nn.Module):
     """Callable for text -> UMT5 embedding"""
@@ -159,9 +154,9 @@ class WorldModel(nn.Module):
         cond = self.get_conditioning_vectors(ts_emb, ctrl_emb)
 
         # patchify
-        x = eo.rearrange(x, 'b n c h w -> b c n h w')
-        x = x.contiguous(memory_format=torch.channels_last_3d)
-        x = self.proj_in(x)
+        x = self.proj_in(
+            eo.rearrange(x, 'b n c h w -> b c n h w').contiguous()
+        )
         _, _, n, h, w = x.shape
         assert (self.config.height, self.config.width) == (h, w)
 
@@ -171,6 +166,5 @@ class WorldModel(nn.Module):
         x = eo.rearrange(x, 'b (n h w) d -> b d n h w', n=n, h=h, w=w)
 
         # unpatchify
-        x = x.contiguous(memory_format=torch.channels_last_3d)
-        x = self.proj_out(x, cond)
+        x = self.proj_out(x, cond).contiguous()
         return eo.rearrange(x, 'b c n h w -> b n c h w')
