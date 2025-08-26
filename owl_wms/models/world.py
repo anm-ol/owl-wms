@@ -104,7 +104,7 @@ class WorldModel(nn.Module):
 
     def get_conditioning_vectors(self, ts_emb, ctrl_emb):
         # placeholder until we have Dit-Air and move ctrl_emb to cross attn
-        return ts_emb + ctrl_emb
+        return ts_emb + (ctrl_emb if ctrl_emb is not None else 0)
 
     def forward(
         self,
