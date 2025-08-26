@@ -64,7 +64,7 @@ class WorldDiTBlock(nn.Module):
 
         residual = x
         x = self.adaln1(x, cond)
-        x = self.cross_attn(x, context=text["emb"], context_mask=text["pad_mask"])
+        x = self.cross_attn(x, context=text["emb"], context_pad_mask=text["pad_mask"])
         x = self.gate1(x, cond) + residual
 
         residual = x

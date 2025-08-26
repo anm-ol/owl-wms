@@ -134,10 +134,10 @@ class CrossAttention(nn.Module):
         self.kv = nn.Linear(context_dim or config.d_model, config.d_model * 2)
         self.o = nn.Linear(config.d_model, config.d_model)
 
-    def forward(self, x, context, pad_mask=None):
+    def forward(self, x, context, context_pad_mask=None):
         q = eo.rearrange(self.q(x), 'b n (h d) -> b h n d', h=self.n_heads)
         k, v = eo.rearrange(self.kv(context), "b m (two h d) -> two b h m d", two=2, h=self.n_heads)
-        attn_mask = None if pad_mask is None else pad_mask[:, None, None, :]
+        attn_mask = None if context_pad_mask is None else context_pad_mask[:, None, None, :]
         out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
         out = eo.rearrange(out, 'b h n d -> b n (h d)')
         return self.o(out)
