@@ -104,7 +104,7 @@ def get_pair_loader(
         ds,
         batch_size=batch_size,
         collate_fn=partial(collate_fn, batch_columns=batch_columns),
-        num_workers=8,
+        num_workers=4,
         drop_last=True,
         pin_memory=True,
         prefetch_factor=4,
