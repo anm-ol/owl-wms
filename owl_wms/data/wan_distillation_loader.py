@@ -159,7 +159,7 @@ def get_sample_loader(
     batch_columns: "list[str]",
     window_length: int | None = None,
     *,
-    step_index: int = 40,
+    step_index: int = 39,
 ):
     """
     Returns a DataLoader that yields only a single tensor per batch:
@@ -169,6 +169,11 @@ def get_sample_loader(
       - Assumes all runs share the same F if window_length=None (typical for WAN with fixed num_frames).
       - Uses DDP sampler when initialized under torch.distributed.
     """
+
+    # uses 39 latent from non-v2
+    assert not step_index == 39
+    assert not dataset_path.endswith("v2")
+
     ds = WanGTWindowDataset(
         dataset_path,
         window_length=window_length,
