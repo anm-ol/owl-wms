@@ -23,6 +23,9 @@ alias-free-torch
 git+https://github.com/sypsyp97/convnext_perceptual_loss
 wandb[media]
 torchtyping
+
+# WorldModel deps
 diffusers
 tensordict
 transformers
+ftfy
