@@ -41,6 +41,7 @@ class PromptEncoder(nn.Module):
 
 class WorldDiTBlock(nn.Module):
     def __init__(self, config, layer_idx):
+        # TODO: `config.enable_text`
         super().__init__()
         self.attn = owl_nn.Attn(config, layer_idx)
         self.cross_attn = owl_nn.CrossAttention(config)
@@ -51,7 +52,7 @@ class WorldDiTBlock(nn.Module):
         self.adaln1, self.gate1 = owl_nn.AdaLN(dim), owl_nn.Gate(dim)
         self.adaln2, self.gate2 = owl_nn.AdaLN(dim), owl_nn.Gate(dim)
 
-    def forward(self, x, cond, text, block_mask, kv_cache=None):
+    def forward(self, x, cond, prompt_emb, block_mask, kv_cache=None):
         """
         0) Causal Frame Attention
         1) Frame->Text Cross Attention
@@ -64,7 +65,7 @@ class WorldDiTBlock(nn.Module):
 
         residual = x
         x = self.adaln1(x, cond)
-        x = self.cross_attn(x, context=text["emb"], context_pad_mask=text["pad_mask"])
+        x = self.cross_attn(x, context=prompt_emb["emb"], context_pad_mask=prompt_emb["pad_mask"])
         x = self.gate1(x, cond) + residual
 
         residual = x
@@ -82,7 +83,7 @@ class WorldDiT(nn.Module):
         self.attn_masker = owl_nn.AttnMaskScheduler(config)
         self.blocks = nn.ModuleList([WorldDiTBlock(config, idx) for idx in range(config.n_layers)])
 
-    def forward(self, x, cond, text, doc_id=None, kv_cache=None):
+    def forward(self, x, cond, prompt_emb, doc_id=None, kv_cache=None):
         enable_ckpt = self.training and getattr(self.config, "gradient_checkpointing", False)
 
         # generate block masks for each layer
@@ -94,9 +95,9 @@ class WorldDiT(nn.Module):
         )
         for block, block_mask in zip(self.blocks, block_masks):
             if enable_ckpt:
-                x = owl_nn.checkpoint(block, x, cond, text, block_mask, kv_cache)
+                x = owl_nn.checkpoint(block, x, cond, prompt_emb, block_mask, kv_cache)
             else:
-                x = block(x, cond, text, block_mask, kv_cache)
+                x = block(x, cond, prompt_emb, block_mask, kv_cache)
         return x
 
 
@@ -154,7 +155,7 @@ class WorldModel(nn.Module):
 
         # patchify
         x = eo.rearrange(x, 'b n c h w -> b c n h w')
-        x = x.to(memory_format=torch.channels_last_3d)
+        x = x.contiguous(memory_format=torch.channels_last_3d)
         x = self.proj_in(x)
         _, _, n, h, w = x.shape
         assert (self.config.height, self.config.width) == (h, w)
@@ -165,6 +166,6 @@ class WorldModel(nn.Module):
         x = eo.rearrange(x, 'b (n h w) d -> b d n h w', n=n, h=h, w=w)
 
         # unpatchify
-        x = x.to(memory_format=torch.channels_last_3d)
+        x = x.contiguous(memory_format=torch.channels_last_3d)
         x = self.proj_out(x, cond)
         return eo.rearrange(x, 'b c n h w -> b n c h w')
