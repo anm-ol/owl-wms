@@ -56,9 +56,15 @@ class WanPairDataset(Dataset):
         return len(self.run_dirs)
 
     def load_item(self, run_dir: Path, steps_by_time: list[int]):
-        xs_list = [torch.load(run_dir / f"{s:08d}_latents.pt", map_location="cpu") for s in steps_by_time]
-        x_cfkhw = torch.stack(xs_list, dim=0)                           # [K,C,F,H,W]
-        x_samples = x_cfkhw.permute(2, 0, 1, 3, 4).contiguous()          # [F,K,C,H,W]
+        x_samples = torch.stack([
+            torch.load(
+                run_dir / f"{s:08d}_latents.pt",
+                map_location="cpu",
+                weights_only=True,
+                mmap=True,          # lazy, OS-backed reads
+            )
+            for s in steps_by_time
+        ]).permute(2, 0, 1, 3, 4)
         sig = self.sigmas[steps_by_time].to(torch.float32)               # [K]
         times = (sig - sig.min()) / (sig.max() - sig.min() + 1e-8)       # [K] in [0,1]
         return x_samples, times
@@ -98,7 +104,7 @@ def get_pair_loader(
         ds,
         batch_size=batch_size,
         collate_fn=partial(collate_fn, batch_columns=batch_columns),
-        num_workers=4,
+        num_workers=2,
         drop_last=True,
         pin_memory=True,
         prefetch_factor=4,
