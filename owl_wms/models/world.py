@@ -14,6 +14,27 @@ from einops._torch_specific import allow_ops_in_compiled_graph
 allow_ops_in_compiled_graph()
 
 
+from transformers import AutoTokenizer, UMT5EncoderModel
+import ftfy
+
+
+class PromptEncoder:
+    """Callable for text -> UMT5 embedding"""
+    def __init__(self, model_id="google/umt5-xl", dtype=torch.bfloat16, device="cuda"):
+        self.device = device
+        self.tok = AutoTokenizer.from_pretrained(model_id)
+        self.encoder = UMT5EncoderModel.from_pretrained(model_id, torch_dtype=dtype).eval().to(self.device)
+
+    @torch.inference_mode()
+    def __call__(self, texts: List[str]):
+        texts = [ftfy.fix_text(t) for t in texts]
+        inputs = self.tok(texts, return_tensors="pt", padding="max_length", truncation=True, max_length=512)
+        inputs = inputs.to(self.device)
+        emb = self.encoder(**inputs).last_hidden_state
+        pad_mask = ~inputs["attention_mask"].bool()  # True = PAD (ignore)
+        return TensorDict({"emb": emb, "pad_mask": pad_mask}, batch_size=[emb.size(0)])
+
+
 class WorldDiTBlock(nn.Module):
     def __init__(self, config, layer_idx):
         super().__init__()
@@ -140,24 +161,3 @@ class WorldModel(nn.Module):
         # unpatchify
         x = self.proj_out(x, ts_emb)
         return eo.rearrange(x, 'b c n h w -> b n c h w')
-
-
-from transformers import AutoTokenizer, UMT5EncoderModel
-import ftfy
-
-
-class PromptEncoder:
-    """Callable for text -> UMT5 embedding"""
-    def __init__(self, model_id="google/umt5-xl", dtype=torch.bfloat16, device="cuda"):
-        self.device = device
-        self.tok = AutoTokenizer.from_pretrained(model_id)
-        self.encoder = UMT5EncoderModel.from_pretrained(model_id, torch_dtype=dtype).eval().to(self.device)
-
-    @torch.inference_mode()
-    def __call__(self, texts: List[str]):
-        texts = [ftfy.fix_text(t) for t in texts]
-        inputs = self.tok(texts, return_tensors="pt", padding="max_length", truncation=True, max_length=512)
-        inputs = inputs.to(self.device)
-        emb = self.encoder(**inputs).last_hidden_state
-        pad_mask = ~inputs["attention_mask"].bool()  # True = PAD (ignore)
-        return TensorDict({"emb": emb, "pad_mask": pad_mask}, batch_size=[emb.size(0)])
