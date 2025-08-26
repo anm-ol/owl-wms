@@ -6,7 +6,7 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.standard_loss_teach(batch)
+        return self.standard_loss_teacher(batch)
 
     def standard_loss_teacher(self, batch):
         xs, t = batch["x_samples"], batch["times"]   # xs: [B,N,K,C,H,W]
