@@ -35,13 +35,12 @@ class RFTPairDistillTrainer(WorldTrainer):
             denom = (t_hi - t_lo).abs().clamp_min(torch.finfo(torch.float32).eps)
             w = ((ts32 - t_lo) / denom).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1]
 
-            # -- gather neighbor samples along K safely --
-            # add trailing singleton dims *first*, then expand to match xs
-            idx_lo = lo[..., None, None, None, None].expand(B, N, 1, C, H, W)  # [B,N,1,C,H,W]
-            idx_hi = hi[..., None, None, None, None].expand(B, N, 1, C, H, W)
-
-            x_lo = torch.gather(xs, 2, idx_lo).squeeze(2)  # [B,N,C,H,W]
-            x_hi = torch.gather(xs, 2, idx_hi).squeeze(2)  # [B,N,C,H,W]
+            # -- gather neighbor samples along K safely (no expand) --
+            # shape indices as [B,N,1,1,1,1]; broadcasting handles C,H,W
+            idx_lo = lo.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1,1]
+            idx_hi = hi.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1,1]
+            x_lo = torch.take_along_dim(xs, idx_lo, dim=2).squeeze(2)  # [B,N,C,H,W]
+            x_hi = torch.take_along_dim(xs, idx_hi, dim=2).squeeze(2)  # [B,N,C,H,W]
 
             # interpolate
             x_t = torch.lerp(x_lo, x_hi, w.to(dtype=xs.dtype)).contiguous()
