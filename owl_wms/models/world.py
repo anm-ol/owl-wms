@@ -19,6 +19,7 @@ class PromptEncoder:
         self.device = device
         self.tok = AutoTokenizer.from_pretrained(model_id)
         self.encoder = UMT5EncoderModel.from_pretrained(model_id, torch_dtype=dtype).eval().to(self.device)
+        self.encoder = torch.compile(self.encoder)
 
     @torch.inference_mode()
     def __call__(self, texts: List[str]):
