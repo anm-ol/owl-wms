@@ -131,7 +131,7 @@ class WorldModel(nn.Module):
     def forward(
         self,
         x: Tensor,
-        denoising_ts: Tensor,
+        ts: Tensor,
         prompt_emb: Optional[Tensor] = None,
         controller_inputs: Optional[Tensor] = None,
         doc_id: Optional[Tensor] = None,
@@ -145,7 +145,7 @@ class WorldModel(nn.Module):
         doc_id: [???, ]
         """
         # embed
-        ts_emb = self.timestep_emb(denoising_ts)  # [B, N, d]
+        ts_emb = self.timestep_emb(ts)  # [B, N, d]
         ctrl_emb = self.ctrl_emb(controller_inputs) if controller_inputs is not None else None
         cond = self.get_conditioning_vectors(ts_emb, ctrl_emb)
 

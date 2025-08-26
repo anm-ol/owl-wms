@@ -295,13 +295,14 @@ class WorldTrainer(BaseTrainer):
         return loss_sum / self.accum_steps
 
     def fwd_step(self, batch):
-        return self.model(**batch)
+        return self.conditional_flow_matching_loss(**batch)
 
     @torch.compile
-    def conditional_flow_matching_loss(self, x0, **kw):
+    def conditional_flow_matching_loss(self, x, **kw):
         """
         x0: [B, N, C, H, W] clean latents (timestep 0.0)
         """
+        x0 = x
         B, N = x0.size(0), x0.size(1)
 
         with torch.no_grad():
