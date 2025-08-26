@@ -8,21 +8,18 @@ class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
         return self.standard_loss_teacher(batch)
 
-    def standard_loss_teacher(self, batch):
-        xs, t = batch["x_samples"], batch["times"]   # xs: [B,N,K,C,H,W]
-        B, N = xs.shape[:2]
-
-        with torch.no_grad():
-            x0 = self.sample_xs_at_ts(xs, t, torch.zeros(B, N, device=xs.device, dtype=xs.dtype))  # t=0
-            x1 = self.sample_xs_at_ts(xs, t, torch.ones(B, N, device=xs.device, dtype=xs.dtype))   # t=1
-            ts = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
-            x1 = batch["x_noise"]  # teachers input noise
-            x_t = x0 + (x1 - x0) * ts.view(B, N, 1, 1, 1)  # lerp to noise level @ ts
-            v_target = x1 - x0
-
-        with self.autocast_ctx:
-            v_pred = self.core_fwd(x_t, ts)
-        return F.mse_loss(v_pred.float(), v_target.float())
+def standard_loss_teacher(self, batch):
+    xs, t = batch["x_samples"], batch["times"]   # [B,N,K,C,H,W]
+    B, N = xs.shape[:2]
+    with torch.no_grad():
+        ts = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
+        x0 = self.sample_xs_at_ts(xs, t, ts.new_zeros(B, N))  # t=0
+        x1 = self.sample_xs_at_ts(xs, t, ts.new_ones (B, N))  # t=1
+        x_t = torch.lerp(x0, x1, ts[..., None, None, None])
+        v_target = x1 - x0
+    with self.autocast_ctx:
+        v_pred = self.core_fwd(x_t, ts)
+    return F.mse_loss(v_pred.float(), v_target.float())
 
     def diffusion_forcing_distillation(self, batch):
         xs, t = batch["x_samples"], batch["times"]   # xs: [B,N,K,C,H,W]
