@@ -6,13 +6,14 @@ import gc
 import itertools
 
 import torch
+import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
 from .base import BaseTrainer
 
 from ..utils import freeze, Timer
-from ..models import get_model_cls
+from ..models.world import WorldModel, PromptEncoder
 from ..sampling import get_sampler_cls
 from ..data import get_loader
 from ..utils.logging import LogHelper, to_wandb_samples
@@ -135,7 +136,7 @@ class WorldTrainer(BaseTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.model = get_model_cls(self.model_cfg.model_id)(self.model_cfg).train()
+        self.model = WorldModel(self.model_cfg).train()
         self.ema = None
         self.opt = None
         self.total_step_counter = 0
@@ -151,6 +152,7 @@ class WorldTrainer(BaseTrainer):
             torch_dtype=torch.float32,
         )
         freeze(self.decoder)
+        self.prompt_encoder = PromptEncoder()
 
         self.autocast_ctx = torch.amp.autocast('cuda', torch.bfloat16)
 
@@ -216,6 +218,9 @@ class WorldTrainer(BaseTrainer):
         if "rgb" in batch:
             assert "x" not in batch, "passed rgb to convert, but already have batch item `x` (latents)"
             batch["x"] = self.encoder_decoder.encode(batch.pop("rgb")).bfloat16()
+        if "prompt" in batch:
+            assert "prompt_emb" not in batch, "passed prompt to convert, but already have batch item `prompt_emb`"
+            batch["prompt_emb"] = self.prompt_encoder(batch.pop("prompt"))
         return batch
 
     def train_loader(self):
@@ -278,7 +283,8 @@ class WorldTrainer(BaseTrainer):
         loss_sum = 0
         for batch in mini_batches:
             batch = self.prep_batch(batch)
-            loss = self.fwd_step(batch) / self.accum_steps
+            with self.autocast_ctx:
+                loss = self.fwd_step(batch) / self.accum_steps
             loss.backward()
             loss_sum += loss.item()
 
@@ -289,9 +295,24 @@ class WorldTrainer(BaseTrainer):
         return loss_sum / self.accum_steps
 
     def fwd_step(self, batch):
+        return self.model(**batch)
+
+    @torch.compile
+    def conditional_flow_matching_loss(self, x0, **kw):
+        """
+        x0: [B, N, C, H, W] clean latents (timestep 0.0)
+        """
+        B, N = x0.size(0), x0.size(1)
+
+        with torch.no_grad():
+            ts = torch.randn(B, N, device=x0.device, dtype=x0.dtype).sigmoid()
+            x1 = torch.randn_like(x0)  # gaussian @ timestep 1.0
+            x_t = x0 + (x1 - x0) * ts.view(B, N, 1, 1, 1)  # lerp to noise level @ ts
+            v_target = x1 - x0
+
         with self.autocast_ctx:
-            loss = self.model(**batch)
-        return loss
+            v_pred = self.model(x_t, ts, **kw)
+        return F.mse_loss(v_pred.float(), v_target.float())
 
     @torch.no_grad()
     def log_step(self, metrics, timer, sample_loader, sampler):
