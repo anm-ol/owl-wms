@@ -177,6 +177,8 @@ class WorldTrainer(BaseTrainer):
         # VAE
         self.decoder = self.decoder.cuda().eval()
         self.encoder_decoder = WanEncoderDecoder(self.decoder, self.train_cfg.vae_batch_size)
+        # Prompt Encoder
+        self.prompt_encoder = self.prompt_encoder.cuda().eval()
 
         # Online model, EMO, Optimizer
         self.model = self.model.cuda()

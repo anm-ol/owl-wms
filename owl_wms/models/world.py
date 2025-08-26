@@ -13,16 +13,19 @@ from transformers import AutoTokenizer, UMT5EncoderModel
 import ftfy
 
 
-class PromptEncoder:
+class PromptEncoder(nn.Module):
     """Callable for text -> UMT5 embedding"""
-    def __init__(self, model_id="google/umt5-xl", dtype=torch.bfloat16, device="cuda"):
-        self.device = device
+    def __init__(self, model_id="google/umt5-xl", dtype=torch.bfloat16):
+        super().__init__()
         self.tok = AutoTokenizer.from_pretrained(model_id)
-        self.encoder = UMT5EncoderModel.from_pretrained(model_id, torch_dtype=dtype).eval().to(self.device)
-        self.encoder = torch.compile(self.encoder)
+        self.encoder = UMT5EncoderModel.from_pretrained(model_id, torch_dtype=dtype).eval()
+
+    @torch.compile
+    def encode(self, inputs):
+        return self.encoder(**inputs).last_hidden_state
 
     @torch.inference_mode()
-    def __call__(self, texts: List[str]):
+    def forward(self, texts: List[str]):
         texts = [ftfy.fix_text(t) for t in texts]
         inputs = self.tok(
             texts,
@@ -30,8 +33,8 @@ class PromptEncoder:
             padding="max_length",
             truncation=True,
             max_length=512
-        ).to(self.device)
-        emb = self.encoder(**inputs).last_hidden_state
+        ).to(self.encoder.device)
+        emb = self.encode(inputs)
         pad_mask = ~inputs["attention_mask"].bool()  # True = PAD (ignore)
         return TensorDict({"emb": emb, "pad_mask": pad_mask}, batch_size=[emb.size(0)])
 
