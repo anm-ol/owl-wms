@@ -153,7 +153,8 @@ class WorldModel(nn.Module):
         cond = self.get_conditioning_vectors(ts_emb, ctrl_emb)
 
         # patchify
-        x = eo.rearrange(x, 'b n c h w -> b c n h w').contiguous(memory_format=torch.channels_last_3d)
+        x = eo.rearrange(x, 'b n c h w -> b c n h w')
+        x = x.to(memory_format=torch.channels_last_3d)
         x = self.proj_in(x)
         _, _, n, h, w = x.shape
         assert (self.config.height, self.config.width) == (h, w)
@@ -164,5 +165,6 @@ class WorldModel(nn.Module):
         x = eo.rearrange(x, 'b (n h w) d -> b d n h w', n=n, h=h, w=w)
 
         # unpatchify
-        x = self.proj_out(x, ts_emb)
+        x = x.to(memory_format=torch.channels_last_3d)
+        x = self.proj_out(x, cond)
         return eo.rearrange(x, 'b c n h w -> b n c h w')
