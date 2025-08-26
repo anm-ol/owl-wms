@@ -77,11 +77,10 @@ class WanPairDataset(Dataset):
 
 
 def collate_fn(batch, batch_columns: list):
-    stacked = {
-        k: torch.stack([item[k] for item in batch]) if isinstance(batch[k][0], torch.Tensor) else batch[k][0]
-        for k in batch[0]
-    }
-    return {k: v for k, v in stacked.items() if k in batch_columns}
+    return torch.utils.data.default_collate([
+        {k: s[k] for k in batch_columns if k in s}
+        for s in batch
+    ])
 
 
 def get_pair_loader(
