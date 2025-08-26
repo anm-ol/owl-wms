@@ -114,8 +114,8 @@ class WorldModel(nn.Module):
         assert config.tokens_per_frame == config.height * config.width
         assert config.n_mouse_axes == 2
 
-        self.timestep_embedding = owl_nn.TimestepEmbedding(config.d_model)
-        self.ctrl_embedding = owl_nn.ControlEmbedding(config.n_buttons, config.d_model)
+        self.timestep_emb = owl_nn.TimestepEmbedding(config.d_model)
+        self.ctrl_emb = owl_nn.ControlEmbedding(config.n_buttons, config.d_model)
 
         self.transformer = WorldDiT(config)
 
@@ -145,8 +145,8 @@ class WorldModel(nn.Module):
         doc_id: [???, ]
         """
         # embed
-        ts_emb = self.timestep_embedding(denoising_ts)  # [B, N, d]
-        ctrl_emb = self.ctrl_embedding(controller_inputs) if controller_inputs is not None else None
+        ts_emb = self.timestep_emb(denoising_ts)  # [B, N, d]
+        ctrl_emb = self.ctrl_emb(controller_inputs) if controller_inputs is not None else None
         cond = self.get_conditioning_vectors(ts_emb, ctrl_emb)
 
         # patchify
