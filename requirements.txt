@@ -25,3 +25,4 @@ wandb[media]
 torchtyping
 diffusers
 tensordict
+transformers

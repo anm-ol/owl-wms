@@ -1,18 +1,13 @@
 from typing import Optional, List
 from torch import Tensor
 
-import torch
-from torch import nn
-import torch.nn.functional as F
-
+import einops as eo
 from tensordict import TensorDict
 
+import torch
+from torch import nn
+
 from .. import nn as owl_nn
-
-import einops as eo
-from einops._torch_specific import allow_ops_in_compiled_graph
-allow_ops_in_compiled_graph()
-
 
 from transformers import AutoTokenizer, UMT5EncoderModel
 import ftfy
