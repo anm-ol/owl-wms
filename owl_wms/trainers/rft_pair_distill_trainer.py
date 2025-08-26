@@ -9,44 +9,42 @@ class RFTPairDistillTrainer(WorldTrainer):
         return self.diffusion_forcing_distillation(batch)
 
     def diffusion_forcing_distillation(self, batch):
-        xs, t = batch["x_samples"], batch["times"]                 # xs: [B,N,K,C,H,W], t: [K] or [B,N,K] (ascending)
+        xs, t = batch["x_samples"], batch["times"]  # xs: [B,N,K,C,H,W], t: [K] / [B,K] / [B,N,K]
         B, N, K, C, H, W = xs.shape
-        assert K >= 2, "Need at least two samples per path to bracket ts."
+        assert K >= 2
 
         # Normalize times to [B,N,K]
-        t = t.view(B, 1, K).expand(B, N, K)
+        if t.dim() == 1:
+            t = t.view(1, 1, K).expand(B, N, K)
+        elif t.dim() == 2:
+            t = t.view(B, 1, K).expand(B, N, K)
+        else:
+            assert t.shape == (B, N, K), f"Expected times [B,N,K], got {tuple(t.shape)}"
 
-        # time math in fp32; latents stay in their native dtype
         t32 = t.to(device=xs.device, dtype=torch.float32)
 
         with torch.no_grad():
-            # sample ts like the other losses
             ts = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
             ts32 = ts.to(torch.float32)
 
-            # neighbor indices along K (dim=2)
+            # neighbors along K (dim=2)
             hi = torch.searchsorted(t32, ts32.unsqueeze(-1), right=True).clamp_(1, K - 1)  # [B,N,1]
             lo = hi - 1
 
-            # gather neighbor times
+            # neighbor times
             t_lo = torch.gather(t32, 2, lo).squeeze(2)  # [B,N]
             t_hi = torch.gather(t32, 2, hi).squeeze(2)  # [B,N]
-
             denom = (t_hi - t_lo).abs().clamp_min(torch.finfo(torch.float32).eps)
             w = ((ts32 - t_lo) / denom).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1]
 
-            # -- gather neighbor samples along K safely (no expand) --
-            # shape indices as [B,N,1,1,1,1]; broadcasting handles C,H,W
-            idx_lo = lo.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1,1]
-            idx_hi = hi.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1,1]
-            x_lo = torch.take_along_dim(xs, idx_lo, dim=2).squeeze(2)  # [B,N,C,H,W]
-            x_hi = torch.take_along_dim(xs, idx_hi, dim=2).squeeze(2)  # [B,N,C,H,W]
+            # neighbor samples: match ndim exactly (6D), so use **3** unsqueezes
+            idx_lo = lo.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)        # [B,N,1,1,1,1]
+            idx_hi = hi.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)        # [B,N,1,1,1,1]
+            x_lo = torch.take_along_dim(xs, idx_lo, dim=2).squeeze(2)    # [B,N,C,H,W]
+            x_hi = torch.take_along_dim(xs, idx_hi, dim=2).squeeze(2)    # [B,N,C,H,W]
 
-            # interpolate
             x_t = torch.lerp(x_lo, x_hi, w.to(dtype=xs.dtype)).contiguous()
-
-            # endpoint velocity target
-            v_target = xs[:, :, -1] - xs[:, :, 0]  # [B,N,C,H,W]
+            v_target = xs[:, :, -1] - xs[:, :, 0]                        # [B,N,C,H,W]
 
         with self.autocast_ctx:
             v_pred = self.core_fwd(x_t, ts)
