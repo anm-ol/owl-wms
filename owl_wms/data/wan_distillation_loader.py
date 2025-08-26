@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from functools import partial
 from diffusers import FlowMatchEulerDiscreteScheduler
@@ -127,12 +128,13 @@ class WanGTWindowDataset(Dataset):
 
         # Find all run dirs that contain the target step file (e.g., 00000039_latents.pt)
         pattern = f"{step_index:08d}_latents.pt"
-        self.run_dirs = sorted(
-            p.parent
-            for d in self.root.iterdir() if d.is_dir() and "." not in d.name
-            for p in d.rglob(pattern)
-            if all("." not in part for part in p.parent.relative_to(self.root).parts)
-        )
+        self.run_dirs = sorted({
+            Path(dp)
+            for dp, dn, fn in os.walk(root_dir)
+            for _ in [dn.__setitem__(slice(None), [d for d in dn if "." not in d])]
+            if pattern in fn
+        })
+
         if not self.run_dirs:
             raise FileNotFoundError(f"No runs with {pattern} found under {root_dir}")
 
