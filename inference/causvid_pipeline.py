@@ -26,12 +26,15 @@ def to_bgr_uint8(frame, target_size=(1080,1920)):
     return frame
 
 SAMPLING_STEPS = 2
+WINDOW_SIZE = 120
 
 class CausvidPipeline:
-    def __init__(self, cfg_path="configs/dit_v4_dmd.yml", ckpt_path="vid_dit_v4_dmd_7k.pt"):
+    def __init__(self, cfg_path="configs/dit_v4_dmd.yml", ckpt_path="vid_dit_v4_dmd_7k.pt", ground_truth = False):
         cfg = Config.from_yaml(cfg_path)
         model_cfg = cfg.model
         train_cfg = cfg.train
+
+        self.ground_truth = ground_truth
         
         self.model, self.frame_decoder = from_pretrained(cfg_path, ckpt_path, True)
         self.model = self.model.core.cuda().bfloat16().eval()
@@ -47,10 +50,16 @@ class CausvidPipeline:
         self.mouse_buffer = None
         self.button_buffer = None
 
+        # Ground truth specific buffers
+        if self.ground_truth:
+            self.future_mouse_buffer = None
+            self.future_button_buffer = None
+            self.gt_step = 0
+
         self.alpha = 0.2
 
-        #self.model = torch.compile(self.model)#, mode = 'max-autotune', dynamic = False, fullgraph = True)
-        #self.frame_decoder = torch.compile(self.frame_decoder)#, mode = 'max-autotune', dynamic = False, fullgraph = True)
+        self.model = torch.compile(self.model)#, mode = 'max-autotune', dynamic = False, fullgraph = True)
+        self.frame_decoder = torch.compile(self.frame_decoder, mode = 'max-autotune', dynamic = False, fullgraph = True)
         
         self.device = 'cuda'
         
@@ -60,6 +69,9 @@ class CausvidPipeline:
         self._initial_history_buffer = self.history_buffer.clone()
         self._initial_mouse_buffer = self.mouse_buffer.clone()
         self._initial_button_buffer = self.button_buffer.clone()
+        if self.ground_truth:
+            self._initial_future_mouse_buffer = self.future_mouse_buffer.clone()
+            self._initial_future_button_buffer = self.future_button_buffer.clone()
     
     def _build_cache(self):
         # Build cache similar to av_caching_v2.py
@@ -69,7 +81,8 @@ class CausvidPipeline:
         
         # Initialize KV cache
         self.cache = StaticCache(self.model.config, max_length = init_len, batch_size = batch_size)
-        self.cache.reset(batch_size)
+        #self.cache = KVCache(self.model.config)
+        #self.cache.reset(batch_size)
         
         # Noise the history buffer for caching
         prev_x_noisy = zlerp(self.history_buffer, self.alpha)
@@ -87,10 +100,7 @@ class CausvidPipeline:
         self.cache.disable_cache_updates()
         self.model.transformer.enable_decoding()
 
-    def init_buffers(self, window_size=512):
-        import random
-        import os
-        
+    def init_buffers(self, window_size=WINDOW_SIZE):
         # Randomly select one of the 32 samples
         sample_idx = random.randint(0, 31)
         cache_path = f"data_cache/sample_{sample_idx}.pt"
@@ -105,21 +115,49 @@ class CausvidPipeline:
         
         # Get a random window from the sample
         seq_len = vid.size(0)
-        if seq_len < window_size:
-            raise ValueError(f"Sample {sample_idx} has length {seq_len} < window_size {window_size}")
         
-        start_idx = random.randint(0, seq_len - window_size)
-        end_idx = start_idx + window_size
-        
-        # Extract matching windows and add batch dimension
-        self.history_buffer = vid[start_idx:end_idx].unsqueeze(0)  # [1,window_size,c,h,w]
-        self.mouse_buffer = mouse[start_idx:end_idx].unsqueeze(0)  # [1,window_size,2]
-        self.button_buffer = button[start_idx:end_idx].unsqueeze(0)  # [1,window_size,11]
+        if self.ground_truth:
+            # For ground truth, we need extra data for future controls
+            future_size = 1000  # Number of future steps to load
+            required_len = window_size + future_size
+            if seq_len < required_len:
+                raise ValueError(f"Sample {sample_idx} has length {seq_len} < required_len {required_len}")
+            
+            start_idx = random.randint(0, seq_len - required_len)
+            history_end_idx = start_idx + window_size
+            future_end_idx = start_idx + required_len
+            
+            # Extract history windows and add batch dimension
+            self.history_buffer = vid[start_idx:history_end_idx].unsqueeze(0)  # [1,window_size,c,h,w]
+            self.mouse_buffer = mouse[start_idx:history_end_idx].unsqueeze(0)  # [1,window_size,2]
+            self.button_buffer = button[start_idx:history_end_idx].unsqueeze(0)  # [1,window_size,11]
+            
+            # Extract future controls
+            self.future_mouse_buffer = mouse[history_end_idx:future_end_idx].unsqueeze(0)  # [1,future_size,2]
+            self.future_button_buffer = button[history_end_idx:future_end_idx].unsqueeze(0)  # [1,future_size,11]
+            
+            # Initialize ground truth step counter
+            self.gt_step = 0
+        else:
+            if seq_len < window_size:
+                raise ValueError(f"Sample {sample_idx} has length {seq_len} < window_size {window_size}")
+            
+            start_idx = random.randint(0, seq_len - window_size)
+            end_idx = start_idx + window_size
+            
+            # Extract matching windows and add batch dimension
+            self.history_buffer = vid[start_idx:end_idx].unsqueeze(0)  # [1,window_size,c,h,w]
+            self.mouse_buffer = mouse[start_idx:end_idx].unsqueeze(0)  # [1,window_size,2]
+            self.button_buffer = button[start_idx:end_idx].unsqueeze(0)  # [1,window_size,11]
 
         # Scale buffers (ensure they're on cuda and in bfloat16)
         self.history_buffer = self.history_buffer.cuda().bfloat16() / self.frame_scale
         self.mouse_buffer = self.mouse_buffer.cuda().bfloat16()
         self.button_buffer = self.button_buffer.cuda().bfloat16()
+        
+        if self.ground_truth:
+            self.future_mouse_buffer = self.future_mouse_buffer.cuda().bfloat16()
+            self.future_button_buffer = self.future_button_buffer.cuda().bfloat16()
 
         self._build_cache()
 
@@ -128,6 +166,11 @@ class CausvidPipeline:
         self.history_buffer = self._initial_history_buffer.clone()
         self.mouse_buffer = self._initial_mouse_buffer.clone()
         self.button_buffer = self._initial_button_buffer.clone()
+        
+        if self.ground_truth:
+            self.future_mouse_buffer = self._initial_future_mouse_buffer.clone()
+            self.future_button_buffer = self._initial_future_button_buffer.clone()
+            self.gt_step = 0
 
         self._build_cache()
 
@@ -139,12 +182,26 @@ class CausvidPipeline:
 
         return frame as [c,h,w] tensor in [-1,1]
         """
-        new_mouse = new_mouse.bfloat16()
-        new_btn = new_btn.bfloat16()
+        if self.ground_truth:
+            # Use ground truth controls instead of player inputs
+            if self.gt_step >= self.future_mouse_buffer.size(1):
+                raise ValueError("Ground truth data exhausted")
+            
+            gt_mouse = self.future_mouse_buffer[0, self.gt_step]  # [2]
+            gt_btn = self.future_button_buffer[0, self.gt_step]   # [11]
+            
+            new_mouse_input = gt_mouse[None,None,:]  # [1,1,2]
+            new_btn_input = gt_btn[None,None,:]      # [1,1,11]
+            
+            self.gt_step += 1
+        else:
+            # Use player inputs
+            new_mouse = new_mouse.bfloat16()
+            new_btn = new_btn.bfloat16()
 
-        # Prepare new frame inputs
-        new_mouse_input = new_mouse[None,None,:]  # [1,1,2]
-        new_btn_input = new_btn[None,None,:]      # [1,1,11]
+            # Prepare new frame inputs
+            new_mouse_input = new_mouse[None,None,:]  # [1,1,2]
+            new_btn_input = new_btn[None,None,:]      # [1,1,11]
 
         # Initialize new frame as noise
         curr_x = torch.randn_like(self.history_buffer[:,:1])  # [1,1,c,h,w]
@@ -176,13 +233,6 @@ class CausvidPipeline:
 
         # New frame generated, append and cache
         new_frame = curr_x  # [1,1,c,h,w]
-        
-        # Update history buffer (slide window)
-        self.history_buffer = torch.cat([self.history_buffer[:,1:], new_frame], dim=1)
-        
-        # Update input buffers
-        self.mouse_buffer = torch.cat([self.mouse_buffer[:,1:], new_mouse_input], dim=1)
-        self.button_buffer = torch.cat([self.button_buffer[:,1:], new_btn_input], dim=1)
 
         # Add the new frame to cache with noise for next iteration
         new_frame_noisy = zlerp(new_frame, self.alpha)

@@ -85,14 +85,26 @@ class Attn(nn.Module):
 
         # rotate new queries and keys (shared kv cache between modalities)
         offset = kv_cache.get_offset(self.layer_idx) if kv_cache is not None else 0
+
         q = self.rope(q, offset=offset)
         k = self.rope(k, offset=offset)
 
-        if kv_cache is not None and kv_cache.should_update:
-            kv_cache.update(k, v, self.layer_idx)
-        
-        if offset > 0:
-            k, v = kv_cache.get(self.layer_idx)
+        if kv_cache is not None:
+            if kv_cache.should_update:
+                kv_cache.update(k, v, self.layer_idx)
+                k, v = kv_cache.get(self.layer_idx)
+            else:
+                k, v = kv_cache.get(self.layer_idx, new_k = k, new_v = v)
+
+        # prepend cached values
+        #if offset > 0:
+        #    old_k, old_v = kv_cache.get(self.layer_idx)
+        #    k = torch.cat([old_k, k], dim=2)
+        #    v = torch.cat([old_v, v], dim=2)
+
+        # update cache
+        #if kv_cache is not None and kv_cache.should_update:
+        #    kv_cache.update(k, v, self.layer_idx)
 
         # NOTE: Using block_mask = None to mark decoding, probably need something more explicit in future
         if self.local and block_mask is None:
