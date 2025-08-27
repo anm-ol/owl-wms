@@ -165,8 +165,8 @@ class WorldModel(nn.Module):
         # transformer fwd
         x = eo.rearrange(x, 'b d n h w -> b (n h w) d')
         x = self.transformer(x, cond, prompt_emb, doc_id, kv_cache)  # TODO: pass ctrl_emb instead of including in cond
-        x = eo.rearrange(x, 'b (n h w) d -> b d n h w', n=n, h=h, w=w)
+        x = eo.rearrange(x, 'b (n h w) d -> b d n h w', n=n, h=h, w=w).contiguous()
 
         # unpatchify
-        x = self.proj_out(x, cond, out_hw=(H, W)).contiguous()
+        x = self.proj_out(x, cond, out_hw=(H, W))
         return eo.rearrange(x, 'b c n h w -> b n c h w')
