@@ -14,11 +14,6 @@ model:
   width: 26
   patch_size: [1, 4, 4]
 
-  # tokens_per_frame: 880
-  # height: 22
-  # width: 40
-  # patch_size: [1, 2, 2]
-
   has_audio: false
 
   n_buttons: 11
@@ -37,31 +32,19 @@ model:
   global_window: 16  # null  # full window
 
 train:
-  trainer_id: world
+  trainer_id: rft_pair_distill
 
-  data_id: wan_sample
+  data_id: wan_pair_distill
   data_kwargs:
     window_length: 21
-    dataset_path: /mnt/data/lapp0/datasets/wan_generated/
-    batch_columns: ["x", "prompt"]
+    dataset_path: /mnt/data/lapp0/datasets/wan_generated_v2/
+    batch_columns: ["x_samples", "times", "prompt"]
 
   sample_data_id: wan_sample
   sample_data_kwargs:
     window_length: 10  # size of single ground truth start tokens
-    dataset_path: /mnt/data/lapp0/datasets/wan_generated/
+    dataset_path: /mnt/data/lapp0/datasets/wan_generated_v2/
     batch_columns: ["x", "prompt"]
-
-  #  data_id: sequence_packing
-  #  data_kwargs:
-  #    window_length: 256
-  #    dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
-  #    batch_columns: ["rgb"]
-  #
-  #  sample_data_id: cod
-  #  sample_data_kwargs:
-  #    window_length: 50  # size of single ground truth start tokens
-  #    dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
-  #    batch_columns: ["rgb"]
 
   target_batch_size: 8
   batch_size: 1
@@ -104,4 +87,4 @@ train:
 wandb:
   name: louiscastricato  # lapp0-andrew-lapp
   project: video_models  # owl
-  run_name: craft_v0.1
+  run_name: world_v1_distill
