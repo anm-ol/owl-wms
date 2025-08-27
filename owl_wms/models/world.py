@@ -128,7 +128,6 @@ class WorldModel(nn.Module):
 
         self.config = config
         assert config.tokens_per_frame == config.height * config.width
-        assert config.n_mouse_axes == 2
 
         self.timestep_emb = owl_nn.TimestepEmbedding(config.d_model)
         self.ctrl_emb = ControllerInputEmbedding(config.n_controller_inputs, config.d_model)
