@@ -26,36 +26,38 @@ def draw_frame(frame, mouse, button):
     circle_radius = 40
     cv2.circle(frame, circle_center, circle_radius, (255,255,255), 1)  # Draw compass circle
 
-    # Convert mouse coordinates (-1 to 1) to compass coordinates
-    mouse_x = mouse[0].item() * circle_radius + circle_center[0]
-    mouse_y = mouse[1].item() * circle_radius + circle_center[1]
+    if mouse is not None:
+        # Convert mouse coordinates (-1 to 1) to compass coordinates
+        mouse_x = mouse[0].item() * circle_radius + circle_center[0]
+        mouse_y = mouse[1].item() * circle_radius + circle_center[1]
 
-    # Draw arrow from center to mouse position
-    cv2.arrowedLine(frame, circle_center, (int(mouse_x), int(mouse_y)), (0,255,0), 2)
+        # Draw arrow from center to mouse position
+        cv2.arrowedLine(frame, circle_center, (int(mouse_x), int(mouse_y)), (0,255,0), 2)
 
-    # Draw button boxes along bottom
-    box_width = 40
-    box_height = 40
-    margin = 5
-    y_pos = frame.shape[0] - box_height - 10  # 10px from bottom
+    if button is not None:
+        # Draw button boxes along bottom
+        box_width = 40
+        box_height = 40
+        margin = 5
+        y_pos = frame.shape[0] - box_height - 10  # 10px from bottom
 
-    # Calculate starting x to center the boxes
-    total_width = (box_width + margin) * len(KEYBINDS) - margin
-    start_x = (frame.shape[1] - total_width) // 2
+        # Calculate starting x to center the boxes
+        total_width = (box_width + margin) * len(KEYBINDS) - margin
+        start_x = (frame.shape[1] - total_width) // 2
 
-    for i in range(len(KEYBINDS)):
-        x = start_x + i * (box_width + margin)
+        for i in range(len(KEYBINDS)):
+            x = start_x + i * (box_width + margin)
 
-        # Draw box
-        color = (0,255,0) if button[i] else (0,0,255)  # Green if pressed, red if not
-        cv2.rectangle(frame, (x, y_pos), (x + box_width, y_pos + box_height), color, -1)
+            # Draw box
+            color = (0,255,0) if button[i] else (0,0,255)  # Green if pressed, red if not
+            cv2.rectangle(frame, (x, y_pos), (x + box_width, y_pos + box_height), color, -1)
 
-        # Draw label
-        label = KEYBINDS[i]
-        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-        text_x = x + (box_width - text_size[0]) // 2
-        text_y = y_pos - 5  # 5px above box
-        cv2.putText(frame, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+            # Draw label
+            label = KEYBINDS[i]
+            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+            text_x = x + (box_width - text_size[0]) // 2
+            text_y = y_pos - 5  # 5px above box
+            cv2.putText(frame, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
 
     # Convert back to RGB for display
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -72,8 +74,8 @@ def draw_frames(frames, mouse_inputs, button_inputs):
         batch_frames = []
         for j in range(n):
             frame = frames[i,j]
-            mouse = mouse_inputs[i,j]
-            button = button_inputs[i,j]
+            mouse = mouse_inputs[i,j] if mouse_inputs is not None else None
+            button = button_inputs[i,j] if button_inputs is not None else None
             drawn = draw_frame(frame, mouse, button)
             batch_frames.append(drawn)
         out_frames.append(np.stack(batch_frames))

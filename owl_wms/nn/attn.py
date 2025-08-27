@@ -1,6 +1,7 @@
 import torch
-import einops
+import einops as eo
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
 from .normalization import rms_norm
@@ -21,11 +22,18 @@ def checkpoint(function, *args, **kwargs):
     return torch_checkpoint(function, *args, **kwargs)
 
 
-def create_causal_block_mask(
-        n_tokens: int, tokens_per_frame: int, window_len: int | None, n_cached_tokens: int = 0, device="cpu"
+def get_block_mask(
+    n_tokens: int,
+    tokens_per_frame: int,
+    window_len: int | None = None,
+    doc_id: torch.Tensor | None = None,
+    q_offset: int = 0,
+    is_causal: bool = True,
+    device="cpu"
 ):
-    # Build n_tokens X n_tokens BlockMask which is causal and disallows wrapping
-    assert 0 <= n_cached_tokens < n_tokens, "kv cache cannot exceed total tokens"
+    assert 0 <= q_offset < n_tokens, "kv cache cannot exceed total tokens"
+    if not is_causal:
+        assert q_offset == 0, "kv caching not supported with bidirectional"
 
     frame_id = torch.arange(n_tokens, device=device, dtype=torch.int32) // tokens_per_frame
     n_frames = n_tokens // tokens_per_frame
@@ -34,20 +42,50 @@ def create_causal_block_mask(
         window_len = n_frames
 
     def mask_mod(b, h, q, kv):
-        abs_q = q + n_cached_tokens
-        is_causal = frame_id[kv] <= frame_id[abs_q]
-        is_wrap = (frame_id[abs_q] == n_frames - 1) & (frame_id[kv] == 0)
-        window_mask = abs_q - kv < (window_len * tokens_per_frame)
-        return is_causal & ~is_wrap & window_mask
+        abs_q = q + q_offset  # offset for kv caching
+        frame_q, frame_kv = frame_id[abs_q], frame_id[kv]
 
-    return create_block_mask(
-        mask_mod,
-        B=None,
-        H=None,
-        Q_LEN=n_tokens - n_cached_tokens,
-        KV_LEN=n_tokens,
-        device=device,
-    )
+        if is_causal:
+            causal_mask = frame_kv <= frame_q
+        else:
+            causal_mask = True
+
+        if doc_id is not None:
+            same_doc_mask = doc_id[b, frame_q] == doc_id[b, frame_kv]
+        else:
+            same_doc_mask = True
+
+        window_mask = torch.abs(frame_q - frame_kv) < window_len
+
+        return causal_mask & window_mask & same_doc_mask
+
+    q_len = n_tokens - q_offset
+    return create_block_mask(mask_mod, B=None, H=None, Q_LEN=q_len, KV_LEN=n_tokens, device=device)
+
+
+class AttnMaskScheduler:
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.global_period = getattr(self.config, "global_attn_period", 4)
+
+    def __call__(self, seq_len, doc_id, kv_cache, device):
+        q_offset = kv_cache.length_at(0) if kv_cache is not None else 0
+        n_tokens = seq_len + q_offset
+        kwargs = dict(
+            n_tokens=n_tokens,
+            tokens_per_frame=self.config.tokens_per_frame,
+            doc_id=doc_id,
+            q_offset=q_offset,
+            is_causal=self.config.causal,
+            device=device
+        )
+        local_bm = get_block_mask(window_len=self.config.local_window, **kwargs)
+        global_bm = get_block_mask(window_len=self.config.global_window, **kwargs)
+        return [
+            global_bm if (i % self.global_period) == 0 else local_bm
+            for i in range(self.config.n_layers)
+        ]
 
 
 class Attn(nn.Module):
@@ -59,14 +97,11 @@ class Attn(nn.Module):
 
         self.qkv = nn.Linear(config.d_model, 3 * config.d_model)
         self.out = nn.Linear(config.d_model, config.d_model)
-
         self.rope = get_rope_cls(getattr(config, "rope_impl", "ortho"))(config)
 
     def forward(self, x, block_mask, kv_cache=None):
-        B, L, _ = x.shape
-
         qkv = self.qkv(x)
-        q, k, v = einops.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
+        q, k, v = eo.rearrange(qkv, "b t (three h d) -> three b h t d", three=3, h=self.n_heads)
         q, k = rms_norm(q), rms_norm(k)
 
         # rotate new queries and keys (shared kv cache between modalities)
@@ -85,9 +120,27 @@ class Attn(nn.Module):
             kv_cache.update(k.clone(), v.clone(), self.layer_idx)
 
         attn_out = flex_attention(q, k, v, block_mask=block_mask)
-        attn_out = attn_out.permute(0, 2, 1, 3).contiguous().view(x.shape[0], L, -1)
+        attn_out = attn_out.permute(0, 2, 1, 3).contiguous().view(x.size(0), x.size(1), -1)
 
         return self.out(attn_out)
+
+
+class CrossAttention(nn.Module):
+    def __init__(self, config, context_dim=None):
+        super().__init__()
+        assert config.d_model % config.n_heads == 0
+        self.n_heads = config.n_heads
+        self.q = nn.Linear(config.d_model, config.d_model)
+        self.kv = nn.Linear(context_dim or config.d_model, config.d_model * 2)
+        self.o = nn.Linear(config.d_model, config.d_model)
+
+    def forward(self, x, context, context_pad_mask=None):
+        q = eo.rearrange(self.q(x), 'b n (h d) -> b h n d', h=self.n_heads)
+        k, v = eo.rearrange(self.kv(context), "b m (two h d) -> two b h m d", two=2, h=self.n_heads)
+        attn_mask = None if context_pad_mask is None else context_pad_mask[:, None, None, :]
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+        out = out.transpose(1, 2).contiguous().reshape(x.size(0), x.size(1), -1)
+        return self.o(out)
 
 
 class DiTBlock(nn.Module):
@@ -124,30 +177,17 @@ class DiT(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-
-        self.local_layers = [(layer_idx % 4 != 0) for layer_idx in range(config.n_layers)]
+        self.attn_masker = AttnMaskScheduler(config)
         self.blocks = nn.ModuleList([DiTBlock(config, idx) for idx in range(config.n_layers)])
 
-    def get_block_mask(self, x, kv_cache, window_len):
-        if not self.config.causal:
-            return None
-        seq_len = x.size(1)
-        offset = kv_cache.length_at(0) if kv_cache is not None else 0
-        return create_causal_block_mask(
-            n_tokens=seq_len + offset,
-            tokens_per_frame=self.config.tokens_per_frame,
-            n_cached_tokens=offset,
-            window_len=window_len,
-            device=x.device
-        )
-
-    def forward(self, x, cond, kv_cache=None):
-        local_block_mask = self.get_block_mask(x, kv_cache, self.config.local_window)
-        global_block_mask = self.get_block_mask(x, kv_cache, self.config.global_window)
-
-        for layer_idx, block in enumerate(self.blocks):
-            block_mask = local_block_mask if self.local_layers[layer_idx] else global_block_mask
-            x = block(x, cond, block_mask, kv_cache)
+    def forward(self, x, cond, doc_id=None, kv_cache=None):
+        enable_ckpt = self.training and getattr(self.config, "gradient_checkpointing", False)
+        block_masks = self.attn_masker(seq_len=x.size(1), doc_id=doc_id, kv_cache=kv_cache, device=x.device)
+        for block, block_mask in zip(self.blocks, block_masks):
+            if enable_ckpt:
+                x = checkpoint(block, x, cond, block_mask, kv_cache)
+            else:
+                x = block(x, cond, block_mask, kv_cache)
         return x
 
 
@@ -165,9 +205,8 @@ class SkipConnection(nn.Module):
 
         return x
 
-class UViT(nn.Module):
-    get_block_mask = DiT.get_block_mask
 
+class UViT(nn.Module):
     def __init__(self, config):
         super().__init__()
 
@@ -189,7 +228,7 @@ class UViT(nn.Module):
         self.skip_projs = nn.ModuleList(skip_projs)
 
     def forward(self, x, cond, kv_cache = None):
-        block_mask = self.get_block_mask(x, kv_cache)
+        block_mask = self.get_block_mask(x, kv_cache)  # TODO: use AttnMaskScheduler or get_block_mask directly
 
         # Cache early block outputs for skip connections
         early_features = []
@@ -221,86 +260,26 @@ class UViT(nn.Module):
 # === VIT Specific Layers ===
 
 class FinalLayer(nn.Module):
-    def __init__(self, sample_size, d_model, channels = 3, patch_size=1):
+    def __init__(self, d_model, channels, **conv_kw):
         super().__init__()
 
         self.norm = AdaLN(d_model)
         self.act = nn.SiLU()
-        self.proj = nn.Linear(d_model, channels*patch_size*patch_size)
+        self.proj = nn.ConvTranspose3d(d_model, channels, **conv_kw)
 
-    def forward(self, x, cond):
-        x = self.norm(x, cond)
-        x = self.act(x)
-        x = self.proj(x)
+    def forward(self, x, cond, out_hw=None):
+        """
+        x: (B, D, N, s, s)    cond: (B, N, D)  # per-frame conditioning
+        """
+        B, D, N, H2, W2 = x.shape
 
-        return x
-
-def test_attn_mask():
-    total_tokens = 64
-    tokens_per_frame = 8
-    device = "cpu"
-
-    block_mask = create_causal_block_mask(total_tokens, tokens_per_frame, device=device)
-
-    # Convert to dense grid
-    idx = torch.arange(total_tokens, device=device, dtype=torch.int32)
-    bool_mask = block_mask.mask_mod(0, 0, idx[:, None], idx[None, :])
-    dense_mask = torch.where(
-        bool_mask, torch.tensor(0., device=device),
-        torch.tensor(float("-inf"), device=device)
-    )
-
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(10,10))
-    plt.imshow(dense_mask.float().cpu().numpy(), cmap='gray')
-    plt.colorbar()
-    plt.title(f'Block Causal Mask ({total_tokens} tokens, {tokens_per_frame} per frame)')
-    plt.xlabel('Key Position')
-    plt.ylabel('Query Position')
-    plt.savefig('test_mask.png')
-    plt.close()
-
-
-@torch.no_grad()
-def test_kv_cache():
-    from .kv_cache import KVCache
-    from ..configs import TransformerConfig
-
-    # Create test configs
-    config = TransformerConfig(
-        n_layers=2,
-        n_heads=8,
-        d_model=64,
-        tokens_per_frame=8
-    )
-
-    # Create model and cache
-    model = DiT(config).cuda()
-    cache = KVCache(config)
-    cache.to('cuda')
-
-    # Create dummy inputs
-    batch_size = 2
-    seq_len = 16
-    x = torch.randn(batch_size, seq_len, config.d_model).cuda()
-    cond = torch.randn(batch_size, seq_len//config.tokens_per_frame, config.d_model).cuda()
-
-    # Test forward pass with cache
-    cache.reset(batch_size)
-    cache.enable_cache_updates()
-
-    # First forward pass should populate cache
-    out1 = model(x, cond, cache)
-
-    # Second pass should use cached values
-    cache.disable_cache_updates()
-    out2 = model(x, cond, cache)
-
-    # Outputs should match
-    print("Max difference between outputs:", torch.max(torch.abs(out1 - out2)).item())
-    print("Cache test complete")
-
-if __name__ == "__main__":
-    import os
-    os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
-    test_attn_mask()
+        # token-wise AdaLN + SiLU (broadcast cond over spatial s×s)
+        x_tok = eo.rearrange(x, 'b d n h w -> b (n h w) d')
+        cond_tok = eo.repeat(cond, 'b n d -> b (n h w) d', h=H2, w=W2)
+        x_tok = self.act(self.norm(x_tok, cond_tok))
+        x = eo.rearrange(x_tok, 'b (n h w) d -> b d n h w', n=N, h=H2, w=W2)
+        if out_hw is None:
+            return self.proj(x)  # -> (B, C, N, s*ps[1], s*ps[2])
+        else:
+            H, W = out_hw
+            return self.proj(x, output_size=(N, H, W))

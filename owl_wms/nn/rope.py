@@ -1,11 +1,11 @@
 from rotary_embedding_torch import RotaryEmbedding
 import torch
 from torch import nn
-from torch.cuda.amp import autocast
 
 import einops as eo
 from einops._torch_specific import allow_ops_in_compiled_graph  # requires einops>=0.6.1
 allow_ops_in_compiled_graph()
+
 
 def get_rope_cls(cls_name):
     cls_name = cls_name.lower()
@@ -18,6 +18,7 @@ def get_rope_cls(cls_name):
     else:
         raise ValueError(f"Invalid RoPE class: {cls_name}")
 
+
 class RoPE(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -26,12 +27,11 @@ class RoPE(nn.Module):
         if not config.has_audio:
             # subclasses freqs include audio by default, remove last item from each frame
             freqs = freqs.view(config.n_frames, -1, freqs.size(-1))[:, :-1].flatten(0, 1)
-            freqs = freqs
 
         self.cos = nn.Buffer(freqs.cos().contiguous(), persistent=False)
         self.sin = nn.Buffer(freqs.sin().contiguous(), persistent=False)
 
-    @autocast(enabled=False)
+    @torch.autocast("cuda", enabled=False)
     def forward(self, x, offset: int = 0):
         assert self.cos.dtype == torch.float32
         cos = self.cos[..., offset:offset + x.size(2), :]
@@ -99,13 +99,8 @@ class OrthoRoPE(RoPE):
     This version is corrected to handle non-square sample_sizes.
     """
     def get_freqs(self, config):
-        # Unpack height and width from sample_size list/tuple
-        try:
-            p_h, p_w = config.sample_size
-        except (TypeError, ValueError):
-            # Fallback for when sample_size is a single integer for square inputs
-            p_h = p_w = config.sample_size
-
+        H = getattr(config, 'height', getattr(config, 'sample_size', None))
+        W = getattr(config, 'width', getattr(config, 'sample_size', None))
         head_dim = config.d_model // config.n_heads
 
         pos_emb = RotaryEmbedding(
@@ -113,15 +108,13 @@ class OrthoRoPE(RoPE):
             freqs_for='pixel',
             max_freq=256
         )
-        # Rot features: (L, P_H+1, P_W+1, <pad>)
-        # Use the unpacked height (p_h) and width (p_w)
+        # Rot features: (L, H+1, W+1, <pad>)
         freqs = pos_emb.get_axial_freqs(
-            config.n_frames, p_h + 1, p_w + 1, 1, offsets=(0, 0, 0, 1)
-        ).view(config.n_frames, p_h + 1, p_w + 1, -1)
+            config.n_frames, H + 1, W + 1, 1, offsets=(0, 0, 0, 1)
+        ).view(config.n_frames, H + 1, W + 1, -1)
 
-        # Correctly reshape based on rectangular dimensions
-        vid_freqs = freqs[:, :p_h, :p_w].reshape(config.n_frames, p_h * p_w, -1)
-        aud_freqs = freqs[:, -1, -1].unsqueeze(1)
+        vid_freqs = freqs[:, :H, :W].reshape(config.n_frames, H * W, -1)  # top left region
+        aud_freqs = freqs[:, -1, -1].unsqueeze(1)  # bottom right item
 
         freqs = torch.cat([vid_freqs, aud_freqs], dim=1).flatten(0, 1)
         return freqs[..., ::2]  # subsampling
@@ -134,7 +127,8 @@ class MotionRoPE(RoPE):
     This constant-velocity prior serves as a baseline for learning complex, non-linear motion.
     """
     def get_freqs(self, config):
-        H, W = config.sample_size, config.sample_size
+        H = getattr(config, 'height', getattr(config, 'sample_size', None))
+        W = getattr(config, 'width', getattr(config, 'sample_size', None))
         F = config.n_frames
         d_head = config.d_model // config.n_heads
 
@@ -147,7 +141,7 @@ class MotionRoPE(RoPE):
 
         # TODO: paper is 3 FPS, uses delta=2.0, we have 60 FPS, so we might want to lower this
         # Rough heuristic for optimal parameter: delta = 1.0 -> objects tend to move one pixel per frame
-        ats_delta = getattr(config, 'rope_ats_delta', 0.5)
+        ats_delta = getattr(config, 'rope_ats_delta', 2.0)
 
         base_freqs = RotaryEmbedding(dim=sum(dims.values()), freqs_for='lang', theta=theta).freqs.float()
 
@@ -170,8 +164,8 @@ class MotionRoPE(RoPE):
     def _create_positions(self, n_frames, height, width, ats_delta):
         # Base 1D grids for time, height, and width
         t_grid = torch.arange(n_frames, dtype=torch.float32) * ats_delta
-        h_grid = torch.arange(height, dtype=torch.float32) - (height - 1) / 2.0
-        w_grid = torch.arange(width, dtype=torch.float32) - (width - 1) / 2.0
+        h_grid = torch.linspace(-1., 1., steps=height, dtype=torch.float32) * ((height - 1) / 2.0)
+        w_grid = torch.linspace(-1., 1., steps=width, dtype=torch.float32) * ((width - 1) / 2.0)
 
         # Create flattened position lists for video and audio
         t_video = eo.repeat(t_grid, 'f -> (f h w)', h=height, w=width)

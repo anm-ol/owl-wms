@@ -1,4 +1,7 @@
 def get_model_cls(model_id):
+    if model_id == "game_rft_multivae":
+        from .gamerft_multivae import GameRFT
+        return GameRFT
     if model_id == "game_rft":
         """
         GameRFT is Rectified Flow Transformer for video only

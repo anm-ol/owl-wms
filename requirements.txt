@@ -1,4 +1,4 @@
-numpy==1.26.0
+numpy==1.26.4
 opencv-python
 wandb
 einops
@@ -23,3 +23,9 @@ alias-free-torch
 git+https://github.com/sypsyp97/convnext_perceptual_loss
 wandb[media]
 torchtyping
+
+# WorldModel deps
+diffusers
+tensordict
+transformers
+ftfy
