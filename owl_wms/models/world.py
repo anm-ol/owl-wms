@@ -162,6 +162,7 @@ class WorldModel(nn.Module):
         B, N, C, H, W = x.shape
 
         # hack for WAN, TODO: REMOVE
+        print("controller_inputs.shape", controller_inputs.shape)
         if controller_inputs.size(1) != x.size(1):
             controller_inputs = controller_inputs.view(x.size(0), x.size(1) // 4, -1)
         ####
