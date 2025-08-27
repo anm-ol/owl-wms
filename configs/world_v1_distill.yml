@@ -16,8 +16,7 @@ model:
 
   has_audio: false
 
-  n_buttons: 11
-  n_mouse_axes: 2
+  n_controller_inputs: 13
 
   cfg_prob: 0.1
 
