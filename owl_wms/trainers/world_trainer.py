@@ -222,7 +222,7 @@ class WorldTrainer(BaseTrainer):
             batch["x"] = self.encoder_decoder.encode(batch.pop("rgb")).bfloat16()
         if "prompt" in batch:
             assert "prompt_emb" not in batch, "passed prompt to convert, but already have batch item `prompt_emb`"
-            batch["prompt_emb"] = self.prompt_encoder(batch.pop("prompt")).type_as(batch["x"])
+            batch["prompt_emb"] = self.prompt_encoder(batch.pop("prompt")).to(batch["x"].dtype)
         return batch
 
     def train_loader(self):
