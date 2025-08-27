@@ -349,7 +349,7 @@ class WorldTrainer(BaseTrainer):
         dist.send(t, dst=0)
 
     def eval_step(self, sample_loader, sampler):
-        ema_model = self.get_module(ema=True).core
+        ema_model = self.get_module(ema=True)
 
         # ---- Generate Samples ----
         eval_batch = self.prep_batch(next(sample_loader))
