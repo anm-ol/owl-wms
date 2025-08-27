@@ -285,8 +285,7 @@ class WorldTrainer(BaseTrainer):
         loss_sum = 0
         for batch in mini_batches:
             batch = self.prep_batch(batch)
-            with self.autocast_ctx:
-                loss = self.fwd_step(batch) / self.accum_steps
+            loss = self.fwd_step(batch) / self.accum_steps
             loss.backward()
             loss_sum += loss.item()
 
