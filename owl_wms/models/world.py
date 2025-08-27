@@ -42,6 +42,15 @@ class PromptEncoder(nn.Module):
         return TensorDict({"emb": emb, "pad_mask": pad_mask}, batch_size=[emb.size(0)])
 
 
+class ControllerInputEmbedding(nn.Module):
+    def __init__(self, n_inputs, dim_out, dim=512):
+        super().__init__()
+        self.mlp = owl_nn.MLPCustom(n_inputs, dim * 4, dim_out)
+
+    def forward(self, controller_input: Tensor):
+        return self.mlp(controller_input)
+
+
 class WorldDiTBlock(nn.Module):
     def __init__(self, config, layer_idx):
         # TODO: `config.enable_text`
@@ -122,7 +131,7 @@ class WorldModel(nn.Module):
         assert config.n_mouse_axes == 2
 
         self.timestep_emb = owl_nn.TimestepEmbedding(config.d_model)
-        self.ctrl_emb = owl_nn.ControlEmbedding(config.n_buttons, config.d_model)
+        self.ctrl_emb = ControllerInputEmbedding(config.n_controller_inputs, config.d_model)
 
         self.transformer = WorldDiT(config)
 
@@ -148,7 +157,7 @@ class WorldModel(nn.Module):
         x: [B, N, C, H, W],
         denoising_ts: [B, N]
         prompt_emb: [???, ]
-        controller_inputs: [???, ]
+        controller_inputs: [B, N, I]
         doc_id: [???, ]
         """
         B, N, C, H, W = x.shape

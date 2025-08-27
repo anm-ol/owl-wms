@@ -9,20 +9,19 @@ model:
 
   n_frames: 512
 
-  tokens_per_frame: 390
-  height: 15
-  width: 26
-  patch_size: [1, 4, 4]
+  #  tokens_per_frame: 390
+  #  height: 15
+  #  width: 26
+  #  patch_size: [1, 4, 4]
 
-  # tokens_per_frame: 880
-  # height: 22
-  # width: 40
-  # patch_size: [1, 2, 2]
+  tokens_per_frame: 880
+  height: 22
+  width: 40
+  patch_size: [1, 2, 2]
 
   has_audio: false
 
-  n_buttons: 11
-  n_mouse_axes: 2
+  n_controller_inputs: 13
 
   cfg_prob: 0.1
 
@@ -39,29 +38,29 @@ model:
 train:
   trainer_id: world
 
-  data_id: wan_sample
-  data_kwargs:
-    window_length: 21
-    dataset_path: /mnt/data/lapp0/datasets/wan_generated/
-    batch_columns: ["x", "prompt"]
-
-  sample_data_id: wan_sample
-  sample_data_kwargs:
-    window_length: 10  # size of single ground truth start tokens
-    dataset_path: /mnt/data/lapp0/datasets/wan_generated/
-    batch_columns: ["x", "prompt"]
-
-  #  data_id: sequence_packing
+  #  data_id: wan_sample
   #  data_kwargs:
-  #    window_length: 256
-  #    dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
-  #    batch_columns: ["rgb"]
+  #    window_length: 21
+  #    dataset_path: /mnt/data/lapp0/datasets/wan_generated/
+  #    batch_columns: ["x", "prompt"]
   #
-  #  sample_data_id: cod
+  #  sample_data_id: wan_sample
   #  sample_data_kwargs:
-  #    window_length: 50  # size of single ground truth start tokens
-  #    dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
-  #    batch_columns: ["rgb"]
+  #    window_length: 10  # size of single ground truth start tokens
+  #    dataset_path: /mnt/data/lapp0/datasets/wan_generated/
+  #    batch_columns: ["x", "prompt"]
+
+  data_id: sequence_packing
+   data_kwargs:
+     window_length: 256
+     dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
+     batch_columns: ["rgb", "mouse", "buttons"]
+
+   sample_data_id: cod
+   sample_data_kwargs:
+     window_length: 50  # size of single ground truth start tokens
+     dataset_path: /mnt/data/lapp0/npy_datasets/BlackOpsColdWar/train
+     batch_columns: ["rgb", "mouse", "buttons"]
 
   target_batch_size: 8
   batch_size: 1
