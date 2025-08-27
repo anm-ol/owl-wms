@@ -14,6 +14,9 @@ import ftfy
 
 
 class PromptEncoder(nn.Module):
+    import os
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
     """Callable for text -> UMT5 embedding"""
     def __init__(self, model_id="google/umt5-xl", dtype=torch.bfloat16):
         super().__init__()

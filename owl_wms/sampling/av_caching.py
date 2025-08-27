@@ -23,7 +23,7 @@ class AVCachingSampler:
         self.noise_prev = noise_prev
 
     @torch.no_grad()
-    def __call__(self, model, x, mouse: torch.Tensor | None, btn: torch.Tensor | None):
+    def __call__(self, model, x, prompt, mouse: torch.Tensor | None, btn: torch.Tensor | None):
         """Generate `num_frames` new frames and return updated tensors."""
         batch_size, init_len = x.size(0), x.size(1)
 
@@ -45,7 +45,7 @@ class AVCachingSampler:
             curr_btn = btn[:, start: start + 1] if btn is not None else None
 
             x = self.denoise_frame(
-                model, kv_cache,
+                model, prompt, kv_cache,
                 prev_x, prev_mouse, prev_btn,
                 curr_mouse, curr_btn,
                 dt=dt,
@@ -67,6 +67,7 @@ class AVCachingSampler:
     def denoise_frame(
         self,
         model,
+        prompt,
         kv_cache: KVCache,
         prev_video: torch.Tensor,
         prev_mouse: torch.Tensor,
@@ -91,6 +92,7 @@ class AVCachingSampler:
         eps_v = model(
             torch.cat([prev_vid, new_vid], dim=1),
             torch.cat([t_prev, t_new], dim=1),
+            prompt,
             torch.cat([prev_mouse, curr_mouse], dim=1) if prev_mouse is not None else None,
             torch.cat([prev_btn, curr_btn], dim=1) if prev_btn is not None else None,
             kv_cache=kv_cache,
