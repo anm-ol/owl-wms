@@ -60,6 +60,19 @@ class RFTPairDistillTrainer(WorldTrainer):
                f"x1_err={(x1_e - xs[:, :, -1].float()).abs().max().item():.3e}"
         #####
 
+        ####
+        # A) scale check: noise endpoint should look like N(0,1); it usually doesn't
+        std_x1 = x1_e.flatten(2).std(dim=-1).mean().item()
+        std_rand = torch.randn_like(x0_e).flatten(2).std(dim=-1).mean().item()
+        print(f"[sanity] std(x1_end)={std_x1:.3f}, std(randn)={std_rand:.3f}")
+
+        # B) stepwise scale follows sigma? (correlation ~= 1 -> stored states are sigma-scaled)
+        perstep_std = xs.float().flatten(3).std(dim=-1).mean(dim=(0,1))  # [K]
+        corr = torch.corrcoef(torch.stack([perstep_std, t.float().mean(0)])).cpu().numpy()[0,1] \
+               if t.dim()==2 else torch.corrcoef(torch.stack([perstep_std, t.float()]))[0,1]
+        print(f"[sanity] corr(step_std, t)≈{float(corr):.3f}")
+        ####
+
         with torch.no_grad():
             # teacher time + state
             ts_teacher = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
