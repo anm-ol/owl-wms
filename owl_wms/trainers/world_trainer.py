@@ -216,13 +216,13 @@ class WorldTrainer(BaseTrainer):
 
     def prep_batch(self, batch):
         """Move to cuda, and if necessary use encoder to convert rgb to latent (x)"""
-        batch = {k: v.cuda().bfloat16() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         if "rgb" in batch:
             assert "x" not in batch, "passed rgb to convert, but already have batch item `x` (latents)"
             batch["x"] = self.encoder_decoder.encode(batch.pop("rgb")).bfloat16()
         if "prompt" in batch:
             assert "prompt_emb" not in batch, "passed prompt to convert, but already have batch item `prompt_emb`"
-            batch["prompt_emb"] = self.prompt_encoder(batch.pop("prompt"))
+            batch["prompt_emb"] = self.prompt_encoder(batch.pop("prompt")).type_as(batch["x"])
         return batch
 
     def train_loader(self):
