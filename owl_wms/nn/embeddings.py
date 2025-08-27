@@ -32,6 +32,7 @@ class SinCosEmbed(nn.Module):
 
     @torch.autocast("cuda", enabled=False)
     def forward(self, x):
+        orig_dtype = x.dtype
         x = x.float()
         # Handle different input types
         if isinstance(x, float):
@@ -67,7 +68,7 @@ class SinCosEmbed(nn.Module):
         if reshape_out:
             emb = emb.reshape(b, n, -1)
 
-        return emb
+        return emb.to(orig_dtype)
 
 class TimestepEmbedding(nn.Module):
     def __init__(self, dim):
