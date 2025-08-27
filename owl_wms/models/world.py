@@ -161,6 +161,11 @@ class WorldModel(nn.Module):
         """
         B, N, C, H, W = x.shape
 
+        # hack for WAN, TODO: REMOVE
+        if controller_inputs.size(1) != x.size(1):
+            controller_inputs = controller_inputs.view(x.size(0), x.size(1) // 4, -1)
+        ####
+
         # embed
         ts_emb = self.timestep_emb(ts)  # [B, N, d]
         ctrl_emb = self.ctrl_emb(controller_inputs) if controller_inputs is not None else None
