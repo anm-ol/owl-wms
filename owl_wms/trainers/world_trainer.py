@@ -222,7 +222,7 @@ class WorldTrainer(BaseTrainer):
             batch["x"] = self.encoder_decoder.encode(batch.pop("rgb"))
         if "mouse" in batch or "buttons" in batch:
             assert "controller_inputs" not in batch, "passed mouse or button, but already have `controller_inputs`"
-            xs = filter(lambda x: x is not None, [batch.pop("mouse"), batch.pop("buttons")])
+            xs = tuple(filter(lambda x: x is not None, [batch.pop("mouse"), batch.pop("buttons")]))
             batch["controller_inputs"] = torch.cat(xs, dim=1)
         if "prompt" in batch:
             assert "prompt_emb" not in batch, "passed prompt to convert, but already have batch item `prompt_emb`"
