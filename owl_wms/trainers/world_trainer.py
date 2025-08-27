@@ -183,7 +183,7 @@ class WorldTrainer(BaseTrainer):
         # Online model, EMO, Optimizer
         self.model = self.model.cuda()
         if self.world_size > 1:
-            self.model = DDP(self.model, device_ids=[self.local_rank])
+            self.model = DDP(self.model, device_ids=[self.local_rank], find_unused_parameters=True)
         self.model = torch.compile(self.model)
 
         self.ema = EMA(self.model, beta=0.999, update_after_step=0, update_every=1)
