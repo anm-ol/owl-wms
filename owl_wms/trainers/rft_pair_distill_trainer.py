@@ -6,7 +6,7 @@ from .world_trainer import WorldTrainer
 
 class RFTPairDistillTrainer(WorldTrainer):
     def fwd_step(self, batch):
-        return self.chord_distillation(batch)
+        return self.chord_distillation2(batch)
 
     def standard_loss_teacher(self, batch):
         xs, t = batch["x_samples"], batch["times"]   # [B,N,K,C,H,W]
@@ -71,6 +71,49 @@ class RFTPairDistillTrainer(WorldTrainer):
         with self.autocast_ctx:
             v_pred = self.core_fwd(x_t, ts, prompt_emb=prompt_emb)
         return F.mse_loss(v_pred.float(), v_target.float())
+
+    def chord_distillation2(self, batch):
+        xs, t, prompt_emb = batch["x_samples"], batch["times"], batch["prompt_emb"]
+        B, N = xs.shape[:2]
+
+        with torch.no_grad():
+            # teacher time + *teacher-path* state
+            ts_teacher = torch.randn(B, N, device=xs.device, dtype=torch.float32).sigmoid()
+            x_t        = self.sample_xs_at_ts(xs, t, ts_teacher).float()              # [B,N,C,H,W]
+
+            # Secant velocity around ts_teacher (nearest saved steps)
+            # Build broadcasted t grid like in sample_xs_at_ts
+            if t.dim() == 1:
+                t32 = t.view(1, 1, -1).expand(B, N, -1).to(xs.device, torch.float32)
+            elif t.dim() == 2:
+                t32 = t.view(B, 1, -1).expand(B, N, -1).to(xs.device, torch.float32)
+            else:
+                t32 = t.to(xs.device, torch.float32)
+            ts32 = ts_teacher  # [B,N]
+
+            hi = torch.searchsorted(t32, ts32.unsqueeze(-1), right=True).clamp_(1, t32.size(-1) - 1)
+            lo = hi - 1
+            t_lo = torch.gather(t32, 2, lo).squeeze(2)                                 # [B,N]
+            t_hi = torch.gather(t32, 2, hi).squeeze(2)                                 # [B,N]
+
+            # Gather neighbor states
+            nd = xs.dim() - 3
+            idx_lo = lo[(...,) + (None,) * nd]
+            idx_hi = hi[(...,) + (None,) * nd]
+            x_lo = torch.take_along_dim(xs, idx_lo, dim=2).squeeze(2).float()          # [B,N,C,H,W]
+            x_hi = torch.take_along_dim(xs, idx_hi, dim=2).squeeze(2).float()          # [B,N,C,H,W]
+
+            dt = (t_hi - t_lo).clamp_min(1e-6).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # [B,N,1,1,1]
+            v_target = (x_hi - x_lo) / dt                                               # teacher-path velocity @ ts_teacher
+            ts = ts_teacher                                                             # fp32 time label, matches target
+
+        with self.autocast_ctx:
+            v_pred = self.core_fwd(x_t, ts, prompt_emb=prompt_emb)
+        return F.mse_loss(v_pred.float(), v_target.float())
+
+
+
+
 
     @staticmethod
     def sample_xs_at_ts(xs, t, ts):
