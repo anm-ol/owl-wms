@@ -129,7 +129,7 @@ class TekkenCachingActionSampler:
             final_actions = action_ids[:, :generated_latents.shape[1]]
 
         if means is not None:
-            final_latents = (final_latents + means) * stds
+            final_latents = (final_latents - means) / stds
         else:
             final_latents = final_latents * vae_scale
         video_out = decode_fn(final_latents) if decode_fn is not None else None

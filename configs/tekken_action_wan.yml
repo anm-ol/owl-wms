@@ -55,7 +55,7 @@ train:
   output_path: checkpoints/tekken_dit_v2_actions_wan_ema_
   resume_ckpt: null #checkpoints/tekken_dit_v2/step_24000.pt # Path to your last checkpoint
 
-  sample_interval: 1
+  sample_interval: 2
   save_interval: 2000
   n_samples: 2 #8
   eval_sample_dir: samples/tekken_dit_v2_actions
@@ -73,7 +73,7 @@ train:
   vae_id: wan
   vae_cfg_path: null # Path to your VAE config
   vae_ckpt_path: "preproccessing/checkpoints/Wan2.1/vae" # Path to your VAE checkpoint
-  vae_scale: 2.141 # Adjust if your VAE has a scaling factor
+  vae_scale: 1.0 # Adjust if your VAE has a scaling factor
   per_channel_mean: [
     -0.7571,
     -0.7089,
@@ -110,7 +110,7 @@ train:
     2.8251,
     1.916
   ]
-  vae_batch_size: 64
+  vae_batch_size: 4
 
 wandb:
   name: d-fusion

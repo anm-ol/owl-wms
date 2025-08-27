@@ -205,7 +205,7 @@ class TekkenRFTTrainerV2(BaseTrainer):
 
                 if self.per_channel_mean is not None:
                     # Broadcasting now works correctly
-                    batch_vid = (batch_vid - self.per_channel_mean) / self.per_channel_std
+                    batch_vid = (batch_vid * self.per_channel_std) + self.per_channel_mean
                 else:
                     batch_vid = batch_vid / self.train_cfg.vae_scale
                 
