@@ -74,7 +74,8 @@ class WanPairDataset(Dataset):
         run_dir = self.run_dirs[idx]
         steps_by_time = list(reversed(self._steps[run_dir]))
         x_samples, times = self.load_item(run_dir, steps_by_time)
-        return {"x_samples": x_samples, "times": times}
+        prompt = (run_dir / "prompt.txt").read_text(encoding="utf-8").strip()
+        return {"x_samples": x_samples, "times": times, "prompt": prompt}
 
 
 def collate_fn(batch, batch_columns: list):
