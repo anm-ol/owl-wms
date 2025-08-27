@@ -46,6 +46,20 @@ class RFTPairDistillTrainer(WorldTrainer):
         xs, t = batch["x_samples"], batch["times"]   # [B,N,K,C,H,W]
         B, N = xs.shape[:2]
 
+        ####
+        t_chk = t if t.dim() == 1 else t[0]  # ok to check one sample
+
+        x0_e = self.sample_xs_at_ts(xs, t, torch.zeros(B, N, device=xs.device, dtype=torch.float32)).float()
+        x1_e = self.sample_xs_at_ts(xs, t, torch.ones (B, N, device=xs.device, dtype=torch.float32)).float()
+
+        assert (t_chk[1:] > t_chk[:-1]).all() and \
+               torch.allclose(x0_e, xs[:, :, 0].float(), atol=1e-5, rtol=1e-4) and \
+               torch.allclose(x1_e, xs[:, :, -1].float(), atol=1e-5, rtol=1e-4), \
+               f"times/order/axis mismatch: mono={(t_chk[1:] > t_chk[:-1]).all().item()}, " \
+               f"x0_err={(x0_e - xs[:, :, 0].float()).abs().max().item():.3e}, " \
+               f"x1_err={(x1_e - xs[:, :, -1].float()).abs().max().item():.3e}"
+        #####
+
         with torch.no_grad():
             # teacher time + state
             ts_teacher = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
