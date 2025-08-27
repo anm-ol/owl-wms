@@ -106,7 +106,7 @@ class AVCachingSampler:
 
         # Remaining diffusion steps with cached history, denoising denoising only new frame
         for step in range(1, self.n_steps):
-            eps_vid = model(new_vid, t_new, curr_mouse, curr_btn, kv_cache=kv_cache)
+            eps_vid = model(new_vid, t_new, prompt, curr_mouse, curr_btn, kv_cache=kv_cache)
             new_vid -= eps_vid * dt[step]
             t_new -= dt[step]
 
