@@ -92,10 +92,6 @@ class GameCV:
                 self.pipeline.init_buffers()
             elif keysym == XK.XK_u and hasattr(self.pipeline, "restart_from_buffer"):
                 self.pipeline.restart_from_buffer()
-            elif keysym == XK.XK_o:
-                self.pipeline.up_sampling_steps()
-            elif keysym == XK.XK_i:
-                self.pipeline.down_sampling_steps()
 
         # Regular movement / action keys
         if keysym in self.KEYMAP:
@@ -206,8 +202,7 @@ class GameCV:
                       f"FPS (total): {avg_total_fps:5.1f} | "
                       f"FPS (pipeline): {avg_pipe_fps:5.1f} | "
                       f"Latency pipeline: {pipe_time*1000:6.1f} ms | "
-                      f"Latency draw: {draw_time*1000:6.1f} ms | "
-                      f"Steps: {self.pipeline.sampling_steps}")
+                      f"Latency draw: {draw_time*1000:6.1f} ms")
 
                 self.stats_t0      = now
                 self.pipe_fps_sum  = 0.0
