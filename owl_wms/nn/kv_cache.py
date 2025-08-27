@@ -55,6 +55,7 @@ class SingleKVCache:
         delta_len = new_len - old_len
         self.offsets[layer_ind] += delta_len
 
+
         self.cache[layer_ind] = (new_k,new_v)
 
     def truncate(self, truncate_amt, front = False):
@@ -102,3 +103,102 @@ class SingleKVCache:
     @property
     def shape(self):
         return self.cache[0][0].shape
+
+class StaticCache:
+    def __init__(
+        self,
+        config: TransformerConfig,
+        max_length = 120,
+        batch_size = 1,
+        device = 'cuda',
+        dtype = torch.bfloat16
+    ):
+        self.config = config
+
+        self.cache = None
+        self.device = 'cuda'
+        self.dtype = torch.bfloat16
+
+        self.should_update = False
+
+        self.max_length = max_length
+        self.batch_size = batch_size
+
+        self.k_cache = torch.empty(
+            config.n_layers,
+            batch_size,
+            config.n_heads,
+            max_length * config.tokens_per_frame,
+            config.d_model//config.n_heads,
+            device = device,
+            dtype = dtype
+        )
+        self.v_cache = torch.empty(
+            config.n_layers,
+            batch_size,
+            config.n_heads,
+            max_length * config.tokens_per_frame,
+            config.d_model//config.n_heads,
+            device = device,
+            dtype = dtype
+        )
+
+        self.tokens_per_frame = config.tokens_per_frame
+        self.offsets = [0] * self.config.n_layers
+
+    def enable_cache_updates(self):
+        self.should_update = True
+
+    def disable_cache_updates(self):
+        self.should_update = False
+
+    def to(self, device = 'cuda', dtype = torch.bfloat16):
+        self.device = device
+        self.dtype = dtype
+        return self
+
+    def reset(self, batch_size = 1):
+        self.offsets = [0] * self.config.n_layers
+
+    def get(self, layer_ind):
+        return self.k_cache[layer_ind], self.v_cache[layer_ind]
+
+    def update(self, new_k, new_v, layer_ind):
+        new_len = new_k.shape[2]
+        if new_len > self.tokens_per_frame: # More than one frame, full cache
+            self.k_cache[layer_ind] = new_k
+            self.v_cache[layer_ind] = new_v
+            self.offsets[layer_ind] = new_len
+        else: # step forward one
+            self.k_cache[layer_ind,:,:,:-self.tokens_per_frame] = self.k_cache[layer_ind,:,:,self.tokens_per_frame:]
+            self.v_cache[layer_ind,:,:,:-self.tokens_per_frame] = self.v_cache[layer_ind,:,:,self.tokens_per_frame:]
+            self.k_cache[layer_ind,:,:,-self.tokens_per_frame:] = new_k
+            self.v_cache[layer_ind,:,:,-self.tokens_per_frame:] = new_v
+            self.offsets[layer_ind] += new_len
+
+    def truncate(self, truncate_amt=1, front = False):
+        """
+        Truncate/eject frames from the KV cache
+        This isn't needed in a static cache
+        """
+        return
+    
+    def get_offset(self, idx=0):
+        return self.offsets[idx]
+
+    def clone(self):
+        # Clones all tensors for max-autotune to work properly
+        for i in range(self.config.n_layers):
+            self.k_cache[i] = self.k_cache[i].clone()
+            self.v_cache[i] = self.v_cache[i].clone()
+        return self
+    
+    def detach(self):
+        for i in range(self.config.n_layers):
+            self.k_cache[i] = self.k_cache[i].detach()
+            self.v_cache[i] = self.v_cache[i].detach()
+        return self
+
+    @property
+    def shape(self):
+        return self.k_cache[0].shape

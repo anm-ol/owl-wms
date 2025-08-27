@@ -88,15 +88,11 @@ class Attn(nn.Module):
         q = self.rope(q, offset=offset)
         k = self.rope(k, offset=offset)
 
-        # prepend cached values
-        if offset > 0:
-            old_k, old_v = kv_cache.get(self.layer_idx)
-            k = torch.cat([old_k, k], dim=2)
-            v = torch.cat([old_v, v], dim=2)
-
-        # update cache
         if kv_cache is not None and kv_cache.should_update:
             kv_cache.update(k, v, self.layer_idx)
+        
+        if offset > 0:
+            k, v = kv_cache.get(self.layer_idx)
 
         # NOTE: Using block_mask = None to mark decoding, probably need something more explicit in future
         if self.local and block_mask is None:
@@ -174,7 +170,7 @@ class DiT(nn.Module):
 
     def forward(self, x, cond, doc_id=None, kv_cache=None, local_block_mask = None, global_block_mask = None):
         seq_len, device = x.size(1), x.device
-        q_offset = kv_cache.length_at(0) if kv_cache is not None else 0
+        q_offset = kv_cache.get_offset(0) if kv_cache is not None else 0
 
         if local_block_mask is None and not self.decoding:
             local_block_mask = self.get_block_mask(seq_len, doc_id, self.config.local_window, q_offset, device)
