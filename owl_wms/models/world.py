@@ -139,7 +139,7 @@ class WorldModel(nn.Module):
         self,
         x: Tensor,
         ts: Tensor,
-        prompt_emb: Optional[Tensor] = None,
+        prompt_emb: Optional[TensorDict] = None,
         controller_inputs: Optional[Tensor] = None,
         doc_id: Optional[Tensor] = None,
         kv_cache=None
