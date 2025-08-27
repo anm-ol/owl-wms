@@ -46,33 +46,6 @@ class RFTPairDistillTrainer(WorldTrainer):
         xs, t, prompt_emb = batch["x_samples"], batch["times"], batch["prompt_emb"]
         B, N = xs.shape[:2]
 
-        ####
-        t_chk = t if t.dim() == 1 else t[0]  # ok to check one sample
-
-        x0_e = self.sample_xs_at_ts(xs, t, torch.zeros(B, N, device=xs.device, dtype=torch.float32)).float()
-        x1_e = self.sample_xs_at_ts(xs, t, torch.ones (B, N, device=xs.device, dtype=torch.float32)).float()
-
-        assert (t_chk[1:] > t_chk[:-1]).all() and \
-               torch.allclose(x0_e, xs[:, :, 0].float(), atol=1e-5, rtol=1e-4) and \
-               torch.allclose(x1_e, xs[:, :, -1].float(), atol=1e-5, rtol=1e-4), \
-               f"times/order/axis mismatch: mono={(t_chk[1:] > t_chk[:-1]).all().item()}, " \
-               f"x0_err={(x0_e - xs[:, :, 0].float()).abs().max().item():.3e}, " \
-               f"x1_err={(x1_e - xs[:, :, -1].float()).abs().max().item():.3e}"
-        #####
-
-        ####
-        # A) scale check: noise endpoint should look like N(0,1); it usually doesn't
-        std_x1 = x1_e.flatten(2).std(dim=-1).mean().item()
-        std_rand = torch.randn_like(x0_e).flatten(2).std(dim=-1).mean().item()
-        print(f"[sanity] std(x1_end)={std_x1:.3f}, std(randn)={std_rand:.3f}")
-
-        # B) stepwise scale follows sigma? (correlation ~= 1 -> stored states are sigma-scaled)
-        perstep_std = xs.float().flatten(3).std(dim=-1).mean(dim=(0,1))  # [K]
-        corr = torch.corrcoef(torch.stack([perstep_std, t.float().mean(0)])).cpu().numpy()[0,1] \
-               if t.dim()==2 else torch.corrcoef(torch.stack([perstep_std, t.float()]))[0,1]
-        print(f"[sanity] corr(step_std, t)≈{float(corr):.3f}")
-        ####
-
         with torch.no_grad():
             # teacher time + state
             ts_teacher = torch.randn(B, N, device=xs.device, dtype=xs.dtype).sigmoid()
@@ -93,7 +66,7 @@ class RFTPairDistillTrainer(WorldTrainer):
             # RF-style inputs/targets
             x_t      = x0 + alpha[..., None, None, None].to(xs.dtype) * d             # [B,N,C,H,W]
             v_target = d                                                              # [B,N,C,H,W]
-            ts       = ts_teacher.float()
+            ts       = alpha.to(torch.float32)
 
         with self.autocast_ctx:
             v_pred = self.core_fwd(x_t, ts, prompt_emb=prompt_emb)
