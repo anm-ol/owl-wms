@@ -43,7 +43,7 @@ class RFTPairDistillTrainer(WorldTrainer):
           - Project x_teach onto the chord [x0 -> x1] to get alpha in [0,1]
           - Train RF-style on x_t = (1-alpha)*x0 + alpha*x1 with target v = x1 - x0
         """
-        xs, t = batch["x_samples"], batch["times"]   # [B,N,K,C,H,W]
+        xs, t, prompt_emb = batch["x_samples"], batch["times"], batch["prompt_emb"]
         B, N = xs.shape[:2]
 
         ####
@@ -83,7 +83,7 @@ class RFTPairDistillTrainer(WorldTrainer):
             ts       = ts_teacher.float()
 
         with self.autocast_ctx:
-            v_pred = self.core_fwd(x_t, ts)
+            v_pred = self.core_fwd(x_t, ts, prompt_emb=prompt_emb)
         return F.mse_loss(v_pred.float(), v_target.float())
 
     @staticmethod
@@ -163,5 +163,5 @@ class RFTPairDistillTrainer(WorldTrainer):
 
     @torch.compile
     def core_fwd(self, *args, **kwargs):
-        core = self.get_module(ema=False).core
+        core = self.get_module(ema=False)
         return core(*args, **kwargs)
