@@ -5,7 +5,7 @@ import shutil
 import torch
 import numpy as np
 import time
-from encoder import load_vae, load_encoder
+from .encoder import load_vae, load_encoder
 import subprocess
 import multiprocessing as mp
 from functools import partial

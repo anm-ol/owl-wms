@@ -128,8 +128,20 @@ class TekkenCachingActionSampler:
             final_latents = generated_latents
             final_actions = action_ids[:, :generated_latents.shape[1]]
 
-        if means is not None:
-            final_latents = (final_latents - means) / stds
+        if means is not None and stds is not None:
+            print(f"Before denorm: latents range [{final_latents.min():.4f}, {final_latents.max():.4f}]")
+            print(f'Before decoding, latent shape: {final_latents.shape}')
+            print(f"Means range: [{means.min():.4f}, {means.max():.4f}]")
+            print(f"Stds range: [{stds.min():.4f}, {stds.max():.4f}]")
+
+            # Ensure proper broadcasting
+            means = means.to(device=final_latents.device, dtype=final_latents.dtype)
+            stds = stds.to(device=final_latents.device, dtype=final_latents.dtype)
+
+            # Denormalize: x_original = x_normalized * std + mean
+            final_latents = final_latents * stds + means
+
+            print(f"After denorm: latents range [{final_latents.min():.4f}, {final_latents.max():.4f}]")
         else:
             final_latents = final_latents * vae_scale
         video_out = decode_fn(final_latents) if decode_fn is not None else None

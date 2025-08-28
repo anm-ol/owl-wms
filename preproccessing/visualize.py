@@ -3,10 +3,28 @@ import cv2
 import os
 import argparse
 import time
+import imageio
 
 # Button mappings - order: [Up, Down, Left, Right, Square, Triangle, Cross, Circle]
 BUTTON_NAMES = ['Up', 'Down', 'Left', 'Right', 'Square', 'Triangle', 'Cross', 'Circle']
 BUTTON_SYMBOLS = ['↑', '↓', '←', '→', '□', '△', '✕', '○']
+
+def save_video_imageio(video_np, output_path, fps=30):
+    """
+    Save video frames using the imageio library.
+
+    Args:
+        video_np: numpy array of shape [t, h, w, c] with uint8 values 0-255
+        output_path: path to save the video (e.g., 'video.mp4')
+        fps: frames per second
+    """
+    try:
+        with imageio.get_writer(output_path, fps=fps, macro_block_size=1) as writer:
+            for frame in video_np:
+                writer.append_data(frame)
+        print(f"Video saved successfully to {output_path}")
+    except Exception as e:
+        print(f"Error saving video with imageio: {e}")
 
 def action_id_to_buttons(action_id):
     """Convert action ID to 8-bit button representation."""

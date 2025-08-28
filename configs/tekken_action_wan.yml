@@ -55,14 +55,14 @@ train:
   output_path: checkpoints/tekken_dit_v2_actions_wan_ema_
   resume_ckpt: null #checkpoints/tekken_dit_v2/step_24000.pt # Path to your last checkpoint
 
-  sample_interval: 2
+  sample_interval: 1
   save_interval: 2000
-  n_samples: 2 #8
+  n_samples: 1 #8
   eval_sample_dir: samples/tekken_dit_v2_actions
 
   sampler_id: t3_action_caching
   sampler_kwargs:
-    n_steps: 3
+    n_steps: 12
     # window_length: 8
     cfg_scale: 1.0
     num_frames: 16 # 16

@@ -103,7 +103,11 @@ class TekkenRFTTrainerV2(BaseTrainer):
 
         if self.per_channel_mean is not None:
             # Broadcasting now works correctly
-            initial_latents = (vid_for_sample.cuda().bfloat16() - self.per_channel_mean) / self.per_channel_std
+            print('Normalizing')
+            print(f"Latent range before norm: min={vid_for_sample.min().item():.4f}, max={vid_for_sample.max().item():.4f}")
+            # initial_latents = (vid_for_sample.cuda().bfloat16() - self.per_channel_mean) / self.per_channel_std
+            initial_latents = (vid_for_sample.cuda().bfloat16())
+            print(f"Latent range after norm: min={initial_latents.min().item():.4f}, max={initial_latents.max().item():.4f}")
         else:
             initial_latents = vid_for_sample.cuda().bfloat16() / self.train_cfg.vae_scale
 
@@ -133,7 +137,7 @@ class TekkenRFTTrainerV2(BaseTrainer):
             )
         video_out = video_out.permute(0, 2, 1, 3, 4)
         print(f'Generated video shape: {video_out.shape}, actions: {out_actions.shape}')
-        wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=30)
+        wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=10)
 
         del video_out, out_actions, initial_latents, actions_for_sample, action_ids, vid_for_sample
         gc.collect()
@@ -205,7 +209,11 @@ class TekkenRFTTrainerV2(BaseTrainer):
 
                 if self.per_channel_mean is not None:
                     # Broadcasting now works correctly
-                    batch_vid = (batch_vid * self.per_channel_std) + self.per_channel_mean
+                    print('Normalizing')
+                    print(f"Latent range before norm: min={batch_vid.min().item():.4f}, max={batch_vid.max().item():.4f}")
+                    batch_vid = (batch_vid - self.per_channel_mean) / self.per_channel_std
+                    print(f"Latent range after norm: min={batch_vid.min().item():.4f}, max={batch_vid.max().item():.4f}")
+                    batch_vid = (batch_vid - self.per_channel_mean) / self.per_channel_std
                 else:
                     batch_vid = batch_vid / self.train_cfg.vae_scale
                 
