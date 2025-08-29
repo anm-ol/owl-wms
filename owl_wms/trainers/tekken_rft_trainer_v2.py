@@ -51,6 +51,9 @@ class TekkenRFTTrainerV2(BaseTrainer):
             self.per_channel_std = torch.tensor(std_values).view(1, 1, C, 1, 1)
             if self.rank == 0:
                 print("✓ Using per-channel mean and std for normalization.")
+        else:
+            self.per_channel_mean = None
+            self.per_channel_std = None
 
         self.decoder = None
         if self.rank == 0:

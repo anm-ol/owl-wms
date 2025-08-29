@@ -55,7 +55,7 @@ train:
   output_path: checkpoints/tekken_dit_dcae_v6
   resume_ckpt: null # checkpoints/tekken_dit_v2_actions/step_2000.pt # Path to your last checkpoint
 
-  sample_interval: 500
+  sample_interval: 20
   save_interval: 2000
   n_samples: 8 #8
   eval_sample_dir: samples/tekken_dit_v2_actions
@@ -70,8 +70,8 @@ train:
     only_return_generated: false
 
   # VAE settings for decoding samples
-  vae_id: ltx
-  vae_cfg_path: null # Path to your VAE config
+  vae_id: null
+  vae_cfg_path: "preproccessing/checkpoints/tekken_vae_H200_v6/config.yaml" #null # Path to your VAE config
   vae_ckpt_path: "preproccessing/checkpoints/tekken_vae_H200_v6/step_22000.pt" # Path to your VAE checkpoint
   vae_scale: 1.0 # Adjust if your VAE has a scaling factor
   vae_batch_size: 32
@@ -79,4 +79,4 @@ train:
 wandb:
   name: d-fusion
   project: OWL
-  run_name: tekken-rft-v2-actions
+  run_name: tekken-rft-dcae

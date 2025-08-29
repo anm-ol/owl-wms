@@ -6,6 +6,7 @@ from diffusers import AutoencoderDC, AutoencoderKLLTXVideo, AutoencoderKLWan
 
 
 sys.path.append("./owl-vaes")
+from owl_vaes.utils import versatile_load
 from owl_vaes.utils.proxy_init import load_proxy_model
 from owl_vaes.models import get_model_cls
 from owl_vaes.configs import Config
@@ -145,10 +146,17 @@ def get_decoder_only(vae_id, cfg_path, ckpt_path):
         else:
             cfg = Config.from_yaml(cfg_path).model
             model = get_model_cls(cfg.model_id)(cfg)
+
+            # Use versatile_load to correctly extract the weights
+            state_dict = versatile_load(ckpt_path)
+
             try:
-                model.load_state_dict(torch.load(ckpt_path, map_location='cpu',weights_only=False))
+                model.load_state_dict(state_dict)
             except:
-                model.decoder.load_state_dict(torch.load(ckpt_path, map_location='cpu',weights_only=False))
+                # Filter for only decoder keys if the full load fails
+                decoder_state_dict = {k.replace("decoder.", ""): v for k, v in state_dict.items() if k.startswith("decoder.")}
+                model.decoder.load_state_dict(decoder_state_dict)
+
             del model.encoder
             model = model.decoder
             model = model.bfloat16().cuda().eval()

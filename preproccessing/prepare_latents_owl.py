@@ -232,8 +232,9 @@ def process_single_file_owl(args):
         torch.cuda.empty_cache()
 
 
+import random # Make sure to add this import at the top of your file
+
 def process_data_owl(data_dir, output_dir, vae_ckpt_dir, num_gpus, batch_size, pose_dir=None):
-    """Process data using multiple GPUs with owl-vae model."""
     print("--- Starting Multi-GPU Data Processing for OWL-VAE ---")
     
     available_gpus = torch.cuda.device_count()
@@ -241,6 +242,10 @@ def process_data_owl(data_dir, output_dir, vae_ckpt_dir, num_gpus, batch_size, p
         print(f"Warning: Only {available_gpus} GPUs available, requested {num_gpus}")
         num_gpus = available_gpus
 
+    # 1. Create a single list to hold all file processing arguments
+    all_file_args_with_info = []
+    
+    # 2. Loop through splits to gather all files into the master list
     for split in ['train', 'val']:
         split_data_dir = os.path.join(data_dir, split)
         split_output_dir = os.path.join(output_dir, split)
@@ -252,24 +257,43 @@ def process_data_owl(data_dir, output_dir, vae_ckpt_dir, num_gpus, batch_size, p
         if not npz_files:
             continue
 
-        print(f"\nProcessing {split} split: Found {len(npz_files)} rounds.")
+        print(f"Found {len(npz_files)} rounds in '{split}' split.")
 
-        file_args = [
-            (npz, split_output_dir, vae_ckpt_dir, i % num_gpus, batch_size, pose_dir) 
-            for i, npz in enumerate(npz_files)
-        ]
+        # Add arguments for each file to the master list
+        for npz in npz_files:
+            # We bundle all necessary info for each file
+            all_file_args_with_info.append((npz, split_output_dir, vae_ckpt_dir, batch_size, pose_dir))
 
-        with mp.Pool(processes=num_gpus) as pool:
-            results = list(tqdm(
-                pool.imap(process_single_file_owl, file_args), 
-                total=len(file_args), 
-                desc=f"Processing {split} files"
-            ))
+    # 3. (Recommended) Shuffle the list to better balance the load
+    # This prevents all large files from being processed on the same GPUs.
+    random.shuffle(all_file_args_with_info)
+    
+    # 4. Add the final GPU ID to each argument tuple using round-robin assignment
+    final_file_args = [
+        (*file_info, i % num_gpus) 
+        for i, file_info in enumerate(all_file_args_with_info)
+    ]
+    
+    # Reorder args to match the expected (npz_path, split_output_dir, vae_ckpt_dir, gpu_id, batch_size, pose_dir)
+    # The new order after adding gpu_id at the end is (npz, output, ckpt, batch, pose, gpu_id)
+    # We need to re-arrange it to match what process_single_file_owl expects
+    final_file_args = [
+        (npz_path, split_dir, ckpt_dir, gpu_id, b_size, p_dir)
+        for (npz_path, split_dir, ckpt_dir, b_size, p_dir, gpu_id) in final_file_args
+    ]
 
-        print(f"Completed processing {len(results)} files for {split} split.")
 
+    if not final_file_args:
+        print("No files found to process. Exiting.")
+        return
+
+    # 5. Create a single pool and process the entire combined list
+    print(f"\nProcessing a total of {len(final_file_args)} files across all splits...")
+    with mp.Pool(processes=num_gpus) as pool:
+        results = list(tqdm(pool.imap(process_single_file_owl, final_file_args), total=len(final_file_args), desc="Processing all files"))
+
+    print(f"\nCompleted processing {len(results)} total files.")
     print("\n--- Multi-GPU OWL-VAE Data Processing Complete ---")
-
 
 if __name__ == "__main__":
     if mp.get_start_method(allow_none=True) != 'spawn':
