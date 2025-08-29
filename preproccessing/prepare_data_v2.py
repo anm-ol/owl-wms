@@ -1,11 +1,15 @@
+import sys
 import os
+sys.path.append("./owl-vaes")
+
 import glob
 from tqdm import tqdm
 import shutil
 import torch
 import numpy as np
 import time
-from .encoder import load_vae, load_encoder
+import argparse
+from encoder import load_vae, load_encoder
 import subprocess
 import multiprocessing as mp
 from functools import partial
@@ -210,7 +214,7 @@ def process_single_file(args):
                 with torch.no_grad():
                     batch_images = batch_images.to(device)
                     batch_images = (batch_images / 255.0) * 2 - 1
-                    batch_images = batch_images.to(vae.dtype)
+                    batch_images = batch_images.bfloat16()
                     batch_images = batch_images.permute(1, 0, 2, 3)  # [t, c, h, w] -> [c, t, h, w]
                     batch_images = batch_images.unsqueeze(0)  # Add batch dimension
                     
@@ -437,48 +441,83 @@ def detect_cuda_devices():
 
 if __name__ == "__main__":
     # Set multiprocessing start method at the very beginning
-    mp.set_start_method('spawn', force=True)
+    # This check is important to prevent errors when the script is imported by other modules.
+    if mp.get_start_method(allow_none=True) != 'spawn':
+        mp.set_start_method('spawn', force=True)
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Process Tekken data with VAE encoding')
+    parser.add_argument('--vae', choices=['wan', 'ltx'], default='wan',
+                       help='Which VAE to use for caching (default: wan)')
+    parser.add_argument('--all-vaes', action='store_true',
+                       help='Cache with all available VAEs')
+    parser.add_argument('--custom-vae-path', type=str, default=None,
+                       help='Custom path to VAE checkpoint (overrides --vae)')
+    parser.add_argument('--custom-output-dir', type=str, default=None,
+                       help='Custom output directory for cached data')
+    parser.add_argument('--num-gpus', type=int, default=None,
+                       help='Number of GPUs to use (default: auto-detect)')
+    parser.add_argument('--batch-size', type=int, default=2,
+                       help='Batch size for processing (default: 2)')
+    parser.add_argument('--enable-tiling', action='store_true',
+                       help='Enable VAE tiling')
+    
+    args = parser.parse_args()
     
     # Detect available CUDA devices
     available_gpus = detect_cuda_devices()
     
     # Configuration
-    num_gpus = min(available_gpus, 8)  # Use detected GPUs, max 8
+    num_gpus = args.num_gpus if args.num_gpus is not None else min(available_gpus, 8)
     if num_gpus == 0:
         print("No CUDA devices available. Exiting.")
         exit(1)
     
-    batch_size = 2  # Conservative batch size to avoid OOM (was 0)
-    
     print(f"Using {num_gpus} out of {available_gpus} available GPU(s)")
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     wan_path = "preproccessing/checkpoints/Wan2.1/vae"
     ltx_path = "preproccessing/checkpoints/LTXV/vae"
 
-    data1 = 'preproccessing/tekken_dataset_npz/P1_WIN'
-    data2 = 'preproccessing/tekken_dataset_npz/P2_WIN'
+    data1 = 'preproccessing/data_v3/P1_WIN' # Example path, adjust if needed
+    data2 = 'preproccessing/data_v3/P2_WIN' # Example path, adjust if needed
     split_output_dir = "preproccessing/data_v3"
     
-    # Create train/val split
-    # create_split(data1, data2, split_output_dir, split=0.9)
-    
-    # Process data with multi-GPU support
-    cache_dir = "preproccessing/cached_data_v3_wan"
-    cache_dir_ltx = "preproccessing/cached_data_v3_ltx"
-    process_data(
-        data_dir=split_output_dir,
-        output_dir=cache_dir,
-        vae_ckpt_dir=wan_path,
-        enable_tiling=False,
-        num_gpus=num_gpus,
-        batch_size=batch_size
-    )
-    process_data(
-        data_dir=split_output_dir,
-        output_dir=cache_dir_ltx,
-        vae_ckpt_dir=ltx_path,
-        enable_tiling=False,
-        num_gpus=num_gpus,
-        batch_size=batch_size
-    )
+    # Handle custom VAE path and output directory
+    if args.custom_vae_path and args.custom_output_dir:
+        print(f"Using custom VAE: {args.custom_vae_path}")
+        print(f"Custom output directory: {args.custom_output_dir}")
+        process_data(
+            data_dir=split_output_dir,
+            output_dir=args.custom_output_dir,
+            vae_ckpt_dir=args.custom_vae_path,
+            enable_tiling=args.enable_tiling,
+            num_gpus=num_gpus,
+            batch_size=args.batch_size
+        )
+    elif args.custom_vae_path or args.custom_output_dir:
+        print("Error: Both --custom-vae-path and --custom-output-dir must be provided together")
+        exit(1)
+    else:
+        # Default VAE mode
+        vae_configs = {
+            'wan': {'path': wan_path, 'cache_dir': "preproccessing/cached_data_v3_wan"},
+            'ltx': {'path': ltx_path, 'cache_dir': "preproccessing/cached_data_v3_ltx"}
+        }
+        
+        vaes_to_process = ['wan', 'ltx'] if args.all_vaes else [args.vae]
+        print(f"Processing with VAE(s): {', '.join(vaes_to_process)}")
+        
+        for vae_name in vaes_to_process:
+            config = vae_configs[vae_name]
+            print(f"\n--- Processing with {vae_name.upper()} VAE ---")
+            process_data(
+                data_dir=split_output_dir,
+                output_dir=config['cache_dir'],
+                vae_ckpt_dir=config['path'],
+                enable_tiling=args.enable_tiling,
+                num_gpus=num_gpus,
+                batch_size=args.batch_size
+            )
+            print(f"--- Completed {vae_name.upper()} VAE processing ---")
+
+# python preproccessing/prepare_data_v2.py --custom-vae-path preproccessing/checkpoints/tekken_vae_H200_v6 --custom-output-dir preproccessing/cached_data_v3_dcae --batch-size 16
