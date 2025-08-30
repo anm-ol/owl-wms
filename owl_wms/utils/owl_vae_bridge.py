@@ -177,11 +177,12 @@ def make_batched_decode_fn(decoder, batch_size = 8, temporal_vae=True):
         for batch in batches:
             print(f"Decoding batch of shape {batch.shape}")
             batch_out.append(decoder(batch).bfloat16())
-
+        
         x = torch.cat(batch_out) # [b*n,c,h,w]
         if not temporal_vae:
             _,c,h,w = x.shape
             x = x.view(b,n,c,h,w).contiguous()
+            x = x.permute(0, 2, 1, 3, 4)
         else:
             x = x.contiguous()
 
