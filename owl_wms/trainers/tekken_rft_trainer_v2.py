@@ -14,7 +14,7 @@ from ..models import get_model_cls
 from ..sampling import get_sampler_cls
 from ..muon import init_muon
 from ..data import get_loader
-from ..utils.logging import LogHelper, to_wandb_gif, to_wandb
+from ..utils.logging import LogHelper, to_wandb_gif, to_wandb, to_wandb_pose
 from ..utils.owl_vae_bridge import get_decoder_only, make_batched_decode_fn
 
 class TekkenRFTTrainerV2(BaseTrainer):
@@ -140,14 +140,21 @@ class TekkenRFTTrainerV2(BaseTrainer):
             )
         video_out = video_out.permute(0, 2, 1, 3, 4)
         print(f'Generated video shape: {video_out.shape}, actions: {out_actions.shape}')
-        wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=10)
+        c = video_out.shape[2]
+        if c == 3:
+            wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=10)
+        else:
+            rgb_videos, pose_videos = to_wandb_pose(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=10)
 
         del video_out, out_actions, initial_latents, actions_for_sample, action_ids, vid_for_sample
         gc.collect()
         torch.cuda.empty_cache()
         
         print("Evaluation step finished.")
-        return {"samples": wandb_videos, "val_loss": val_loss.item()}
+        if c == 3:
+            return {"samples": wandb_videos, "val_loss": val_loss.item()}
+        else:
+            return {"rgb_samples": rgb_videos, "pose_samples": pose_videos, "val_loss": val_loss.item()}
 
     def train(self):
         torch.cuda.set_device(self.local_rank)
@@ -168,8 +175,11 @@ class TekkenRFTTrainerV2(BaseTrainer):
             if self.train_cfg.compile:
                 print("Compiling the VAE decoder...")
                 self.decoder = torch.compile(self.decoder, mode="reduce-overhead", fullgraph=True)
-
-            decode_fn = make_batched_decode_fn(self.decoder, batch_size=self.train_cfg.vae_batch_size, temporal_vae=True)
+            if self.train_cfg.data_kwargs.temporal_compression is None or self.train_cfg.data_kwargs.temporal_compression <= 1:
+                temporal_vae = False
+            else:
+                temporal_vae = True
+            decode_fn = make_batched_decode_fn(self.decoder, batch_size=self.train_cfg.vae_batch_size, temporal_vae=temporal_vae)
             sampler = get_sampler_cls(self.train_cfg.sampler_id)(**self.train_cfg.sampler_kwargs)
 
         self.ema = EMA(self.model, beta=0.999, update_every=1)

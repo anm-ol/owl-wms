@@ -175,6 +175,7 @@ def make_batched_decode_fn(decoder, batch_size = 8, temporal_vae=True):
         batches = x.split(batch_size)
         batch_out = []
         for batch in batches:
+            print(f"Decoding batch of shape {batch.shape}")
             batch_out.append(decoder(batch).bfloat16())
 
         x = torch.cat(batch_out) # [b*n,c,h,w]

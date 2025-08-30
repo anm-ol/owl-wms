@@ -27,14 +27,14 @@ train:
   data_id: tekken_multi
   data_kwargs:
     window_length: 8
-    temporal_compression: 8
-    root_dir: "preproccessing/cached_data_v3_ltx/train"
+    temporal_compression: 1
+    root_dir: "preproccessing/cached_dcae/train"
 
   sample_data_id: tekken_multi
   sample_data_kwargs:
     window_length: 32  # size of single ground truth start tokens
-    # temporal_compression: 8
-    root_dir: "preproccessing/cached_data_v3_ltx/val"
+    temporal_compression: 1
+    root_dir: "preproccessing/cached_dcae/val"
 
   target_batch_size: 256
   batch_size: 32
@@ -55,14 +55,14 @@ train:
   output_path: checkpoints/tekken_dit_dcae_v6
   resume_ckpt: null # checkpoints/tekken_dit_v2_actions/step_2000.pt # Path to your last checkpoint
 
-  sample_interval: 20
+  sample_interval: 1
   save_interval: 2000
   n_samples: 8 #8
   eval_sample_dir: samples/tekken_dit_v2_actions
 
   sampler_id: t3_action_caching
   sampler_kwargs:
-    n_steps: 40
+    n_steps: 10
     # window_length: 8
     cfg_scale: 1.0
     num_frames: 16 # 16

@@ -213,6 +213,7 @@ def process_single_file_owl(args):
             torch.cuda.empty_cache()
 
         final_latents = np.concatenate(all_latents, axis=0)
+        final_latents = np.transpose(final_latents, (1, 0, 2, 3))
 
         # Save the processed data
         np.save(os.path.join(split_output_dir, round_name, "latents", f"{round_name}_latents.npy"), final_latents)
