@@ -51,8 +51,8 @@ train:
     adamw_betas: [0.9, 0.95]
     adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
 
-  checkpoint_dir: checkpoints/tekken_pose_dcae_w32
-  output_path: checkpoints/tekken_pose_dcae_w32_ema
+  checkpoint_dir: checkpoints/tekken_nopose_dcae_w32
+  output_path: checkpoints/tekken_nopose_w32_ema
   resume_ckpt: null # checkpoints/tekken_dit_v2_actions/step_2000.pt # Path to your last checkpoint
 
   sample_interval: 2000
@@ -71,12 +71,12 @@ train:
 
   # VAE settings for decoding samples
   vae_id: null
-  vae_cfg_path: "preproccessing/checkpoints/tekken_vae_H200_v6/config.yaml" #null # Path to your VAE config
-  vae_ckpt_path: "preproccessing/checkpoints/tekken_vae_H200_v6/step_22000.pt" # Path to your VAE checkpoint
+  vae_cfg_path: "preproccessing/checkpoints/t3_VAE_nopose_v1/config.yaml" #null # Path to your VAE config
+  vae_ckpt_path: "preproccessing/checkpoints/t3_VAE_nopose_v1/step_30000.pt" # Path to your VAE checkpoint
   vae_scale: 1.0 # Adjust if your VAE has a scaling factor
   vae_batch_size: 32
 
 wandb:
   name: d-fusion
   project: OWL
-  run_name: tekken-pose-dcae
+  run_name: tekken-nopose-wm

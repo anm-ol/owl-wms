@@ -142,9 +142,9 @@ class TekkenRFTTrainerV2(BaseTrainer):
         print(f'Generated video shape: {video_out.shape}, actions: {out_actions.shape}')
         c = video_out.shape[2]
         if c == 3:
-            wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=10)
+            wandb_videos = to_wandb(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=20)
         else:
-            rgb_videos, pose_videos = to_wandb_pose(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=10)
+            rgb_videos, pose_videos = to_wandb_pose(video_out.cpu(), action_ids.cpu(), format='mp4', max_samples=self.train_cfg.n_samples, fps=20)
 
         del video_out, out_actions, initial_latents, actions_for_sample, action_ids, vid_for_sample
         gc.collect()
