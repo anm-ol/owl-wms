@@ -219,3 +219,4 @@ if __name__ == "__main__":
     )
 
     #python preproccessing/prepare_latents_owl.py --vae-ckpt-dir "preproccessing/checkpoints/tekken_vae_H200_v6" --data-dir "preproccessing/data_v3" --pose-dir "preproccessing/t3_pose" --output-dir "preproccessing/cached_dcae" --batch-size
+    # python preproccessing/prepare_latents_owl.py --vae-ckpt-dir "preproccessing/checkpoints/t3_VAE_nopose_v1/" --data-dir "preproccessing/data_v3" --output-dir "preproccessing/cached_dcae_nopose^C--batch-size

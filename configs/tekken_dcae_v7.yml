@@ -28,13 +28,13 @@ train:
   data_kwargs:
     window_length: 32
     temporal_compression: 1
-    root_dir: "preproccessing/cached_dcae_fix/train"
+    root_dir: "preproccessing/cached_dcae_nopose/train"
 
   sample_data_id: tekken_multi
   sample_data_kwargs:
     window_length: 32  # size of single ground truth start tokens
     temporal_compression: 1
-    root_dir: "preproccessing/cached_dcae_fix/val"
+    root_dir: "preproccessing/cached_dcae_nopose/val"
 
   target_batch_size: 64
   batch_size: 8
@@ -66,7 +66,7 @@ train:
     # window_length: 8
     cfg_scale: 1.0
     num_frames: 128 # 16
-    noise_prev: 0.1
+    noise_prev: 0.0
     only_return_generated: false
 
   # VAE settings for decoding samples

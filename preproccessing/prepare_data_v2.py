@@ -439,7 +439,7 @@ def detect_cuda_devices():
     return num_devices
 
 
-if __name__ == "__main__":
+'''if __name__ == "__main__":
     # Set multiprocessing start method at the very beginning
     # This check is important to prevent errors when the script is imported by other modules.
     if mp.get_start_method(allow_none=True) != 'spawn':
@@ -519,5 +519,11 @@ if __name__ == "__main__":
                 batch_size=args.batch_size
             )
             print(f"--- Completed {vae_name.upper()} VAE processing ---")
-
+'''
 # python preproccessing/prepare_data_v2.py --custom-vae-path preproccessing/checkpoints/tekken_vae_H200_v6 --custom-output-dir preproccessing/cached_data_v3_dcae --batch-size 16
+
+if __name__ == '__main__':
+    dir1 = '/home/sky/owl-wms/preproccessing/tekken_dataset_npz/P1_WIN'
+    dir2 = '/home/sky/owl-wms/preproccessing/tekken_dataset_npz/P2_WIN'
+    output_dir = '/home/sky/owl-wms/preproccessing/data_v4'
+    create_split(dir1, dir2, output_dir, split=0.95)
