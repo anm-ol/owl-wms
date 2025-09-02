@@ -55,17 +55,17 @@ train:
   output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_large
   resume_ckpt: null # checkpoints/tekken_dit_v2_actions/step_2000.pt # Path to your last checkpoint
 
-  sample_interval: 2000
+  sample_interval: 2500
   save_interval: 5000
   n_samples: 4 #8
   eval_sample_dir: null #samples/tekken_dit_v2_actions
 
   sampler_id: t3_action_caching
   sampler_kwargs:
-    n_steps: 40
+    n_steps: 32
     # window_length: 8
     cfg_scale: 1.0
-    num_frames: 256 # 16
+    num_frames: 200 # 16
     noise_prev: 0.2
     only_return_generated: false
 
