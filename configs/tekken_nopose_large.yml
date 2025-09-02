@@ -32,7 +32,7 @@ train:
 
   sample_data_id: tekken_multi
   sample_data_kwargs:
-    window_length: 32  # size of single ground truth start tokens
+    window_length: 128  # size of single ground truth start tokens
     temporal_compression: 1
     root_dir: "/mnt/data/laplace/owl-wms/preproccessing/cached_dcae_nopose/val"
 
