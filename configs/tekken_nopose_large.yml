@@ -74,7 +74,7 @@ train:
   vae_cfg_path: "/mnt/data/laplace/owl-wms/preproccessing/checkpoints/t3_VAE_nopose_v1/config.yaml" #null # Path to your VAE config
   vae_ckpt_path: "/mnt/data/laplace/owl-wms/preproccessing/checkpoints/t3_VAE_nopose_v1/step_49000.pt" # Path to your VAE checkpoint
   vae_scale: 1.0 # Adjust if your VAE has a scaling factor
-  vae_batch_size: 8
+  vae_batch_size: 4
 
 wandb:
   name: d-fusion
