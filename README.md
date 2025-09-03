@@ -113,87 +113,42 @@ sky api login -e https://owlskypilot:<password>@cluster.openworldlabs.ai
 ```bash
 # This script builds, tags, pushes, and updates skypilot/config.yaml
 ./build_and_push.sh
+
+# Build, tag, and push with custom tag
+./build_and_push.sh v1.0.0
 ```
 
-**Configure and Launch**: Edit `skypilot/config.yaml` to point to your desired training configuration file, then launch the job.
-```bash
-# In skypilot/config.yaml, update the train.py command:
-...
-run: |
-  ...
-  torchrun \
-    ...
-    train.py --config_path configs/YOUR_TEKKEN_CONFIG.yml --nccl_timeout 1000
+The script will:
+1. Build the Docker image locally
+2. Tag it for your remote registry
+3. Push to the configured registry
+4. Update `skypilot/config.yaml` with the new image tag
 
-# Launch a 2-node job with 8 H200 GPUs each
-export EXPERIMENT_NAME=tekken-v3-large-model
-sky launch --infra kubernetes --gpus H200:8 --num-nodes 2 --name $EXPERIMENT_NAME skypilot/config.yaml
-```
+## Multi-Node Training with SkyPilot
 
-## 4. Inference
+### Setup
+1. Edit `skypilot/config.yaml` to specify your training configuration:
+   ```yaml
+   # Change this line to point to your config file
+   train.py --config_path configs/YOUR_CONFIG.yml
+   ```
 
-**⚠️ Note**: The inference pipeline is currently experimental and will undergo significant changes soon.
+2. Optionally adjust the number of nodes and GPU type:
+   ```yaml
+   resources:
+     accelerators: H200:8  # 8 H200s per node
+   num_nodes: 2            # Number of nodes
+   ```
 
-To generate a video from a trained model checkpoint, use the `tekken_inference.py` script. This requires a configuration file, a model checkpoint, and a sequence of actions.
+### Prerequisites
+1. Make sure you're authenticated with Google Cloud:
+   ```bash
+   gcloud auth login
+   gcloud auth application-default login
+   ```
 
-**Example Usage**:
-```bash
-python inference/tekken_inference.py \
-    --config_path configs/tekken_nopose_large.yml \
-    --model_ckpt_path /path/to/your/model_checkpoint.pt \
-    --actions_npy_path /path/to/your/action_sequence.npy \
-    --output_path generated_video.mp4 \
-    --num_frames 180 \
-    --compile
-```
+2. Make sure you set your Project ID for google cloud.
 
-## 5. Project Status & Key Components
-
-This project has evolved significantly from the original owl-wms repo. Here is a guide to the current status of key components.
-
-**⚠️ Important Training Notes**:
-- **WM DiT training works great** with custom-trained 2D VAEs on Tekken data
-- **LTX training works okay but not consistent** - loses coherence very quickly during generation
-- **Wan pipeline is currently garbage** and needs lots of debugging
-- **Best performing configurations** are `tekken_nopose_large.yml` and `tekken_pose_v3_L.yml` which show great results
-
-### Supported VAEs
-
-| VAE Name | Checkpoint Location | Description |
-|----------|-------------------|-------------|
-| LTX-Video | `preproccessing/checkpoints/LTXV/vae` | A high-quality VAE from Lightricks. Works okay but loses coherence quickly. |
-| Wan 2.1 | `preproccessing/checkpoints/Wan2.1/vae` | A VAE from Wan-AI. **Pipeline currently broken** and needs debugging. |
-| Custom DCAE (Pose) | `preproccessing/checkpoints/tekken_vae_H200_v6` | **Recommended**: Custom VAE trained on Tekken data with pose. Works great with WM DiT training. |
-| Custom DCAE (No Pose) | `preproccessing/checkpoints/t3_VAE_nopose_v1` | **Recommended**: Custom VAE trained on Tekken data without pose. Works great with WM DiT training. |
-
-### Training Configurations by Status
-
-#### 🟢 **Best Performing / Recommended**
-| Configuration File | VAE Used | Description |
-|------------------|----------|-------------|
-| `tekken_nopose_large.yml` | Custom No-Pose VAE | **Best results**: Large model trained without pose data. WM DiT training works great. |
-| `tekken_pose_v3_L.yml` | Custom DCAE (Pose) | **Best results**: Large model (d_model: 2048) with pose data. WM DiT training works great. |
-| `tekken_dcae_v6.yml` | Custom DCAE (Pose) | **Recommended**: Works great with custom VAE and WM DiT training |
-| `tekken_nopose.yml` | Custom No-Pose VAE | **Recommended**: Standard size model, works great with custom VAE |
-
-#### 🟡 **Working but with Issues**
-| Configuration File | VAE Used | Description |
-|------------------|----------|-------------|
-| `tekken_action_ltx.yml` | LTX-Video | Works okay but not consistent, loses coherence very quickly |
-
-#### 🔴 **Known Issues / Broken**
-| Configuration File | VAE Used | Description |
-|------------------|----------|-------------|
-| `tekken_action_wan.yml` | Wan 2.1 | **Pipeline currently garbage**, needs lots of debugging |
-
-## 6. Current Development Priorities
-
-1. **Debug and fix Wan pipeline** - currently broken and needs extensive debugging
-2. **Improve LTX coherence issues** - address quick loss of coherence during generation
-3. **Document tekken_rft_v2** capabilities and usage
-4. **Stabilize inference pipeline** (currently experimental)
-5. **Optimize tekken_action_caching sampler** further based on its current success
-6. **Continue optimizing custom VAE + WM DiT training** which is currently working great
 ## Inference
 
 ### Tekken Model Inference
@@ -202,80 +157,46 @@ Run inference with pre-trained Tekken models to generate video sequences from ac
 
 #### Setup
 ```bash
-# In skypilot/config.yaml, update the train.py command:
-...
-run: |
-  ...
-  torchrun \
-    ...
-    train.py --config_path configs/YOUR_TEKKEN_CONFIG.yml --nccl_timeout 1000
+# Install additional dependencies for video generation
+pip install moviepy
 
-# Launch a 2-node job with 8 H200 GPUs each
-export EXPERIMENT_NAME=tekken-v3-large-model
-sky launch --infra kubernetes --gpus H200:8 --num-nodes 2 --name $EXPERIMENT_NAME skypilot/config.yaml
+# Ensure VAE and model checkpoints are available
+# Update paths in your inference config file
 ```
 
-## 4. Inference
+#### Configuration
+Create or modify an inference configuration file (e.g., `inference/t3_infer.yml`):
 
-**⚠️ Note**: The inference pipeline is currently experimental and will undergo significant changes soon.
+```yaml
+# Core paths - UPDATE THESE FOR YOUR SETUP
+model_config_path: "configs/tekken_nopose_large.yml"
+model_ckpt_path: "/path/to/your/model/checkpoint.pt"
+actions_npy_path: "/path/to/your/actions.npy"
+output_path: "output_video.mp4"
 
-To generate a video from a trained model checkpoint, use the `tekken_inference.py` script. This requires a configuration file, a model checkpoint, and a sequence of actions.
+# Inference parameters
+starting_frame_index: 0
+initial_context_length: 4
+num_frames: 120
+batch_size: 1
+compile: false  # Set to true for faster inference on compatible hardware
+```
 
-**Example Usage**:
+#### Usage
 ```bash
-python inference/tekken_inference.py \
-    --config_path configs/tekken_nopose_large.yml \
-    --model_ckpt_path /path/to/your/model_checkpoint.pt \
-    --actions_npy_path /path/to/your/action_sequence.npy \
-    --output_path generated_video.mp4 \
-    --num_frames 180 \
-    --compile
+# Run inference with default config
+python inference/tekken_inference.py
+
+# Run inference with custom config
+python inference/tekken_inference.py --config inference/your_config.yml
 ```
 
-## 5. Project Status & Key Components
+#### Input Requirements
+- **Model checkpoint**: Trained Tekken model weights (.pt file)
+- **VAE checkpoint**: Compatible VAE decoder for latent-to-pixel conversion
+- **Action sequence**: NumPy array (.npy) containing action IDs for generation
+- **Initial context**: Dataset sample for conditioning the generation
 
-This project has evolved significantly from the original owl-wms repo. Here is a guide to the current status of key components.
-
-**⚠️ Important Training Notes**:
-- **WM DiT training works great** with custom-trained 2D VAEs on Tekken data
-- **LTX training works okay but not consistent** - loses coherence very quickly during generation
-- **Wan pipeline is currently garbage** and needs lots of debugging
-- **Best performing configurations** are `tekken_nopose_large.yml` and `tekken_pose_v3_L.yml` which show great results
-
-### Supported VAEs
-
-| VAE Name | Checkpoint Location | Description |
-|----------|-------------------|-------------|
-| LTX-Video | `preproccessing/checkpoints/LTXV/vae` | A high-quality VAE from Lightricks. Works okay but loses coherence quickly. |
-| Wan 2.1 | `preproccessing/checkpoints/Wan2.1/vae` | A VAE from Wan-AI. **Pipeline currently broken** and needs debugging. |
-| Custom DCAE (Pose) | `preproccessing/checkpoints/tekken_vae_H200_v6` | **Recommended**: Custom VAE trained on Tekken data with pose. Works great with WM DiT training. |
-| Custom DCAE (No Pose) | `preproccessing/checkpoints/t3_VAE_nopose_v1` | **Recommended**: Custom VAE trained on Tekken data without pose. Works great with WM DiT training. |
-
-### Training Configurations by Status
-
-#### 🟢 **Best Performing / Recommended**
-| Configuration File | VAE Used | Description |
-|------------------|----------|-------------|
-| `tekken_nopose_large.yml` | Custom No-Pose VAE | **Best results**: Large model trained without pose data. WM DiT training works great. |
-| `tekken_pose_v3_L.yml` | Custom DCAE (Pose) | **Best results**: Large model (d_model: 2048) with pose data. WM DiT training works great. |
-| `tekken_dcae_v6.yml` | Custom DCAE (Pose) | **Recommended**: Works great with custom VAE and WM DiT training |
-| `tekken_nopose.yml` | Custom No-Pose VAE | **Recommended**: Standard size model, works great with custom VAE |
-
-#### 🟡 **Working but with Issues**
-| Configuration File | VAE Used | Description |
-|------------------|----------|-------------|
-| `tekken_action_ltx.yml` | LTX-Video | Works okay but not consistent, loses coherence very quickly |
-
-#### 🔴 **Known Issues / Broken**
-| Configuration File | VAE Used | Description |
-|------------------|----------|-------------|
-| `tekken_action_wan.yml` | Wan 2.1 | **Pipeline currently garbage**, needs lots of debugging |
-
-## 6. Current Development Priorities
-
-1. **Debug and fix Wan pipeline** - currently broken and needs extensive debugging
-2. **Improve LTX coherence issues** - address quick loss of coherence during generation
-3. **Document tekken_rft_v2** capabilities and usage
-4. **Stabilize inference pipeline** (currently experimental)
-5. **Optimize tekken_action_caching sampler** further based on its current success
-6. **Continue optimizing custom VAE + WM DiT training** which is currently working great
+#### Output
+- **Video file**: Generated sequence saved as MP4 (requires moviepy)
+- **Fallback**: NumPy array of processed frames if moviepy unavailable
