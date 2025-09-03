@@ -135,3 +135,55 @@ The script will:
    ```
 
 2. Make sure you set your Project ID for google cloud.
+
+## Inference
+
+### Tekken Model Inference
+
+Run inference with pre-trained Tekken models to generate video sequences from action inputs.
+
+#### Setup
+```bash
+# Install additional dependencies for video generation
+pip install moviepy
+
+# Ensure VAE and model checkpoints are available
+# Update paths in your inference config file
+```
+
+#### Configuration
+Create or modify an inference configuration file (e.g., `inference/t3_infer.yml`):
+
+```yaml
+# Core paths - UPDATE THESE FOR YOUR SETUP
+model_config_path: "configs/tekken_nopose_large.yml"
+model_ckpt_path: "/path/to/your/model/checkpoint.pt"
+actions_npy_path: "/path/to/your/actions.npy"
+output_path: "output_video.mp4"
+
+# Inference parameters
+starting_frame_index: 0
+initial_context_length: 4
+num_frames: 120
+batch_size: 1
+compile: false  # Set to true for faster inference on compatible hardware
+```
+
+#### Usage
+```bash
+# Run inference with default config
+python inference/tekken_inference.py
+
+# Run inference with custom config
+python inference/tekken_inference.py --config inference/your_config.yml
+```
+
+#### Input Requirements
+- **Model checkpoint**: Trained Tekken model weights (.pt file)
+- **VAE checkpoint**: Compatible VAE decoder for latent-to-pixel conversion
+- **Action sequence**: NumPy array (.npy) containing action IDs for generation
+- **Initial context**: Dataset sample for conditioning the generation
+
+#### Output
+- **Video file**: Generated sequence saved as MP4 (requires moviepy)
+- **Fallback**: NumPy array of processed frames if moviepy unavailable
