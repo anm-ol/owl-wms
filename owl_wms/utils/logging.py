@@ -84,6 +84,41 @@ def to_wandb(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
     return wandb.Video(x, format=format, fps=fps)
 
 @torch.no_grad()
+def process_video_frames(x, actions, gather=False, max_samples=8):
+    """
+    Process video frames with the same logic as to_wandb but return raw video data.
+    
+    Args:
+        x: Video tensor [b,n,c,h,w]
+        actions: Action tensor
+        gather: Whether to gather across distributed devices
+        max_samples: Maximum number of samples to process
+        
+    Returns:
+        numpy array: Processed video frames [n,d,h,w] or [n,d,(r*h),(c*w)] if max_samples==8
+    """
+    print(f"X shape: {x.shape}")
+    # x is [b,n,c,h,w]
+    x = x.clamp(-1, 1)
+    x = x[:max_samples]
+
+    if dist.is_initialized() and gather:
+        gathered = [None for _ in range(dist.get_world_size())]
+        dist.all_gather(gathered, x)
+        x = torch.cat(gathered, dim=0)
+
+    # Get labels on them
+    b, _ = actions.shape
+    temporal_compression = x.size(1) // actions.size(1) + 1
+    actions = actions.unsqueeze(-1).repeat(1, 1, temporal_compression).view(b, -1)
+    x = draw_tekken_frames(x, actions) # -> [b,n,c,h,w] [0,255] uint8 np
+
+    if max_samples == 8:
+        x = eo.rearrange(x, '(r c) n d h w -> n d (r h) (c w)', r = 2, c = 4)
+
+    return x
+
+@torch.no_grad()
 def to_wandb_pose(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
     # x is [b,n,4,h,w]
     rgb, pose = torch.split(x, [3, 1], dim=2)

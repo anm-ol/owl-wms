@@ -1,0 +1,37 @@
+# Inference Configuration for the Tekken Model
+# This file centralizes all parameters for running fast_tekken_inference.py
+
+# --- Core Paths ---
+
+# Path to the main model configuration file used during training.
+model_config_path: "configs/tekken_nopose_large.yml"
+
+# REQUIRED: Path to the trained model checkpoint (.pt file).
+# You MUST update this path to point to your model weights.
+model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_large/step_10000.pt"
+
+# REQUIRED: Path to the .npy file containing the action sequence for the generation.
+actions_npy_path: "/mnt/data/laplace/owl-wms/preproccessing/cached_dcae_nopose/train/round_001/actions/round_001_actions.npy"
+
+# Path to save the generated video output.
+output_path: "tekken_inference_output_s4.mp4"
+
+
+# --- Inference Parameters ---
+
+# The index of the data window from the validation set to use as the initial context.
+# This corresponds to a sample from the dataset specified in your model_config_path.
+starting_frame_index: 0
+initial_context_length: 4
+
+# Number of new frames to generate after the initial context.
+num_frames: 240
+
+
+# --- Performance Parameters ---
+
+# Batch size for loading the initial context from the data loader. Should typically be 1.
+batch_size: 1
+
+# Enable torch.compile for the model and VAE to accelerate inference on compatible hardware.
+compile: false
