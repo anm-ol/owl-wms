@@ -163,15 +163,35 @@ class TekkenDMDTrainer(BaseTrainer):
         teacher_cfg_path = self.train_cfg.teacher_cfg
         teacher_ckpt_path = self.train_cfg.teacher_ckpt
         teacher_cfg = Config.from_yaml(teacher_cfg_path).model
+        # Load and clean teacher state dict
         teacher_ckpt = versatile_load(teacher_ckpt_path)
+        cleaned_teacher_state_dict = {}
+        prefix_to_strip = '_orig_mod.core.'
+        for k, v in teacher_ckpt.items():
+            if k.startswith(prefix_to_strip):
+                new_k = k[len(prefix_to_strip):]
+                cleaned_teacher_state_dict[new_k] = v
+            else:
+                cleaned_teacher_state_dict[k] = v
+        
         self.teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg).core
-        self.teacher.load_state_dict(teacher_ckpt)
+        self.teacher.load_state_dict(cleaned_teacher_state_dict)
     
         # === Init Student & Critic ===
         student_ckpt_path = self.train_cfg.student_ckpt
+        # Load and clean student state dict
         student_ckpt = versatile_load(student_ckpt_path)
+        cleaned_student_state_dict = {}
+        prefix_to_strip = '_orig_mod.core.'
+        for k, v in student_ckpt.items():
+            if k.startswith(prefix_to_strip):
+                new_k = k[len(prefix_to_strip):]
+                cleaned_student_state_dict[new_k] = v
+            else:
+                cleaned_student_state_dict[k] = v
+        
         self.student = get_model_cls(self.model_cfg.model_id)(self.model_cfg).core
-        self.student.load_state_dict(student_ckpt)
+        self.student.load_state_dict(cleaned_student_state_dict)
         self.critic = deepcopy(self.student)
 
         if self.rank == 0:

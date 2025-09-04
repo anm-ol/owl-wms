@@ -1,0 +1,60 @@
+model:
+  model_id: tekken_rft_v2
+  sample_size: [14, 23]       # Match your STUDENT's latent size
+  channels: 128             # Match your STUDENT's latent channels
+  n_buttons: 8
+  n_layers: 8               # Example: Student has fewer layers than teacher
+  n_heads: 16
+  d_model: 768
+  n_frames: 16              # DMD works on fixed windows
+  cfg_prob: 0.0
+  causal: true
+  uncond: false
+  backbone: dit
+  has_audio: false
+
+train:
+  trainer_id: tekken_dmd   # IMPORTANT: The new trainer ID you register
+  data_id: tekken_multi
+  data_kwargs:
+    window_length: 16
+    temporal_compression: 1
+    root_dir: "/mnt/data/owl-wms/preproccessing/cached_dcae_fix/train" # Use the same data as your teacher
+
+  target_batch_size: 64
+  batch_size: 8
+
+  opt: AdamW
+  opt_kwargs:
+    lr: 2.0e-6
+    betas: [0.9, 0.999]
+    weight_decay: 0.01
+    eps: 1.0e-8
+  d_opt_kwargs: # For the critic
+    lr: 2.0e-6
+    betas: [0.9, 0.999]
+    weight_decay: 0.01
+    eps: 1.0e-8
+    
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_dmd_pose_L
+  
+  # --- Distillation Configs ---
+  teacher_cfg: configs/tekken_pose_v3_L.yml # TEACHER config
+  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L/step_45000.pt # Path to TEACHER checkpoint
+  student_ckpt: null #/mnt/data/owl-wms/checkpoints/tekken_pose_v3_L # Path to STUDENT checkpoint (can be same as teacher to start)
+  
+  min_rollout_frames: 8
+  update_ratio: 5
+  rollout_steps: 1
+  cfg_scale: 1.3
+
+  # --- VAE for sampling/logging ---
+  vae_id: null
+  vae_cfg_path: "preproccessing/checkpoints/tekken_vae_H200_v6/config.yaml" #null # Path to your VAE config
+  vae_ckpt_path: "/mnt/data/laplace/owl-wms/preproccessing/checkpoints/tekken_vae_H200_v6/step_48000.pt" # Path to your VAE checkpoint
+  vae_scale: 1.0 
+
+wandb:
+  name: d-fusion
+  project: OWL
+  run_name: tekken-dmd-distillation
