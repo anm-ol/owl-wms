@@ -1,4 +1,10 @@
 def get_trainer_cls(trainer_id):
+    if trainer_id == "tekken_dmd":
+        """
+        TekkenDMDTrainer does DMD to create few-step student
+        """
+        from .tekken_dmd_trainer import TekkenDMDTrainer
+        return TekkenDMDTrainer
     if trainer_id == "causvid":
         """
         CausvidTrainer does DMD to create few-step causal student
