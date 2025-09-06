@@ -3,6 +3,7 @@ from owl_wms.data import get_loader
 from owl_wms import from_pretrained
 from owl_wms.nn.kv_cache import KVCache, StaticCache
 from owl_wms.nn.rope import cast_rope_buffers_to_fp32
+from owl_wms.nn.attn import get_block_mask
 
 import torch.nn.functional as F
 import torch
@@ -14,6 +15,7 @@ import os
 import time
 from copy import deepcopy
 import glob
+import gc
 
 def zlerp(x, alpha):
     return x * (1. - alpha) + alpha * torch.randn_like(x)
@@ -27,11 +29,11 @@ def to_bgr_uint8(frame, target_size=(1080,1920)):
     frame = frame.clamp(0, 255).to(device='cpu',dtype=torch.uint32,memory_format=torch.contiguous_format,non_blocking=True)
     return frame
 
-SAMPLING_STEPS = 1
-WINDOW_SIZE = 120
+SAMPLING_STEPS = 2
+WINDOW_SIZE = 60
 
 class CausvidPipeline:
-    def __init__(self, cfg_path="dit_v4_dmd.yml", ckpt_path="vid_dit_v4_dmd_7k.pt", ground_truth = False):
+    def __init__(self, cfg_path="configs/dit_v4_dmd.yml", ckpt_path="vid_dit_v4_dmd_7k.pt", ground_truth = False):
         cfg = Config.from_yaml(cfg_path)
         model_cfg = cfg.model
         train_cfg = cfg.train
@@ -59,7 +61,7 @@ class CausvidPipeline:
             self.future_button_buffer = None
             self.gt_step = 0
 
-        self.alpha = 0.2
+        self.alpha = 0.25
 
         self.model = torch.compile(self.model)#, mode = 'max-autotune', dynamic = False, fullgraph = True)
         self.frame_decoder = torch.compile(self.frame_decoder, mode = 'max-autotune', dynamic = False, fullgraph = True)
@@ -67,14 +69,18 @@ class CausvidPipeline:
         self.device = 'cuda'
         
         self.cache = None
+        self._initial_history_buffer = None
+        self._initial_mouse_buffer = None
+        self._initial_button_buffer = None
+        if self.ground_truth:
+            self._initial_future_mouse_buffer = None
+            self._initial_future_button_buffer = None
+
         self.init_buffers()
 
-        self._initial_history_buffer = self.history_buffer.clone()
-        self._initial_mouse_buffer = self.mouse_buffer.clone()
-        self._initial_button_buffer = self.button_buffer.clone()
-        if self.ground_truth:
-            self._initial_future_mouse_buffer = self.future_mouse_buffer.clone()
-            self._initial_future_button_buffer = self.future_button_buffer.clone()
+        self.prev_frame = None
+        self.prev_mouse = None
+        self.prev_btn = None
     
     def _build_cache(self):
         # Build cache similar to av_caching_v2.py
@@ -102,6 +108,10 @@ class CausvidPipeline:
         )
         self.cache.disable_cache_updates()
         self.model.transformer.enable_decoding()
+
+        # Do garbage collection
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def init_buffers(self, window_size=WINDOW_SIZE):        
         cache_files = glob.glob("data_cache/*.pt")
@@ -165,6 +175,13 @@ class CausvidPipeline:
             self.future_mouse_buffer = self.future_mouse_buffer.cuda().bfloat16()
             self.future_button_buffer = self.future_button_buffer.cuda().bfloat16()
 
+        self._initial_history_buffer = self.history_buffer.clone()
+        self._initial_mouse_buffer = self.mouse_buffer.clone()
+        self._initial_button_buffer = self.button_buffer.clone()
+        if self.ground_truth:
+            self._initial_future_mouse_buffer = self.future_mouse_buffer.clone()
+            self._initial_future_button_buffer = self.future_button_buffer.clone()
+
         self._build_cache()
 
     def restart_from_buffer(self):
@@ -221,37 +238,30 @@ class CausvidPipeline:
         
         start_event.record()
         
-        # Denoise the new frame using the cached context
-        for _ in range(SAMPLING_STEPS):
-            pred_v = self.model(
-                curr_x,
-                curr_t,
-                new_mouse_input,
-                new_btn_input,
-                kv_cache=self.cache
-            )
-            
-            curr_x = curr_x - dt * pred_v
-            curr_t = curr_t - dt
+        # First sampling step
+        pred_v = self.model(
+            curr_x,
+            curr_t,
+            new_mouse_input,
+            new_btn_input,
+            kv_cache=self.cache
+        )
+        
+        curr_x = curr_x - 0.75 * pred_v
+        curr_t = curr_t - 0.75
 
-
-
-        # New frame generated, append and cache
-        new_frame = curr_x  # [1,1,c,h,w]
-
-        # Add the new frame to cache with noise for next iteration
-        new_frame_noisy = zlerp(new_frame, self.alpha)
-        new_t_noisy = torch.ones_like(curr_t) * self.alpha
-
+        # Second sampling step does cache update as well
         self.cache.enable_cache_updates()
-        _ = self.model(
-            new_frame_noisy,
-            new_t_noisy,
+        pred_v = self.model(
+            curr_x,
+            curr_t,
             new_mouse_input,
             new_btn_input,
             kv_cache=self.cache
         )
         self.cache.disable_cache_updates()
+
+        new_frame = curr_x - 0.25 * pred_v
 
         end_event.record()
         torch.cuda.synchronize()
