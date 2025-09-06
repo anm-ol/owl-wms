@@ -92,6 +92,13 @@ class GameCV:
                 self.pipeline.init_buffers()
             elif keysym == XK.XK_u and hasattr(self.pipeline, "restart_from_buffer"):
                 self.pipeline.restart_from_buffer()
+            # Use up and down arrows to change mouse scaler
+            if keysym == XK.XK_Up:
+                self.pipeline.mouse_scaler += 0.01
+                print(f"Mouse scaler: {self.pipeline.mouse_scaler}")
+            elif keysym == XK.XK_Down:
+                self.pipeline.mouse_scaler -= 0.01
+                print(f"Mouse scaler: {self.pipeline.mouse_scaler}")
 
         # Regular movement / action keys
         if keysym in self.KEYMAP:

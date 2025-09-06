@@ -12,6 +12,8 @@ import torch
 from accelerate import init_empty_weights
 import os
 import time
+from copy import deepcopy
+import glob
 
 def zlerp(x, alpha):
     return x * (1. - alpha) + alpha * torch.randn_like(x)
@@ -25,11 +27,11 @@ def to_bgr_uint8(frame, target_size=(1080,1920)):
     frame = frame.clamp(0, 255).to(device='cpu',dtype=torch.uint32,memory_format=torch.contiguous_format,non_blocking=True)
     return frame
 
-SAMPLING_STEPS = 2
+SAMPLING_STEPS = 1
 WINDOW_SIZE = 120
 
 class CausvidPipeline:
-    def __init__(self, cfg_path="configs/dit_v4_dmd.yml", ckpt_path="vid_dit_v4_dmd_7k.pt", ground_truth = False):
+    def __init__(self, cfg_path="dit_v4_dmd.yml", ckpt_path="vid_dit_v4_dmd_7k.pt", ground_truth = False):
         cfg = Config.from_yaml(cfg_path)
         model_cfg = cfg.model
         train_cfg = cfg.train
@@ -45,6 +47,7 @@ class CausvidPipeline:
         # Store scales as instance variables
         self.frame_scale = train_cfg.vae_scale
         self.image_scale = train_cfg.vae_scale
+        self.mouse_scaler = 1.0
 
         self.history_buffer = None
         self.mouse_buffer = None
@@ -100,10 +103,13 @@ class CausvidPipeline:
         self.cache.disable_cache_updates()
         self.model.transformer.enable_decoding()
 
-    def init_buffers(self, window_size=WINDOW_SIZE):
-        # Randomly select one of the 32 samples
-        sample_idx = random.randint(0, 31)
-        cache_path = f"data_cache/sample_{sample_idx}.pt"
+    def init_buffers(self, window_size=WINDOW_SIZE):        
+        cache_files = glob.glob("data_cache/*.pt")
+        if not cache_files:
+            raise RuntimeError("No cache files found in data_cache/")
+            
+        # Randomly select one cache file
+        cache_path = random.choice(cache_files)
         
         # Load cached tensors with memory mapping
         cache = torch.load(cache_path, map_location='cpu', mmap=True)
@@ -121,7 +127,7 @@ class CausvidPipeline:
             future_size = 1000  # Number of future steps to load
             required_len = window_size + future_size
             if seq_len < required_len:
-                raise ValueError(f"Sample {sample_idx} has length {seq_len} < required_len {required_len}")
+                raise ValueError(f"Sample {cache_path} has length {seq_len} < required_len {required_len}")
             
             start_idx = random.randint(0, seq_len - required_len)
             history_end_idx = start_idx + window_size
@@ -140,7 +146,7 @@ class CausvidPipeline:
             self.gt_step = 0
         else:
             if seq_len < window_size:
-                raise ValueError(f"Sample {sample_idx} has length {seq_len} < window_size {window_size}")
+                raise ValueError(f"Sample {cache_path} has length {seq_len} < window_size {window_size}")
             
             start_idx = random.randint(0, seq_len - window_size)
             end_idx = start_idx + window_size
@@ -174,6 +180,7 @@ class CausvidPipeline:
 
         self._build_cache()
 
+
     @torch.no_grad()
     def __call__(self, new_mouse, new_btn):
         """
@@ -197,7 +204,7 @@ class CausvidPipeline:
         else:
             # Use player inputs
             new_mouse = new_mouse.bfloat16()
-            new_btn = new_btn.bfloat16()
+            new_btn = new_btn.bfloat16() * self.mouse_scaler
 
             # Prepare new frame inputs
             new_mouse_input = new_mouse[None,None,:]  # [1,1,2]
@@ -227,9 +234,7 @@ class CausvidPipeline:
             curr_x = curr_x - dt * pred_v
             curr_t = curr_t - dt
 
-        end_event.record()
-        torch.cuda.synchronize()
-        elapsed_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to seconds
+
 
         # New frame generated, append and cache
         new_frame = curr_x  # [1,1,c,h,w]
@@ -247,6 +252,10 @@ class CausvidPipeline:
             kv_cache=self.cache
         )
         self.cache.disable_cache_updates()
+
+        end_event.record()
+        torch.cuda.synchronize()
+        elapsed_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to seconds
 
         # Decode frame for display
         x_to_dec = new_frame[0] * self.image_scale

@@ -133,6 +133,13 @@ class StaticCache:
         self.tokens_per_frame = config.tokens_per_frame
         self.offsets = [0] * self.config.n_layers
 
+    def clone(self):
+        new_cache = StaticCache(self.config, self.max_length, self.batch_size, self.device, self.dtype)
+        new_cache.k_cache = [k.clone() for k in self.k_cache]
+        new_cache.v_cache = [v.clone() for v in self.v_cache]
+        new_cache.offsets = self.offsets.copy()
+        return new_cache
+
     def enable_cache_updates(self):
         self.should_update = True
 
