@@ -1,5 +1,6 @@
 import torch
 from tqdm import tqdm
+import gc
 
 from ..nn.kv_cache import KVCache
 
@@ -20,7 +21,7 @@ def get_deltas(custom_schedule):
 
     return deltas
 
-class AVCachingSampleV2:
+class AVCachingSamplerV2:
     """
     Parameters
     ----------
@@ -44,15 +45,6 @@ class AVCachingSampleV2:
 
     @torch.no_grad()
     def __call__(self, model, x, mouse, btn, compile_on_decode = False):
-        def get_mask(_x, window, offset = 0):
-            return model.transformer.get_block_mask(
-                n_tokens(_x),
-                None,
-                window,
-                offset,
-                _x.device
-            )
-        
         batch_size, init_len = x.size(0), x.size(1)
 
         if self.custom_schedule is None:
@@ -73,19 +65,13 @@ class AVCachingSampleV2:
         prev_x_noisy = self.zlerp(prev_x, self.noise_prev)
         prev_t = prev_x.new_full((batch_size, prev_x.size(1)), self.noise_prev)
 
-        # Setup mask for this first call
-        local_block_mask = get_mask(prev_x_noisy, model.config.local_window)
-        global_block_mask = get_mask(prev_x_noisy, model.config.global_window)
-
         kv_cache.enable_cache_updates()
         _ = model(
             prev_x_noisy,
             prev_t,
             prev_mouse,
             prev_btn,
-            kv_cache=kv_cache,
-            local_block_mask=local_block_mask,
-            global_block_mask=global_block_mask
+            kv_cache=kv_cache
         )
         kv_cache.disable_cache_updates()
 
@@ -130,6 +116,8 @@ class AVCachingSampleV2:
 
                 curr_x = curr_x - dt[t_idx] * pred_v   
                 curr_t = curr_t - dt[t_idx]
+
+
             
             # ==== STEP 3: New frame generated, append and cache ====
             latents.append(curr_x.clone()) # Append
@@ -148,6 +136,17 @@ class AVCachingSampleV2:
             if self.max_window is not None and len(latents) > self.max_window:
                 kv_cache.truncate(1, front=False) # Eject oldest
 
+            gc.collect()
+            torch.cuda.empty_cache()
+
         model.transformer.disable_decoding()
 
         return torch.cat(latents, dim = 1)
+
+                
+
+
+            
+            
+
+
