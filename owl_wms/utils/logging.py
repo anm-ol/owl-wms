@@ -10,7 +10,11 @@ from .vis_tekken import draw_tekken_frames
 from moviepy.editor import ImageSequenceClip, CompositeVideoClip
 from moviepy.audio.AudioClip import AudioArrayClip
 
+from .vis import draw_frames
+
 import os
+import pathlib
+
 
 class LogHelper:
     """
@@ -161,7 +165,7 @@ def to_wandb_gif(x, actions, max_samples = 4, format='mp4', fps=16):
     return wandb.Video(x, format=format, fps=fps)
 
 @torch.no_grad()
-def to_wandb_av(x, audio, batch_mouse, batch_btn, gather = False, max_samples = 4):
+def to_wandb_av(x, audio, batch_mouse, batch_btn, gather = False, max_samples = 8):
     # x is [b,n,c,h,w]
     # audio is [b,n,2]
     x = x.clamp(-1, 1)
@@ -208,6 +212,40 @@ def to_wandb_av(x, audio, batch_mouse, batch_btn, gather = False, max_samples = 
         return [wandb.Video(path, format='mp4') for path in paths], depth_gif, flow_gif
     else:
         return [wandb.Video(path, format='mp4') for path in paths]
+
+
+@torch.no_grad()
+def to_wandb_samples(video, mouse, btn):
+    video = video.clamp(-1, 1).cpu().float()          # [B, T, C, H, W]
+
+    depth_gif = flow_gif = None
+    if video.shape[2] > 3:                            # depth
+        depth_gif = to_wandb_gif(video[:, :, 3:4])
+    if video.shape[2] > 4:                            # flow
+        flow_gif = to_wandb_gif(video[:, :, 4:7])
+    video = video[:, :, :3]                           # keep RGB only
+
+    video = draw_frames(video, mouse, btn)            # overlay labels – uint8
+
+    out_dir = pathlib.Path("temp_vids")
+    out_dir.mkdir(exist_ok=True)
+    samples = []
+    for i, clip in enumerate(video):
+        path = out_dir / f"{i:04}.mp4"
+        write_video_with_audio(
+            str(path),
+            np.moveaxis(clip, 1, -1),                 # [T, H, W, C]
+            audio=None,
+        )
+        samples.append(wandb.Video(str(path), format="mp4"))
+
+    artefacts = {"samples": samples}
+    if depth_gif is not None:
+        artefacts["depth_gif"] = depth_gif
+    if flow_gif is not None:
+        artefacts["flow_gif"] = flow_gif
+    return artefacts
+
 
 def write_video_with_audio(path, vid, audio, fps=60,audio_fps=44100):
     """

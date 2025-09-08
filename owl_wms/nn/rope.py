@@ -7,6 +7,7 @@ import einops as eo
 from einops._torch_specific import allow_ops_in_compiled_graph  # requires einops>=0.6.1
 allow_ops_in_compiled_graph()
 
+
 def get_rope_cls(cls_name):
     cls_name = cls_name.lower()
     if cls_name == "ortho":
@@ -17,6 +18,14 @@ def get_rope_cls(cls_name):
         return TekkenRoPE
     else:
         raise ValueError(f"Invalid RoPE class: {cls_name}")
+
+def cast_rope_buffers_to_fp32(module):
+    for submodule in module.modules():
+        if isinstance(submodule, RoPE):
+            if hasattr(submodule, "cos"):
+                submodule.cos = submodule.cos.float()
+            if hasattr(submodule, "sin"):
+                submodule.sin = submodule.sin.float()
 
 class RoPE(nn.Module):
     def __init__(self, config):
@@ -147,7 +156,7 @@ class MotionRoPE(RoPE):
 
         # TODO: paper is 3 FPS, uses delta=2.0, we have 60 FPS, so we might want to lower this
         # Rough heuristic for optimal parameter: delta = 1.0 -> objects tend to move one pixel per frame
-        ats_delta = getattr(config, 'rope_ats_delta', 0.5)
+        ats_delta = getattr(config, 'rope_ats_delta', 2.0)
 
         base_freqs = RotaryEmbedding(dim=sum(dims.values()), freqs_for='lang', theta=theta).freqs.float()
 
