@@ -64,13 +64,22 @@ class TekkenRFTTrainerV2(BaseTrainer):
             )
             freeze(self.decoder)
 
+    @staticmethod
+    def get_raw_model(model):
+        return getattr(model, "module", model)
+
     def save(self):
+        if self.rank != 0:
+            return
+
         save_dict = {
-            'model': self.get_module().state_dict(),
-            'ema': self.ema.state_dict(),
+            'model': self.get_raw_model(self.model).state_dict(),
+            'ema': self.get_raw_model(self.ema).state_dict(),
             'opt': self.opt.state_dict(),
             'steps': self.total_step_counter
         }
+        if self.scheduler is not None:
+            save_dict['scheduler'] = self.scheduler.state_dict()
         super().save(save_dict)
 
     def load(self):

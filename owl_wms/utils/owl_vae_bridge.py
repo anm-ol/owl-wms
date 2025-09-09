@@ -154,8 +154,8 @@ def get_decoder_only(vae_id, cfg_path, ckpt_path):
                 model.load_state_dict(state_dict)
             except:
                 # Filter for only decoder keys if the full load fails
-                decoder_state_dict = {k.replace("decoder.", ""): v for k, v in state_dict.items() if k.startswith("decoder.")}
-                model.decoder.load_state_dict(decoder_state_dict)
+                # decoder_state_dict = {k.replace("decoder.", ""): v for k, v in state_dict.items() if k.startswith("decoder.")}
+                model.decoder.load_state_dict(state_dict)
 
             del model.encoder
             model = model.decoder
