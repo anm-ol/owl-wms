@@ -70,7 +70,7 @@ train:
   sampler_kwargs:
     n_steps: 2  # DMD target: few-step sampling
     cfg_scale: 1.0
-    num_frames: 192
+    num_frames: 24 #192
     noise_prev: 0.2
     only_return_generated: true
     custom_schedule: [1.0, 0.5]  # discrete timesteps for DMD
