@@ -1,28 +1,41 @@
 model:
   model_id: tekken_rft_v2
-  sample_size: [14, 23]       # Match your STUDENT's latent size
-  channels: 128             # Match your STUDENT's latent channels
+  sample_size: [14, 23]
+  channels: 128
   n_buttons: 8
-  n_layers: 8               # Example: Student has fewer layers than teacher
+  n_layers: 16
   n_heads: 16
-  d_model: 768
-  n_frames: 16              # DMD works on fixed windows
+  d_model: 2048
+
+  n_frames: 1024
+  has_audio: false
+
   cfg_prob: 0.0
   causal: true
   uncond: false
   backbone: dit
-  has_audio: false
+
+  local_window: 16
+  global_window: 128
 
 train:
-  trainer_id: tekken_dmd   # IMPORTANT: The new trainer ID you register
+  trainer_id: tekken_dmd
   data_id: tekken_multi
   data_kwargs:
-    window_length: 16
+    window_length: 128
     temporal_compression: 1
-    root_dir: "/mnt/data/owl-wms/preproccessing/cached_dcae_fix/train" # Use the same data as your teacher
+    root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/train
 
-  target_batch_size: 64
-  batch_size: 8
+  sample_data_id: tekken_multi
+  sample_data_kwargs:
+    window_length: 64  # smaller for DMD sampling
+    temporal_compression: 1
+    root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/val
+
+  target_batch_size: 32  # increased for DMD training
+  batch_size: 2
+
+  epochs: 10000
 
   opt: AdamW
   opt_kwargs:
@@ -30,31 +43,56 @@ train:
     betas: [0.9, 0.999]
     weight_decay: 0.01
     eps: 1.0e-8
-  d_opt_kwargs: # For the critic
-    lr: 2.0e-6
+  d_opt_kwargs:  # discriminator/critic optimizer
+    lr: 4.0e-7
     betas: [0.9, 0.999]
     weight_decay: 0.01
     eps: 1.0e-8
-    
-  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_dmd_pose_L
-  
-  # --- Distillation Configs ---
-  teacher_cfg: configs/tekken_pose_v3_L.yml # TEACHER config
-  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L/step_45000.pt # Path to TEACHER checkpoint
-  student_ckpt: null #/mnt/data/owl-wms/checkpoints/tekken_pose_v3_L # Path to STUDENT checkpoint (can be same as teacher to start)
-  
-  min_rollout_frames: 8
-  update_ratio: 5
-  rollout_steps: 1
-  cfg_scale: 1.3
 
-  # --- VAE for sampling/logging ---
+  scheduler: null
+
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L
+  resume_ckpt: null
+
+  # Teacher model (your trained tekken_pose_large model)
+  teacher_cfg: configs/tekken_pose_large.yml  # path to your original config
+  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema/step_3000.pt  # your best checkpoint
+
+  # Student model (initialize from same checkpoint)
+  student_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema/step_XXX.pt  # same checkpoint
+
+  sample_interval: 500  # more frequent sampling for DMD
+  save_interval: 2500
+
+  sampler_id: t3_action_caching
+  sampler_kwargs:
+    n_steps: 2  # DMD target: few-step sampling
+    cfg_scale: 1.0
+    num_frames: 192
+    noise_prev: 0.2
+    only_return_generated: true
+    custom_schedule: [1.0, 0.5]  # discrete timesteps for DMD
+
+  n_samples: 2
+  eval_sample_dir: null
+
+  # VAE settings (same as original)
   vae_id: null
-  vae_cfg_path: "preproccessing/checkpoints/tekken_vae_H200_v6/config.yaml" #null # Path to your VAE config
-  vae_ckpt_path: "/mnt/data/laplace/owl-wms/preproccessing/checkpoints/tekken_vae_H200_v6/step_48000.pt" # Path to your VAE checkpoint
-  vae_scale: 1.0 
+  vae_cfg_path: "preproccessing/checkpoints/tekken_vae_H200_v6/config.yaml"
+  vae_ckpt_path: "/mnt/data/laplace/owl-wms/preproccessing/checkpoints/tekken_vae_H200_v6/step_48000.pt"
+  vae_scale: 1.0
+  vae_batch_size: 8
+
+  # DMD-specific settings
+  update_ratio: 5  # critic updates per generator update
+  ts_shift: 8
+  rollout_steps: 4  # rollout horizon
+  cfg_scale: 1.0  # teacher CFG scale
+  log_predictions: false
+  regression_weight: 0.1  # weight for regression to original frames
 
 wandb:
   name: d-fusion
   project: OWL
-  run_name: tekken-dmd-distillation
+  run_name: pose-dmd-L
