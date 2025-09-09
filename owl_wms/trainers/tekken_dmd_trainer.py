@@ -11,7 +11,7 @@ from ..models.tekken_rft_v2 import action_id_to_buttons
 from ..utils.owl_vae_bridge import get_decoder_only, make_batched_decode_fn
 from ..utils import batch_permute_to_length
 from ..nn.kv_cache import KVCache
-from ..utils.logging import LogHelper, to_wandb_av
+from ..utils.logging import LogHelper, to_wandb, to_wandb_pose
 from ..data import get_loader
 from ..sampling import get_sampler_cls
 from ..nn.rope import cast_rope_buffers_to_fp32
@@ -467,7 +467,7 @@ class TekkenDMDTrainer(BaseTrainer):
         ema_module = lambda: self.ema.ema_model.module if self.world_size > 1 else self.ema.ema_model
         
         # Prepare decode functions for sampling
-        frame_decode_fn = make_batched_decode_fn(self.decoder, batch_size=self.train_cfg.vae_batch_size)
+        frame_decode_fn = make_batched_decode_fn(self.decoder, batch_size=self.train_cfg.vae_batch_size, temporal_vae=self.train_cfg.temporal_vae)
 
         # Initialize optimizers and scalers
         self.opt = getattr(torch.optim, self.train_cfg.opt)(self.student.parameters(), **self.train_cfg.opt_kwargs)
@@ -667,17 +667,30 @@ class TekkenDMDTrainer(BaseTrainer):
         if self.rank == 0:
             # Convert action_ids to button presses for visualization
             button_presses = action_id_to_buttons(action_ids)
-            wandb_av_out = to_wandb_av(video_out, None, None, button_presses)
-            if len(wandb_av_out) == 3:
-                video, depth_gif, flow_gif = wandb_av_out
-                eval_wandb_dict = dict(samples=video, depth_gif=depth_gif, flow_gif=flow_gif)
-            elif len(wandb_av_out) == 2:
-                video, depth_gif = wandb_av_out
-                eval_wandb_dict = dict(samples=video, depth_gif=depth_gif)
-            else:
-                eval_wandb_dict = dict(samples=wandb_av_out)
+            print(f"button presses shape: {button_presses.shape}, actions: {action_ids.shape}")
+            c = video_out.shape[2] if video_out.ndim == 5 else video_out.shape[1]
+            # Ensure video_out and action_ids are float32/cpu for wandb
+            video_out_safe = video_out.detach().to(torch.float32).cpu() if video_out.is_floating_point() else video_out.cpu()
+            action_ids_safe = action_ids.detach().cpu() if hasattr(action_ids, 'detach') else action_ids
+            eval_wandb_dict = {}
+            if c == 3:
+                wandb_videos = to_wandb(video_out_safe, action_ids_safe, format='mp4', max_samples=8, fps=20)
+                # Always wrap in a list if not already (wandb.Video or wandb.Image)
+                if not isinstance(wandb_videos, (list, tuple)):
+                    wandb_videos = [wandb_videos]
+                eval_wandb_dict['samples'] = wandb_videos
+            elif c == 4:
+                rgb_videos, pose_videos = to_wandb_pose(video_out_safe, action_ids_safe, format='mp4', max_samples=8, fps=20)
+                if not isinstance(rgb_videos, (list, tuple)):
+                    rgb_videos = [rgb_videos]
+                if not isinstance(pose_videos, (list, tuple)):
+                    pose_videos = [pose_videos]
+                eval_wandb_dict['rgb_samples'] = rgb_videos
+                eval_wandb_dict['pose_samples'] = pose_videos
+            # Do not log raw arrays for 'samples' key; skip otherwise
         else:
             eval_wandb_dict = None
+        print("Eval step done")
         self.barrier()
-
+        print("Barrier passed")
         return eval_wandb_dict
