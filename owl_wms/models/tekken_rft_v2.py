@@ -73,7 +73,7 @@ class TekkenRFTCoreV2(nn.Module):
         cond = cond_emb.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
 
         # Pass the combined sequence through the transformer.
-        processed_tokens = self.transformer(transformer_input, cond, kv_cache)
+        processed_tokens = self.transformer(transformer_input, cond, kv_cache=kv_cache)
 
         # Separate the processed action tokens from the video tokens.
         processed_tokens = processed_tokens.view(b, t, s, d)
