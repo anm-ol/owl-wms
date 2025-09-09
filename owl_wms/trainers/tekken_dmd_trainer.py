@@ -620,14 +620,17 @@ class TekkenDMDTrainer(BaseTrainer):
         extended_action_ids = extended_action_ids.squeeze(-1)
         action_ids = extended_action_ids[:vid.size(0)]  # Take first batch worth
 
-        latent_vid = sampler(model, vid.cuda(), action_ids.cuda())
+        video_out, latent_vid, _ = sampler(model, vid.cuda(), action_ids.cuda(), decode_fn=decode_fn)
 
         # Take only generated frames
         if True:
             latent_vid = latent_vid[:, vid.size(1):]
             action_ids = action_ids[:, vid.size(1):]
+        # print(f"Sampled video shape: {video_out.shape}")
+        print(f"latent shape: {latent_vid.shape}")
+        print(f"actions shape: {action_ids.shape}")
 
-        video_out = decode_fn(latent_vid * self.train_cfg.vae_scale) if decode_fn is not None else None
+        # video_out = decode_fn(latent_vid * self.train_cfg.vae_scale) if decode_fn is not None else None
 
         gc.collect()
         torch.cuda.empty_cache()
