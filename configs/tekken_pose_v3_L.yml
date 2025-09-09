@@ -53,7 +53,7 @@ train:
     adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
 
   checkpoint_dir: checkpoints/tekken_pose_v3_L
-  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema2
   resume_ckpt: null
 
   sample_interval: 2500
