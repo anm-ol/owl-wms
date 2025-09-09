@@ -96,7 +96,6 @@ def get_loader(batch_size, dataset_path, window_length, batch_columns):
         batch_size=batch_size,
         collate_fn=partial(collate_fn, batch_columns=batch_columns),
         num_workers=2,
-        drop_last=True,
         pin_memory=True,
         drop_last=True,
         persistent_workers=True,   # workers stay alive; fewer re-forks
