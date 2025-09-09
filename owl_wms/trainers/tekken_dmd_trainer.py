@@ -300,11 +300,27 @@ class TekkenDMDTrainer(BaseTrainer):
         self.model_cfg.cfg_prob = 0.0
         self.model_cfg.causal = True
 
+        # Helper function to clean checkpoint keys
+        def clean_checkpoint_keys(state_dict):
+            """Remove common prefixes from checkpoint keys"""
+            cleaned = {}
+            prefixes = ['_orig_mod.core.', '_orig_mod.', 'module.core.', 'module.', 'core.']
+            
+            for key, value in state_dict.items():
+                new_key = key
+                for prefix in prefixes:
+                    if new_key.startswith(prefix):
+                        new_key = new_key[len(prefix):]
+                        break
+                cleaned[new_key] = value
+            return cleaned
+
         # === init teacher ===
         teacher_cfg_path = self.train_cfg.teacher_cfg
         teacher_ckpt_path = self.train_cfg.teacher_ckpt
         teacher_cfg = Config.from_yaml(teacher_cfg_path).model
         teacher_ckpt = versatile_load(teacher_ckpt_path)
+        teacher_ckpt = clean_checkpoint_keys(teacher_ckpt)
 
         self.teacher = get_model_cls(teacher_cfg.model_id)(teacher_cfg)
         try:
@@ -315,6 +331,7 @@ class TekkenDMDTrainer(BaseTrainer):
         # === init student ===
         student_ckpt_path = self.train_cfg.student_ckpt
         student_ckpt = versatile_load(student_ckpt_path)
+        student_ckpt = clean_checkpoint_keys(student_ckpt)
 
         self.student = get_model_cls(self.model_cfg.model_id)(self.model_cfg)
         try:
@@ -351,13 +368,22 @@ class TekkenDMDTrainer(BaseTrainer):
 
         freeze(self.teacher)
     
+    @staticmethod
+    def get_raw_model(model):
+        """Extract the raw model from DDP/compiled wrappers"""
+        # Handle _orig_mod from torch.compile
+        if hasattr(model, '_orig_mod'):
+            model = model._orig_mod
+        # Handle module from DDP
+        return getattr(model, "module", model)
+    
     def save(self):
         save_dict = {
-            'model': self.student.state_dict(),
-            'ema': self.ema.state_dict(),
+            'model': self.get_raw_model(self.student).state_dict(),
+            'ema': self.get_raw_model(self.ema).state_dict(),
             'opt': self.opt.state_dict(),
             'scaler': self.scaler.state_dict(),
-            'critic': self.critic.state_dict(),
+            'critic': self.get_raw_model(self.critic).state_dict(),
             'critic_opt': self.critic_opt.state_dict(),
             'critic_scaler': self.critic_scaler.state_dict(),
             'steps': self.total_step_counter
@@ -365,22 +391,49 @@ class TekkenDMDTrainer(BaseTrainer):
         super().save(save_dict)
 
     def load(self):
-        has_ckpt = False
-        if hasattr(self.train_cfg, 'resume_ckpt') and self.train_cfg.resume_ckpt is not None:
-            save_dict = super().load(self.train_cfg.resume_ckpt)
-            has_ckpt = True
-        
-        if not has_ckpt:
+        if not hasattr(self.train_cfg, 'resume_ckpt') or self.train_cfg.resume_ckpt is None:
+            print("No checkpoint to load")
             return
         
-        self.student.load_state_dict(save_dict['model'])
-        self.ema.load_state_dict(save_dict['ema'])
-        self.opt.load_state_dict(save_dict['opt'])
-        self.scaler.load_state_dict(save_dict['scaler'])
-        self.critic.load_state_dict(save_dict['critic'])
-        self.critic_opt.load_state_dict(save_dict['critic_opt'])
-        self.critic_scaler.load_state_dict(save_dict['critic_scaler'])
-        self.total_step_counter = save_dict['steps']
+        print(f"Loading checkpoint from: {self.train_cfg.resume_ckpt}")
+        save_dict = super().load(self.train_cfg.resume_ckpt)
+        
+        def clean_keys(state_dict):
+            """Remove common prefixes from state dict keys"""
+            cleaned = {}
+            prefixes = ['_orig_mod.core.', '_orig_mod.', 'module.core.', 'module.', 'core.']
+            
+            for key, value in state_dict.items():
+                new_key = key
+                for prefix in prefixes:
+                    if new_key.startswith(prefix):
+                        new_key = new_key[len(prefix):]
+                        break
+                cleaned[new_key] = value
+            return cleaned
+        
+        # Clean and load each component
+        components = [
+            ('model', self.student, 'Student model'),
+            ('ema', self.ema, 'EMA'),
+            ('critic', self.critic, 'Critic'),
+            ('opt', self.opt, 'Optimizer'),
+            ('critic_opt', self.critic_opt, 'Critic optimizer'),
+            ('scaler', self.scaler, 'Scaler'),
+            ('critic_scaler', self.critic_scaler, 'Critic scaler')
+        ]
+        
+        for key, target, name in components:
+            if key in save_dict and target is not None:
+                try:
+                    state = clean_keys(save_dict[key]) if 'model' in key or key == 'ema' or key == 'critic' else save_dict[key]
+                    target.load_state_dict(state)
+                    print(f"✓ {name} loaded")
+                except Exception as e:
+                    print(f"✗ Failed to load {name}: {e}")
+        
+        self.total_step_counter = save_dict.get('steps', 0)
+        print(f"Loaded checkpoint at step {self.total_step_counter}")
 
     def train(self):
         torch.cuda.set_device(self.local_rank)
