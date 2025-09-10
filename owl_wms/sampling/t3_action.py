@@ -4,6 +4,7 @@ from tqdm import tqdm
 from ..nn.kv_cache import KVCache
 from ..models.tekken_rft_v2 import action_id_to_buttons
 from .schedulers import get_sd3_euler
+from .av_caching_v2 import get_deltas
 
 class TekkenCachingActionSampler:
     """
@@ -18,11 +19,14 @@ class TekkenCachingActionSampler:
         noise_prev (float): The amount of noise to add to the context frames.
         only_return_generated (bool): If True, returns only the newly generated frames.
     """
-    def __init__(self, n_steps: int = 16, cfg_scale: float = 1.0, num_frames: int = 160, noise_prev: float = 0.2, only_return_generated: bool = False, **kwargs):
+    def __init__(self, n_steps: int = 16, cfg_scale: float = 1.0, num_frames: int = 160, noise_prev: float = 0.2, only_return_generated: bool = False,
+                 max_window=None, custom_schedule=None,  **kwargs):
         self.n_steps = n_steps
         self.cfg_scale = cfg_scale
         self.num_frames = num_frames
         self.noise_prev = noise_prev
+        self.max_window = max_window
+        self.custom_schedule = custom_schedule
         self.only_return_generated = only_return_generated
 
     @staticmethod
@@ -68,6 +72,7 @@ class TekkenCachingActionSampler:
         _ = model(full_input_latents, full_ts, full_actions, kv_cache=kv_cache)
         
         kv_cache.disable_cache_updates()
+        
         kv_cache.truncate(1, front=True)  # Keep only the new frame being denoised
 
         # Take the first Euler step (similar to AVCachingSampler)
@@ -147,4 +152,6 @@ class TekkenCachingActionSampler:
         video_out = decode_fn(final_latents) if decode_fn is not None else None
         
         return video_out, final_latents, final_actions
+
+
   

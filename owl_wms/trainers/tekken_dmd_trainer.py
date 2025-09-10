@@ -104,7 +104,7 @@ class RolloutManager:
         """
         Sample discrete ts from steps relevant to sampling
         """
-        valid_ts_list = torch.tensor([1.0, 0.5], device=video.device, dtype=video.dtype)
+        valid_ts_list = torch.tensor([1.0, 0.75, 0.5, 0.25], device=video.device, dtype=video.dtype)
         
         # Make ts of [video.shape[0], video.shape[1]] with values in valid_ts_list
         ts = torch.randint(

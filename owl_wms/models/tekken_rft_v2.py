@@ -50,6 +50,7 @@ class TekkenRFTCoreV2(nn.Module):
 
         # Generate action embeddings from button presses.
         action_tokens = self.action_embed(button_presses)  # [B, T, 8, D_model]
+        print(f"Action tokens shape: {action_tokens.shape}")
         action_emb = action_tokens.mean(dim=2)  # [B, T, D_model]
 
         # if not self.uncond and has_controls is not None:
