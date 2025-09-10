@@ -85,12 +85,13 @@ def to_wandb(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
     if max_samples == 8:
         x = eo.rearrange(x, '(r c) n d h w -> n d (r h) (c w)', r = 2, c = 4)
 
-    return wandb.Video(x, format=format, fps=fps)
+    return wandb.Video(x, format=format, fps=fps or 30)
 
 @torch.no_grad()
 def to_wandb_pose(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
     # x is [b,n,4,h,w]
     rgb, pose = torch.split(x, [3, 1], dim=2)
+    print(f"Fps: {fps}")
     print(f"RGB video shape: {rgb.shape}")
     rgb_videos = to_wandb(rgb, actions, format=format, gather=gather, max_samples=max_samples, fps=fps)
     pose = pose.repeat(1, 1, 3, 1, 1)
@@ -116,7 +117,7 @@ def to_wandb_pose(x, actions, format='mp4', gather = False, max_samples = 8, fps
     if max_samples == 8:
         pose = eo.rearrange(pose, '(r c) n d h w -> n d (r h) (c w)', r = 2, c = 4)
 
-    return rgb_videos, wandb.Video(pose, format=format, fps=fps)
+    return rgb_videos, wandb.Video(pose, format=format, fps=fps or 30)
 
 def to_wandb_gif(x, actions, max_samples = 4, format='mp4', fps=16):
     x = x.clamp(-1, 1)
