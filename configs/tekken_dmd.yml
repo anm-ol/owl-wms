@@ -53,7 +53,7 @@ train:
   scheduler: null
 
   checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L
-  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_ema
   resume_ckpt: null
 
   # Teacher model (your trained tekken_pose_large model)
@@ -63,7 +63,7 @@ train:
   # Student model (initialize from same checkpoint)
   student_ckpt: /mnt/data/laplace/owl-wms/checkpoints/pose_v3_L2/step_25000.pt
 
-  sample_interval: 500  # more frequent sampling for DMD
+  sample_interval: 100  # more frequent sampling for DMD
   save_interval: 2500
 
   sampler_id: t3_action_caching

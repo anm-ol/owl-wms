@@ -595,102 +595,228 @@ class TekkenDMDTrainer(BaseTrainer):
 
     @torch.no_grad()
     def eval_step(self, sample_loader, sampler, decode_fn=None):
+        print(f"[DEBUG] Starting eval_step - rank: {self.rank}, world_size: {self.world_size}")
+        print(f"[DEBUG] decode_fn is None: {decode_fn is None}")
+
         model = self.ema.ema_model.module if self.world_size > 1 else self.ema.ema_model
-        
+        print(f"[DEBUG] Model type: {type(model)}")
+
         # Get sample data
-        vid, actions, _ = next(sample_loader)
+        try:
+            vid, actions, _ = next(sample_loader)
+            print(f"[DEBUG] Got sample data - vid shape: {vid.shape}, actions shape: {actions.shape}")
+        except Exception as e:
+            print(f"[DEBUG] ERROR getting sample data: {e}")
+            return {}
+
         vid = vid / self.train_cfg.vae_scale
         action_ids = actions[:,:,-1].long()
+        print(f"[DEBUG] After processing - vid range: [{vid.min():.3f}, {vid.max():.3f}], action_ids shape: {action_ids.shape}")
 
         # Collect multiple action sequences for variety
         action_ids_list = [action_ids]
-        for _ in range(15):
-            _, new_actions, _ = next(sample_loader)
-            new_action_ids = new_actions[:,:,-1].long()
-            action_ids_list.append(new_action_ids)
+        try:
+            for i in range(15):
+                _, new_actions, _ = next(sample_loader)
+                new_action_ids = new_actions[:,:,-1].long()
+                action_ids_list.append(new_action_ids)
+            print(f"[DEBUG] Collected {len(action_ids_list)} action sequences")
+        except Exception as e:
+            print(f"[DEBUG] ERROR collecting action sequences: {e}")
 
         action_ids_all = torch.cat(action_ids_list, dim=0)
-        
-        # Permute to get extended sequence
-        extended_action_ids, _ = batch_permute_to_length(
-            action_ids_all.unsqueeze(-1), 
-            action_ids_all.unsqueeze(-1), 
-            sampler.num_frames + vid.size(1)
-        )
-        extended_action_ids = extended_action_ids.squeeze(-1)
-        action_ids = extended_action_ids[:vid.size(0)]  # Take first batch worth
+        print(f"[DEBUG] action_ids_all shape: {action_ids_all.shape}")
 
-        video_out, latent_vid, _ = sampler(model, vid.cuda(), action_ids.cuda(), decode_fn=decode_fn)
+        # Permute to get extended sequence
+        try:
+            extended_action_ids, _ = batch_permute_to_length(
+                action_ids_all.unsqueeze(-1), 
+                action_ids_all.unsqueeze(-1), 
+                sampler.num_frames + vid.size(1)
+            )
+            extended_action_ids = extended_action_ids.squeeze(-1)
+            action_ids = extended_action_ids[:vid.size(0)]  # Take first batch worth
+            print(f"[DEBUG] Extended action_ids shape: {action_ids.shape}")
+        except Exception as e:
+            print(f"[DEBUG] ERROR in batch_permute_to_length: {e}")
+            return {}
+
+        # Generate samples
+        try:
+            print(f"[DEBUG] Calling sampler with vid shape: {vid.shape}, action_ids shape: {action_ids.shape}")
+            video_out, latent_vid, _ = sampler(model, vid.cuda(), action_ids.cuda(), decode_fn=decode_fn)
+            print(f"[DEBUG] Sampler returned - video_out: {video_out.shape if video_out is not None else None}")
+            print(f"[DEBUG] Sampler returned - latent_vid: {latent_vid.shape if latent_vid is not None else None}")
+        except Exception as e:
+            print(f"[DEBUG] ERROR in sampler: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
 
         # Take only generated frames
-        if True:
+        if latent_vid is not None:
+            original_latent_shape = latent_vid.shape
             latent_vid = latent_vid[:, vid.size(1):]
             action_ids = action_ids[:, vid.size(1):]
-        # print(f"Sampled video shape: {video_out.shape}")
-        print(f"latent shape: {latent_vid.shape}")
-        print(f"actions shape: {action_ids.shape}")
-
-        # video_out = decode_fn(latent_vid * self.train_cfg.vae_scale) if decode_fn is not None else None
+            print(f"[DEBUG] After taking generated frames - latent: {original_latent_shape} -> {latent_vid.shape}")
+            print(f"[DEBUG] After taking generated frames - actions: {action_ids.shape}")
+        else:
+            print(f"[DEBUG] ERROR: latent_vid is None!")
+            return {}
 
         gc.collect()
         torch.cuda.empty_cache()
 
         def gather_concat_cpu(t, dim=0):
+            print(f"[DEBUG] gather_concat_cpu called with tensor shape: {t.shape if t is not None else None}")
             if self.rank == 0:
                 t_gpu = t.cuda() if t.device.type == 'cpu' else t
                 parts = [t_gpu.cpu()]
-                scratch = torch.empty_like(t_gpu)
-                for src in range(self.world_size):
-                    if src == 0:
-                        continue
-                    dist.recv(scratch, src=src)
-                    parts.append(scratch.cpu())
-                return torch.cat(parts, dim=dim)
+                if self.world_size > 1:
+                    scratch = torch.empty_like(t_gpu)
+                    for src in range(self.world_size):
+                        if src == 0:
+                            continue
+                        try:
+                            dist.recv(scratch, src=src)
+                            parts.append(scratch.cpu())
+                            print(f"[DEBUG] Received tensor from rank {src}")
+                        except Exception as e:
+                            print(f"[DEBUG] ERROR receiving from rank {src}: {e}")
+                result = torch.cat(parts, dim=dim)
+                print(f"[DEBUG] gather_concat_cpu result shape: {result.shape}")
+                return result
             else:
-                t_gpu = t.cuda() if t.device.type == 'cpu' else t
-                dist.send(t_gpu, dst=0)
+                if self.world_size > 1:
+                    t_gpu = t.cuda() if t.device.type == 'cpu' else t
+                    try:
+                        dist.send(t_gpu, dst=0)
+                        print(f"[DEBUG] Sent tensor to rank 0")
+                    except Exception as e:
+                        print(f"[DEBUG] ERROR sending to rank 0: {e}")
                 return None
 
         # Save latent artifacts
         if getattr(self.train_cfg, "eval_sample_dir", None):
-            latent_vid = gather_concat_cpu(latent_vid)
-            if self.rank == 0:
+            print(f"[DEBUG] Saving latent artifacts to {self.train_cfg.eval_sample_dir}")
+            latent_vid_gathered = gather_concat_cpu(latent_vid)
+            if self.rank == 0 and latent_vid_gathered is not None:
                 eval_dir = Path(self.train_cfg.eval_sample_dir)
                 eval_dir.mkdir(parents=True, exist_ok=True)
-                torch.save(latent_vid, eval_dir / f"vid.{self.total_step_counter}.pt")
-        
-        # Generate media artifacts
-        video_out, action_ids = [
-            gather_concat_cpu(x, dim=0) for x in [video_out, action_ids]
-        ]
+                torch.save(latent_vid_gathered, eval_dir / f"vid.{self.total_step_counter}.pt")
+                print(f"[DEBUG] Saved latent artifacts")
 
-        if self.rank == 0:
-            # Convert action_ids to button presses for visualization
-            button_presses = action_id_to_buttons(action_ids)
-            print(f"button presses shape: {button_presses.shape}, actions: {action_ids.shape}")
-            c = video_out.shape[2] if video_out.ndim == 5 else video_out.shape[1]
-            # Ensure video_out and action_ids are float32/cpu for wandb
-            video_out_safe = video_out.detach().to(torch.float32).cpu() if video_out.is_floating_point() else video_out.cpu()
-            action_ids_safe = action_ids.detach().cpu() if hasattr(action_ids, 'detach') else action_ids
-            eval_wandb_dict = {}
-            if c == 3:
-                wandb_videos = to_wandb(video_out_safe, action_ids_safe, format='mp4', max_samples=8, fps=20)
-                # Always wrap in a list if not already (wandb.Video or wandb.Image)
-                if not isinstance(wandb_videos, (list, tuple)):
-                    wandb_videos = [wandb_videos]
-                eval_wandb_dict['samples'] = wandb_videos
-            elif c == 4:
-                rgb_videos, pose_videos = to_wandb_pose(video_out_safe, action_ids_safe, format='mp4', max_samples=8, fps=20)
-                if not isinstance(rgb_videos, (list, tuple)):
-                    rgb_videos = [rgb_videos]
-                if not isinstance(pose_videos, (list, tuple)):
-                    pose_videos = [pose_videos]
-                eval_wandb_dict['rgb_samples'] = rgb_videos
-                eval_wandb_dict['pose_samples'] = pose_videos
-            # Do not log raw arrays for 'samples' key; skip otherwise
+        # Generate media artifacts - THIS IS THE KEY PART
+        print(f"[DEBUG] Generating media artifacts...")
+        print(f"[DEBUG] decode_fn is not None: {decode_fn is not None}")
+        print(f"[DEBUG] video_out is None: {video_out is None}")
+
+        if decode_fn is not None and video_out is None:
+            try:
+                print(f"[DEBUG] Decoding latent video...")
+                # Scale latents back up for decoding
+                latent_for_decode = latent_vid * self.train_cfg.vae_scale
+                print(f"[DEBUG] latent_for_decode shape: {latent_for_decode.shape}, range: [{latent_for_decode.min():.3f}, {latent_for_decode.max():.3f}]")
+                
+                video_out = decode_fn(latent_for_decode.cuda().bfloat16()).float().cpu()
+                print(f"[DEBUG] Decoded video shape: {video_out.shape}, range: [{video_out.min():.3f}, {video_out.max():.3f}]")
+            except Exception as e:
+                print(f"[DEBUG] ERROR decoding video: {e}")
+                import traceback
+                traceback.print_exc()
+                video_out = None
+        elif video_out is not None:
+            print(f"[DEBUG] Using video_out from sampler: {video_out.shape}")
         else:
-            eval_wandb_dict = None
+            print(f"[DEBUG] WARNING: Both decode_fn and video_out are None/unavailable!")
+
+        # Gather video and actions across all ranks
+        print(f"[DEBUG] Gathering video and actions across ranks...")
+        try:
+            video_out_gathered = gather_concat_cpu(video_out) if video_out is not None else None
+            action_ids_gathered = gather_concat_cpu(action_ids)
+            print(f"[DEBUG] Gathered video shape: {video_out_gathered.shape if video_out_gathered is not None else None}")
+            print(f"[DEBUG] Gathered actions shape: {action_ids_gathered.shape if action_ids_gathered is not None else None}")
+        except Exception as e:
+            print(f"[DEBUG] ERROR gathering tensors: {e}")
+            video_out_gathered = None
+            action_ids_gathered = None
+
+        eval_wandb_dict = {}
+        if self.rank == 0:
+            print(f"[DEBUG] Rank 0: Processing media for wandb...")
+            print(f"[DEBUG] video_out_gathered is not None: {video_out_gathered is not None}")
+            print(f"[DEBUG] action_ids_gathered is not None: {action_ids_gathered is not None}")
+            
+            if video_out_gathered is not None and action_ids_gathered is not None:
+                try:
+                    # Convert action_ids to button presses for visualization
+                    button_presses = action_id_to_buttons(action_ids_gathered)
+                    print(f"[DEBUG] button presses shape: {button_presses.shape}")
+                    
+                    # video_out_gathered = torch.permute(video_out_gathered, (0, 2, 1, 3, 4)
+                    c = video_out_gathered.shape[1] if video_out_gathered.ndim == 5 else video_out_gathered.shape[1]
+                    print(f"[DEBUG] Number of channels: {c}")
+                    
+                    # Ensure video_out and action_ids are float32/cpu for wandb
+                    video_out_safe = video_out_gathered.detach().to(torch.float32).cpu() if video_out_gathered.is_floating_point() else video_out_gathered.cpu()
+                    action_ids_safe = action_ids_gathered.detach().cpu() if hasattr(action_ids_gathered, 'detach') else action_ids_gathered
+                    
+                    print(f"[DEBUG] Safe tensors - video: {video_out_safe.shape}, actions: {action_ids_safe.shape}")
+                    print(f"[DEBUG] Video range after safety conversion: [{video_out_safe.min():.3f}, {video_out_safe.max():.3f}]")
+                    
+                    # Log based on number of channels
+                    if c == 3:
+                        print(f"[DEBUG] Creating RGB wandb videos...")
+                        try:
+                            wandb_videos = to_wandb(video_out_safe, action_ids_safe, format='mp4', max_samples=8, fps=20)
+                            print(f"[DEBUG] Created wandb videos: {type(wandb_videos)}")
+                            # Always wrap in a list if not already (wandb.Video or wandb.Image)
+                            if not isinstance(wandb_videos, (list, tuple)):
+                                wandb_videos = [wandb_videos]
+                            eval_wandb_dict['samples'] = wandb_videos
+                            print(f"[DEBUG] Added {len(wandb_videos)} videos to eval_wandb_dict['samples']")
+                        except Exception as e:
+                            print(f"[DEBUG] ERROR creating RGB videos: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            
+                    elif c == 4:
+                        print(f"[DEBUG] Creating RGB+Pose wandb videos...")
+                        try:
+                            rgb_videos, pose_videos = to_wandb_pose(video_out_safe.permute(0, 2, 1, 3, 4), action_ids_safe, format='mp4', max_samples=8, fps=20)
+                            print(f"[DEBUG] Created RGB videos: {type(rgb_videos)}, Pose videos: {type(pose_videos)}")
+                            if not isinstance(rgb_videos, (list, tuple)):
+                                rgb_videos = [rgb_videos]
+                            if not isinstance(pose_videos, (list, tuple)):
+                                pose_videos = [pose_videos]
+                            eval_wandb_dict['rgb_samples'] = rgb_videos
+                            eval_wandb_dict['pose_samples'] = pose_videos
+                            print(f"[DEBUG] Added {len(rgb_videos)} RGB and {len(pose_videos)} pose videos")
+                        except Exception as e:
+                            print(f"[DEBUG] ERROR creating RGB+Pose videos: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        print(f"[DEBUG] Unsupported number of channels: {c}")
+                        
+                except Exception as e:
+                    print(f"[DEBUG] ERROR processing media: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"[DEBUG] Cannot create media - missing video_out_gathered or action_ids_gathered")
+        else:
+            print(f"[DEBUG] Non-rank-0 process, skipping media creation")
+
+        print(f"[DEBUG] eval_wandb_dict keys: {list(eval_wandb_dict.keys())}")
         print("Eval step done")
-        self.barrier()
-        print("Barrier passed")
-        return eval_wandb_dict
+
+        if self.world_size > 1:
+            print(f"[DEBUG] Calling barrier...")
+            self.barrier()
+            print("Barrier passed")
+
+        result = eval_wandb_dict if self.rank == 0 else {}
+        print(f"[DEBUG] Returning: {list(result.keys())}")
+        return result
