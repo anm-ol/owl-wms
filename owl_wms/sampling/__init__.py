@@ -11,6 +11,12 @@ def get_sampler_cls(sampler_id):
         """
         from .t3_action import TekkenCachingActionSampler
         return TekkenCachingActionSampler
+    elif sampler_id == "t3_action_caching_v2":
+        """
+        Tekken sampler with KV caching using action IDs
+        """
+        from .t3_action_v2 import TekkenActionCachingV2
+        return TekkenActionCachingV2
     elif sampler_id == "t3_caching":
         """
         Tekken sampler with KV caching

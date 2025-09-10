@@ -33,8 +33,8 @@ train:
     temporal_compression: 1
     root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/val
 
-  target_batch_size: 32  # increased for DMD training
-  batch_size: 4
+  target_batch_size: 16  # increased for DMD training
+  batch_size: 2
 
   epochs: 10000 
 
@@ -66,14 +66,15 @@ train:
   sample_interval: 100  # more frequent sampling for DMD
   save_interval: 2500
 
-  sampler_id: t3_action_caching
+  sampler_id: t3_action_caching_v2
   sampler_kwargs:
-    n_steps: 2  # DMD target: few-step sampling
+    n_steps: 4  # DMD target: few-step sampling
     cfg_scale: 1.0
     num_frames: 240 #192
     noise_prev: 0.2
     only_return_generated: true
-    custom_schedule: [1.0, 0.5]  # discrete timesteps for DMD
+    max_window: 32  # match training window
+    custom_schedule: [1.0, 0.75, 0.5, 0.25]  # discrete timesteps for DMD
 
   n_samples: 2
   eval_sample_dir: null

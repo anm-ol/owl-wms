@@ -50,6 +50,7 @@ class TekkenRFTCoreV2(nn.Module):
 
         # Generate action embeddings from button presses.
         action_tokens = self.action_embed(button_presses)  # [B, T, 8, D_model]
+        print(f"Action tokens shape: {action_tokens.shape}")
         action_emb = action_tokens.mean(dim=2)  # [B, T, D_model]
         cond_emb = t_cond + action_emb  # [B, T, D_model]
 
@@ -69,7 +70,7 @@ class TekkenRFTCoreV2(nn.Module):
         transformer_input = x_tokens.view(b, t * s, d)
         # The AdaLN conditioning signal is just the time embedding, repeated for each token.
         # Expand t_cond to match the flattened sequence length
-        cond = t_cond.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
+        cond = cond_emb.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
 
         # Pass the combined sequence through the transformer.
         processed_tokens = self.transformer(transformer_input, cond, kv_cache=kv_cache)
