@@ -34,9 +34,9 @@ train:
     root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/val
 
   target_batch_size: 32  # increased for DMD training
-  batch_size: 1
+  batch_size: 4
 
-  epochs: 10000
+  epochs: 10000 
 
   opt: AdamW
   opt_kwargs:
@@ -70,7 +70,7 @@ train:
   sampler_kwargs:
     n_steps: 2  # DMD target: few-step sampling
     cfg_scale: 1.0
-    num_frames: 24 #192
+    num_frames: 240 #192
     noise_prev: 0.2
     only_return_generated: true
     custom_schedule: [1.0, 0.5]  # discrete timesteps for DMD
