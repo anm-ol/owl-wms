@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# wandb
+wandb/ 
+digest.txt
+
 # C extensions
 *.so
 
