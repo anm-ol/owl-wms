@@ -88,8 +88,8 @@ class TekkenActionCachingV2:
             current_frame_action = action_ids[:, init_len + idx:init_len + idx + 1]
             current_frame_action_buttons = action_id_to_buttons(current_frame_action)
             
-            print(f"Frame {idx}: current action shape={current_frame_action.shape}, "
-                  f"kv_cache_frames={kv_cache.n_frames()}")
+            # print(f"Frame {idx}: current action shape={current_frame_action.shape}, "
+                #   f"kv_cache_frames={kv_cache.n_frames()}")
 
             # ==== STEP 2: Denoise the new frame ====
             for t_idx in range(self.n_steps):
