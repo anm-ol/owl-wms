@@ -84,28 +84,19 @@ class TekkenActionCachingV2:
         for idx in tqdm(range(num_frames), desc="Sampling Tekken Frames..."):
             curr_x, curr_t = new_xt()
 
-            total_frames = len(latents)  # Current number of cached frames
-            if self.max_window is not None:
-                window_size = min(total_frames, self.max_window)
-                start_idx = total_frames - window_size
-            else:
-                start_idx = 0
-                window_size = total_frames
+            # Only pass the current frame's action - KV cache handles the context
+            current_frame_action = action_ids[:, init_len + idx:init_len + idx + 1]
+            current_frame_action_buttons = action_id_to_buttons(current_frame_action)
             
-            # Get actions for the sliding window + current frame
-            end_idx = init_len + idx + 1
-            action_start = start_idx
-            action_end = min(end_idx, action_start + window_size + 1)
-            
-            curr_actions = action_ids[:, action_start:action_end]
-            curr_actions_buttons = action_id_to_buttons(curr_actions)
-            
+            print(f"Frame {idx}: current action shape={current_frame_action.shape}, "
+                  f"kv_cache_frames={kv_cache.n_frames()}")
+
             # ==== STEP 2: Denoise the new frame ====
             for t_idx in range(self.n_steps):
                 pred_v = model(
                     curr_x,
                     curr_t,
-                    curr_actions_buttons,
+                    current_frame_action_buttons,
                     kv_cache=kv_cache
                 )
 
@@ -117,11 +108,15 @@ class TekkenActionCachingV2:
             curr_x_noisy = self.zlerp(curr_x, self.noise_prev)
             curr_t_noisy = torch.ones_like(curr_t) * self.noise_prev
 
+            # For caching, we only need the current frame's action
+            current_frame_action = action_ids[:, init_len + idx:init_len + idx + 1]
+            current_frame_action_buttons = action_id_to_buttons(current_frame_action)
+
             kv_cache.enable_cache_updates()
             _ = model(
                 curr_x_noisy,
                 curr_t_noisy,
-                curr_actions_buttons,
+                current_frame_action_buttons,
                 kv_cache=kv_cache
             )
             kv_cache.disable_cache_updates()

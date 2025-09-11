@@ -23,7 +23,7 @@ train:
   trainer_id: tekken_dmd
   data_id: tekken_multi
   data_kwargs:
-    window_length: 16 #128
+    window_length: 32 #128
     temporal_compression: 1
     root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/train
 
@@ -33,7 +33,7 @@ train:
     temporal_compression: 1
     root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/val
 
-  target_batch_size: 16  # increased for DMD training
+  target_batch_size: 16 # increased for DMD training
   batch_size: 2
 
   epochs: 10000 
@@ -58,13 +58,13 @@ train:
 
   # Teacher model (your trained tekken_pose_large model)
   teacher_cfg: configs/tekken_pose_v3_L.yml  # path to your original config
-  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/pose_v3_L2/step_25000.pt  # your best checkpoint
+  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/pose_v3_L2/step_50000.pt  # your best checkpoint
 
   # Student model (initialize from same checkpoint)
-  student_ckpt: /mnt/data/laplace/owl-wms/checkpoints/pose_v3_L2/step_25000.pt
+  student_ckpt: /mnt/data/laplace/owl-wms/checkpoints/pose_v3_L2/step_50000.pt
 
   sample_interval: 100  # more frequent sampling for DMD
-  save_interval: 2500
+  save_interval: 500
 
   sampler_id: t3_action_caching_v2
   sampler_kwargs:
