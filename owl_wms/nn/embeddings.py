@@ -82,7 +82,55 @@ class TimestepEmbedding(nn.Module):
         x = self.sincos(x)
         x = self.mlp(x)
         return x
+    
+class ActionEmbedding(nn.Module):
+    """
+    Creates a unique, learnable embedding for each button and combines them based on presses.
+    """
+    def __init__(self, n_buttons: int, d_model: int):
+        """
+        Initializes the embedding layer.
 
+        Args:
+            [cite_start]n_buttons (int): The number of distinct buttons/actions (e.g., 8 for Tekken). [cite: 60]
+            [cite_start]d_model (int): The dimensionality of the model's embedding space. [cite: 60]
+        """
+        super().__init__()
+        self.n_buttons = n_buttons
+        self.d_model = d_model
+
+        # Create a learnable parameter for the button embeddings.
+        # Shape: [n_buttons, d_model]
+        self.button_embeddings = nn.Embedding(n_buttons, d_model)
+
+    def forward(self, button_presses: torch.Tensor) -> torch.Tensor:
+        """
+        Generates 8 action embeddings, each scaled by its press state (0 or 1).
+
+        Args:
+            button_presses (torch.Tensor): A tensor of shape [B, T, N_buttons].
+                                           Values should be 0.0 for not pressed and 1.0 for pressed.
+
+        Returns:
+            torch.Tensor: The resulting scaled action embeddings of shape [B, T, N_buttons, D_model].
+        """
+        # Ensure input tensor is float for multiplication.
+        button_presses = button_presses.float()
+        # Get the embedding weight matrix, shape: [N_buttons, D_model]
+        embedding_matrix = self.button_embeddings.weight
+
+        # Expand dimensions for broadcasting:
+        # button_presses: [B, T, N] -> [B, T, N, 1]
+        # embedding_matrix: [N, D] -> [1, 1, N, D]
+        button_mask = button_presses.unsqueeze(-1)
+        embedding_matrix_expanded = embedding_matrix.unsqueeze(0).unsqueeze(0)
+
+        # Multiply the embeddings by the button press mask (0 or 1).
+        # Broadcasting results in a [B, T, N_buttons, D_model] tensor.
+        scaled_embeddings = embedding_matrix_expanded * button_mask
+
+        return scaled_embeddings
+    
 class StepEmbedding(nn.Module):
     def __init__(self, d_out, d_in=512, max_steps=128):
         super().__init__()

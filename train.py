@@ -1,5 +1,6 @@
 import argparse
 import os
+import torch.multiprocessing as mp
 
 from owl_wms.configs import Config
 from owl_wms.trainers import get_trainer_cls
@@ -19,6 +20,7 @@ if __name__ == "__main__":
 
     # load environment variables
     load_dotenv()
+    mp.set_start_method("spawn", force=True)  # avoid fork + numpy mmaps deadlocks
 
     global_rank, local_rank, world_size = setup(timeout=args.nccl_timeout)
 

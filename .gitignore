@@ -1,3 +1,23 @@
+# checkpoints
+*.safetensors
+*.json
+*.pth
+*.pt
+send_pr.py
+
+# data
+wandb/*
+*.csv
+*.npz
+*.npy
+*.mp4
+*.txt
+digest.txt
+
+# scripts
+*.ipynb
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

@@ -14,6 +14,8 @@ def get_rope_cls(cls_name):
         return OrthoRoPE
     elif cls_name == "motion":
         return MotionRoPE
+    elif cls_name == "tekken":
+        return TekkenRoPE
     else:
         raise ValueError(f"Invalid RoPE class: {cls_name}")
 
@@ -29,7 +31,7 @@ class RoPE(nn.Module):
     def __init__(self, config):
         super().__init__()
         freqs = self.get_freqs(config)
-
+        self.config = config
         if not config.has_audio:
             # subclasses freqs include audio by default, remove last item from each frame
             freqs = freqs.view(config.n_frames, -1, freqs.size(-1))[:, :-1].flatten(0, 1)
@@ -51,27 +53,84 @@ class RoPE(nn.Module):
     def get_freqs(self, config):
         raise NotImplementedError
 
-
-class OrthoRoPE(RoPE):
+class TekkenRoPE(RoPE):
     """
-    RoPE for rotation across orthogonal axes: time, height, and width
+    A specialized RoPE module for Tekken that applies spatial rotations
+    only to image patch tokens, leaving action tokens untouched.
     """
     def get_freqs(self, config):
-        p = config.sample_size
+        # This part is identical to OrthoRoPE, but it only calculates
+        # frequencies for the image patches.
+        try:
+            p_h, p_w = config.sample_size
+        except (TypeError, ValueError):
+            p_h = p_w = config.sample_size
+
         head_dim = config.d_model // config.n_heads
 
         pos_emb = RotaryEmbedding(
-            dim=head_dim // 4,  # Using half dimension since we only need 1D rotation
+            dim=head_dim // 2, # Note: RoPE is applied to pairs, so dim is half of what's needed.
             freqs_for='pixel',
             max_freq=256
         )
-        # Rot features: (L, P+1, P+1, <pad>)
+        
+        # Frequencies are calculated ONLY for the image grid
         freqs = pos_emb.get_axial_freqs(
-            config.n_frames, p + 1, p + 1, 1, offsets=(0, 0, 0, 1)
-        ).view(config.n_frames, p + 1, p + 1, -1)
+            config.n_frames, p_h, p_w
+        ).flatten(0, 2)
+        
+        return freqs[..., ::2] # Subsampling for sin/cos pairs
 
-        vid_freqs = freqs[:, :p, :p].reshape(config.n_frames, p**2, -1)  # top left square
-        aud_freqs = freqs[:, -1, -1].unsqueeze(1)  # bottom right item
+    def forward(self, x, offset: int = 0):
+        # x is the full sequence [B, H, L, Dh]
+        
+        # Determine how many action/image tokens are in this sequence based on the full frame structure
+        action_toks = self.config.action_tokens_per_frame
+        image_toks = self.config.image_tokens_per_frame
+        total_toks_per_frame = action_toks + image_toks
+
+        # De-interleave the tokens
+        x = eo.rearrange(x, 'b h (f n) d -> b h f n d', n=total_toks_per_frame)
+        x_actions, x_images = x.split([action_toks, image_toks], dim=3)
+
+        # Apply RoPE *only* to the image tokens
+        x_images_rotated = super().forward(x_images.flatten(2,3), offset=offset)
+        x_images_rotated = eo.rearrange(x_images_rotated, 'b h (f n) d -> b h f n d', f=self.config.n_frames)
+        
+        # Re-interleave the tokens
+        x_out = torch.cat([x_actions, x_images_rotated], dim=3)
+        return x_out.flatten(2,3)
+
+
+class OrthoRoPE(RoPE):
+    """
+    RoPE for rotation across orthogonal axes: time, height, and width.
+    This version is corrected to handle non-square sample_sizes.
+    """
+    def get_freqs(self, config):
+        # Unpack height and width from sample_size list/tuple
+        try:
+            p_h, p_w = config.sample_size
+        except (TypeError, ValueError):
+            # Fallback for when sample_size is a single integer for square inputs
+            p_h = p_w = config.sample_size
+
+        head_dim = config.d_model // config.n_heads
+
+        pos_emb = RotaryEmbedding(
+            dim=head_dim // 4,
+            freqs_for='pixel',
+            max_freq=256
+        )
+        # Rot features: (L, P_H+1, P_W+1, <pad>)
+        # Use the unpacked height (p_h) and width (p_w)
+        freqs = pos_emb.get_axial_freqs(
+            config.n_frames, p_h + 1, p_w + 1, 1, offsets=(0, 0, 0, 1)
+        ).view(config.n_frames, p_h + 1, p_w + 1, -1)
+
+        # Correctly reshape based on rectangular dimensions
+        vid_freqs = freqs[:, :p_h, :p_w].reshape(config.n_frames, p_h * p_w, -1)
+        aud_freqs = freqs[:, -1, -1].unsqueeze(1)
 
         freqs = torch.cat([vid_freqs, aud_freqs], dim=1).flatten(0, 1)
         return freqs[..., ::2]  # subsampling

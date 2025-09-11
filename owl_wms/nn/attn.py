@@ -85,7 +85,6 @@ class Attn(nn.Module):
 
         # rotate new queries and keys (shared kv cache between modalities)
         offset = kv_cache.get_offset(self.layer_idx) if kv_cache is not None else 0
-
         q = self.rope(q, offset=offset)
         k = self.rope(k, offset=offset)
 

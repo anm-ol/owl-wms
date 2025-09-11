@@ -1,0 +1,118 @@
+# configs/tekken_rft_train.yml
+model:
+  model_id: tekken_rft_v2
+  sample_size: [56, 92]     # Latent H, W from your VAE
+  channels: 16             # Latent channels from your VAE
+  n_buttons: 8            # For the action embedding layer
+  n_layers: 16 #16
+  n_heads: 16
+  d_model: 768 #1536
+  # tokens_per_frame will be calculated inside the model as 14*23=322
+  # tokens_per_frame: 5152
+  action_tokens_per_frame: null
+  image_tokens_per_frame: null
+  # rope_impl: "tekken"
+  n_frames: 1000              # This is the window length
+  cfg_prob: 0.0
+  causal: true
+  uncond: false
+  backbone: dit
+  has_audio: false
+
+  local_window: 8
+  global_window: 8
+
+train:
+  trainer_id: tekken_rft_v2
+  data_id: tekken_multi
+  data_kwargs:
+    window_length: 8
+    temporal_compression: 4
+    root_dir: "preproccessing/cached_data_v3_wan/train"
+
+  sample_data_id: tekken_multi
+  sample_data_kwargs:
+    window_length: 8  # size of single ground truth start tokens
+    temporal_compression: 4
+    root_dir: "preproccessing/cached_data_v3_wan/val"
+
+  target_batch_size: 32
+  batch_size: 2
+  compile: true
+
+  epochs: 50000
+  opt: Muon
+  opt_kwargs:
+    lr: 1.0e-3
+    momentum: 0.95
+    adamw_lr: 1.0e-4
+    adamw_wd: 1.0e-4
+    adamw_eps: 1.0e-15
+    adamw_betas: [0.9, 0.95]
+    adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
+
+  checkpoint_dir: checkpoints/tekken_dit_v2_actions_wan
+  output_path: checkpoints/tekken_dit_v2_actions_wan_ema_
+  resume_ckpt: null #checkpoints/tekken_dit_v2/step_24000.pt # Path to your last checkpoint
+
+  sample_interval: 1
+  save_interval: 2000
+  n_samples: 1 #8
+  eval_sample_dir: samples/tekken_dit_v2_actions
+
+  sampler_id: t3_action_caching
+  sampler_kwargs:
+    n_steps: 12
+    # window_length: 8
+    cfg_scale: 1.0
+    num_frames: 16 # 16
+    noise_prev: 0.0
+    only_return_generated: false
+
+  # VAE settings for decoding samples
+  vae_id: wan
+  vae_cfg_path: null # Path to your VAE config
+  vae_ckpt_path: "preproccessing/checkpoints/Wan2.1/vae" # Path to your VAE checkpoint
+  vae_scale: 1.0 # Adjust if your VAE has a scaling factor
+  per_channel_mean: [
+    -0.7571,
+    -0.7089,
+    -0.9113,
+    0.1075,
+    -0.1745,
+    0.9653,
+    -0.1517,
+    1.5508,
+    0.4134,
+    -0.0715,
+    0.5517,
+    -0.3632,
+    -0.1922,
+    -0.9497,
+    0.2503,
+    -0.2921
+  ]
+  per_channel_std: [
+    2.8184,
+    1.4541,
+    2.3275,
+    2.6558,
+    1.2196,
+    1.7708,
+    2.6052,
+    2.0743,
+    3.2687,
+    2.1526,
+    2.8652,
+    1.5579,
+    1.6382,
+    1.1253,
+    2.8251,
+    1.916
+  ]
+  vae_batch_size: 4
+
+wandb:
+  name: d-fusion
+  project: OWL
+  run_name: tekken-rft-v2-actions

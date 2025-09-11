@@ -1,4 +1,28 @@
 def get_trainer_cls(trainer_id):
+    if trainer_id == "tekken_dmd":
+        """
+        TekkenDMDTrainer does DMD to create few-step student
+        """
+        from .tekken_dmd_trainer import TekkenDMDTrainer
+        return TekkenDMDTrainer
+    if trainer_id == "causvid":
+        """
+        CausvidTrainer does DMD to create few-step causal student
+        """
+        from .causvid_v2 import CausVidTrainer
+        return CausVidTrainer
+    if trainer_id == "tekken_rft":
+        """
+        TekkenRFTTrainer is a specialized trainer for the TekkenRFT model.
+        """
+        from .tekken_rft_trainer import TekkenRFTTrainer
+        return TekkenRFTTrainer
+    if trainer_id == "tekken_rft_v2":
+        """
+        TekkenRFTTrainer is a specialized trainer for the TekkenRFTV2 model.
+        """
+        from .tekken_rft_trainer_v2 import TekkenRFTTrainerV2
+        return TekkenRFTTrainerV2
     if trainer_id == "causvid_vid":
         from .causvid_vid_only import CausVidTrainer
         return CausVidTrainer

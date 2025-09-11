@@ -17,3 +17,16 @@ def get_model_cls(model_id):
         """
         from .gamemft_audio import GameMFTAudio
         return GameMFTAudio
+    if model_id == "tekken_rft":
+        """
+        TekkenRFT is a specialized model for the Tekken dataset.
+        """
+        from .tekken_rft import TekkenRFT
+        return TekkenRFT
+    if model_id == "tekken_rft_v2":
+        """
+        TekkenRFTV2 is a variant of tekken rft which uses self attention conditioning for actions.
+        """
+        from .tekken_rft_v2 import TekkenRFTV2
+        return TekkenRFTV2
+    

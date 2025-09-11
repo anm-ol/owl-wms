@@ -1,0 +1,84 @@
+model:
+  model_id: tekken_rft_v2
+  sample_size: [14, 23]
+  channels: 128
+  n_buttons: 8
+  n_layers: 16
+  n_heads: 16
+  d_model: 2048
+
+  tokens_per_frame: 322
+  n_frames: 1024
+  has_audio: false
+
+  cfg_prob: 0.0
+  causal: true
+  uncond: false
+  backbone: dit
+
+  # rope_impl: motion
+  # rope_ats_delta: 2.0
+
+  local_window: 16
+  global_window: 128
+
+train:
+  trainer_id: tekken_rft_v2
+  data_id: tekken_multi
+  data_kwargs:
+    window_length: 128 # 256
+    temporal_compression: 1
+    root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/train
+
+  sample_data_id: tekken_multi
+  sample_data_kwargs:
+    window_length: 128  # size of single ground truth start tokens
+    temporal_compression: 1
+    root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/val
+
+
+  target_batch_size: 8
+  batch_size: 1
+  compile: true
+
+  epochs: 10000
+
+  opt: Muon
+  opt_kwargs:
+    lr: 1.0e-3
+    momentum: 0.95
+    adamw_lr: 1.0e-4
+    adamw_wd: 1.0e-4
+    adamw_eps: 1.0e-15
+    adamw_betas: [0.9, 0.95]
+    adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
+
+  checkpoint_dir: checkpoints/tekken_pose_v3_L
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema2
+  resume_ckpt: null
+
+  sample_interval: 2500
+  save_interval: 5000
+
+  sampler_id: t3_action_caching
+  sampler_kwargs:
+    n_steps: 32
+    cfg_scale: 1.0
+    num_frames: 192
+    noise_prev: 0.2
+    only_return_generated: false
+  # num_seed_frames: 60
+
+  vae_id: null
+  vae_cfg_path: "preproccessing/checkpoints/tekken_vae_H200_v6/config.yaml" #null # Path to your VAE config
+  vae_ckpt_path: "/mnt/data/laplace/owl-wms/preproccessing/checkpoints/tekken_vae_H200_v6/step_48000.pt" # Path to your VAE checkpoint
+  vae_scale: 1.0 
+  vae_batch_size: 8
+  n_samples: 2
+  eval_sample_dir: null
+
+
+wandb:
+  name: d-fusion  # lapp0-andrew-lapp
+  project: OWL  # owl
+  run_name: tekken_pose_v3_L

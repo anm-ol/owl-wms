@@ -5,7 +5,9 @@ import torch
 import einops as eo
 
 import numpy as np
-from moviepy.editor import ImageSequenceClip
+from .vis import draw_frames
+from .vis_tekken import draw_tekken_frames
+from moviepy.editor import ImageSequenceClip, CompositeVideoClip
 from moviepy.audio.AudioClip import AudioArrayClip
 
 from .vis import draw_frames
@@ -64,7 +66,7 @@ class LogHelper:
         return final
 
 @torch.no_grad()
-def to_wandb(x, batch_mouse, batch_btn, gather = False, max_samples = 8):
+def to_wandb(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
     # x is [b,n,c,h,w]
     x = x.clamp(-1, 1)
     x = x[:max_samples]
@@ -75,14 +77,49 @@ def to_wandb(x, batch_mouse, batch_btn, gather = False, max_samples = 8):
         x = torch.cat(gathered, dim=0)
 
     # Get labels on them
-    x = draw_frames(x, batch_mouse, batch_btn) # -> [b,n,c,h,w] [0,255] uint8 np
+    b, _ = actions.shape
+    temporal_compression = x.size(1) // actions.size(1) + 1
+    actions = actions.unsqueeze(-1).repeat(1, 1, temporal_compression).view(b, -1)
+    x = draw_tekken_frames(x, actions) # -> [b,n,c,h,w] [0,255] uint8 np
 
     if max_samples == 8:
         x = eo.rearrange(x, '(r c) n d h w -> n d (r h) (c w)', r = 2, c = 4)
 
-    return wandb.Video(x, format='gif', fps=60)
+    return wandb.Video(x, format=format, fps=fps or 30)
 
-def to_wandb_gif(x, max_samples = 4):
+@torch.no_grad()
+def to_wandb_pose(x, actions, format='mp4', gather = False, max_samples = 8, fps=30):
+    # x is [b,n,4,h,w]
+    rgb, pose = torch.split(x, [3, 1], dim=2)
+    print(f"Fps: {fps}")
+    print(f"RGB video shape: {rgb.shape}")
+    rgb_videos = to_wandb(rgb, actions, format=format, gather=gather, max_samples=max_samples, fps=fps)
+    pose = pose.repeat(1, 1, 3, 1, 1)
+    print(f"Pose video shape: {pose.shape}")
+    pose = pose.clamp(-1, 1)
+    pose = pose[:max_samples]
+
+    if dist.is_initialized() and gather:
+        gathered = [None for _ in range(dist.get_world_size())]
+        dist.all_gather(gathered, pose)
+        pose = torch.cat(gathered, dim=0)
+
+    # Get labels on them
+    b, _ = actions.shape
+    temporal_compression = pose.size(1) // actions.size(1) + 1 # this is ugly logic needs to be fixed
+    #added another ugly logic to fix temporal_compression when there is none
+    if temporal_compression == 2:
+        temporal_compression = 1
+
+    actions = actions.unsqueeze(-1).repeat(1, 1, temporal_compression).view(b, -1)
+    pose = draw_tekken_frames(pose, actions) # -> [b,n,c,h,w] [0,255] uint8 np
+
+    if max_samples == 8:
+        pose = eo.rearrange(pose, '(r c) n d h w -> n d (r h) (c w)', r = 2, c = 4)
+
+    return rgb_videos, wandb.Video(pose, format=format, fps=fps or 30)
+
+def to_wandb_gif(x, actions, max_samples = 4, format='mp4', fps=16):
     x = x.clamp(-1, 1)
     x = (x + 1) * 127.5
     x = x.to(torch.uint8)
@@ -91,7 +128,7 @@ def to_wandb_gif(x, max_samples = 4):
     if x.shape[1] == 1:
         x = x.repeat(1, 3, 1, 1)
 
-    return wandb.Video(x, format='gif', fps=60)
+    return wandb.Video(x, format=format, fps=fps)
 
 @torch.no_grad()
 def to_wandb_av(x, audio, batch_mouse, batch_btn, gather = False, max_samples = 8):
