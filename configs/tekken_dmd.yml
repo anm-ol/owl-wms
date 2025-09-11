@@ -52,8 +52,8 @@ train:
 
   scheduler: null
 
-  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L
-  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_ema
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema
   resume_ckpt: null
 
   # Teacher model (your trained tekken_pose_large model)
@@ -93,9 +93,9 @@ train:
   rollout_steps: 4  # rollout horizon
   cfg_scale: 1.0  # teacher CFG scale
   log_predictions: false
-  regression_weight: 0.1  # weight for regression to original frames
+  regression_weight: 0.0  # weight for regression to original frames
 
 wandb:
   name: d-fusion
   project: OWL
-  run_name: pose-dmd-L
+  run_name: pose-dmd-L-regression0
