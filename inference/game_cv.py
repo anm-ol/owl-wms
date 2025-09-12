@@ -76,11 +76,28 @@ class GameCV:
         
         print("GameCV initialization complete, starting main loop...")
 
+        # CUDA Events for precise GPU timing --------------------------------
+        self.cuda_device = torch.cuda.current_device()
+        self.frame_start_event = torch.cuda.Event(enable_timing=True)
+        self.pipeline_start_event = torch.cuda.Event(enable_timing=True)
+        self.pipeline_end_event = torch.cuda.Event(enable_timing=True)
+        self.frame_end_event = torch.cuda.Event(enable_timing=True)
+        
+        # Optimization: Pre-allocate buffers for frame conversion
+        self.cpu_buffer = np.zeros((height, width, 4), dtype=np.uint8)
+        self.cpu_buffer[:, :, 3] = 255  # Set alpha channel once
+        
+        # Pinned memory for faster GPU-CPU transfers
+        self.pinned_buffer = torch.zeros((height, width, 3), dtype=torch.uint8, pin_memory=True)
+        
         # Stats
-        self.pipe_fps_sum  = 0.0     # pipeline-only
-        self.total_fps_sum = 0.0     # pipeline + draw
+        self.pipe_time_sum = 0.0     # pipeline GPU time in ms
+        self.total_time_sum = 0.0    # total frame time in ms
         self.frame_counter = 0
-        self.stats_t0      = time.time()
+        # Use CUDA events for stats timing
+        self.stats_start_event = torch.cuda.Event(enable_timing=True)
+        self.stats_end_event = torch.cuda.Event(enable_timing=True)
+        self.stats_start_event.record()
 
     # --------------------------------------------------------------------- #
     # Input Handling
@@ -135,6 +152,36 @@ class GameCV:
     # --------------------------------------------------------------------- #
     # Rendering helpers
     # --------------------------------------------------------------------- #
+    def _tensor_to_ximage_bytes_optimized(self, frame: torch.Tensor) -> bytes:
+        """
+        Optimized conversion using pre-allocated pinned memory and minimal copies.
+        Converts [H,W,3] uint8 tensor → little-endian 32-bit RGBX byte string for X11.
+        """
+        # Ensure frame is the right shape and type
+        if frame.dim() == 3 and frame.shape[2] == 3:
+            # frame is [H, W, 3] - this is correct
+            pass
+        else:
+            raise ValueError(f"Expected [H,W,3] tensor, got shape {frame.shape}")
+        
+        # Ensure it's uint8
+        if frame.dtype != torch.uint8:
+            frame = frame.to(torch.uint8)
+        
+        # Use async copy to pinned memory to avoid GPU-CPU sync
+        self.pinned_buffer.copy_(frame, non_blocking=True)
+        
+        # Convert to numpy using pinned memory (faster transfer)
+        np_frame = self.pinned_buffer.cpu().numpy()
+        
+        # Direct memory copy into pre-allocated buffer
+        self.cpu_buffer[:, :, 0] = np_frame[:, :, 0]  # B
+        self.cpu_buffer[:, :, 1] = np_frame[:, :, 1]  # G  
+        self.cpu_buffer[:, :, 2] = np_frame[:, :, 2]  # R
+        # Alpha channel already set to 255 in __init__
+        
+        return self.cpu_buffer.tobytes()
+
     @staticmethod
     def _tensor_to_ximage_bytes(frame: torch.Tensor, width: int, height: int) -> bytes:
         """
@@ -170,7 +217,7 @@ class GameCV:
     def _draw_frame(self, frame: torch.Tensor):
         try:
             # Convert frame to the format X11 expects
-            data = self._tensor_to_ximage_bytes(frame, self.width, self.height)
+            data = self._tensor_to_ximage_bytes_optimized(frame)
             BPP = 4  # bytes per pixel (RGBX)
             stride = self.width * BPP
 
@@ -245,6 +292,10 @@ class GameCV:
     # Main loop
     # --------------------------------------------------------------------- #
     def run(self):
+        # Pre-compute some values to avoid repeated calculations
+        action_queue = []  # Queue actions to reduce blocking
+        max_queue_size = 3  # Limit queue size to prevent lag buildup
+        
         while self.running:
             # ---------------- Event processing --------------------------- #
             while self.disp.pending_events():
@@ -258,51 +309,73 @@ class GameCV:
                     self._handle_button(ev.detail, ev.type == X.ButtonPress)
                 # Ignore MotionNotify; we poll pointer each frame
 
-            # ---------------- Inference & Render ------------------------- #
+            # ---------------- Inference & Render with CUDA Events -------- #
             mouse_delta  = self._mouse_delta()
-            mouse_tensor = torch.tensor(mouse_delta, dtype=torch.bfloat16, device='cuda')
-            btn_tensor   = torch.tensor(self.button_state, dtype=torch.bool,  device='cuda')
-
-            t_frame_start = time.time()
-
-            # --- pipeline ------------------------------------------------ #
-            # action_id = 0  # Dummy action ID for now
-            action_id = self.buttons_to_actionid()
-            frame, pipe_time = self.pipeline(action_id)
             
-            # # The pipeline returns [H,W,3] uint8 BGR, we need to ensure correct format
-            # if frame.dim() == 3 and frame.shape[-1] == 3:
-            #     # Frame is already [H,W,3], which is what we expect
-            #     display_frame = frame
-            # else:
-            #     print(f"Unexpected frame shape: {frame.shape}")
-            #     continue
+            # Record start of frame
+            self.frame_start_event.record()
+
+            # --- pipeline with precise GPU timing ----------------------- #
+            action_id = self.buttons_to_actionid()
+            
+            # Add current action to queue, but don't let it grow too large
+            if len(action_queue) < max_queue_size:
+                action_queue.append(action_id)
+            
+            # Use the oldest action from queue (or current if queue is empty)
+            current_action = action_queue.pop(0) if action_queue else action_id
+            
+            # Record pipeline start
+            self.pipeline_start_event.record()
+            
+            # Run pipeline
+            frame, _ = self.pipeline(current_action)
+            
+            # Record pipeline end
+            self.pipeline_end_event.record()
+            
+            # Ensure the frame tensor is in the correct format
             display_frame = frame[:, :, 1:4]  # Ensure it's [H,W,3]
+            
             # --- draw ---------------------------------------------------- #
-            t1 = time.time()
             self._draw_frame(display_frame)
-            draw_time = time.time() - t1                       # seconds
+            
+            # Record end of frame (after drawing)
+            self.frame_end_event.record()
+
+            # Ensure events are completed before calculating elapsed time
+            torch.cuda.synchronize()
+            
+            # Calculate timing after synchronization
+            pipeline_time_ms = self.pipeline_start_event.elapsed_time(self.pipeline_end_event)
+            total_time_ms = self.frame_start_event.elapsed_time(self.frame_end_event)
 
             # --- accumulate stats --------------------------------------- #
-            total_time = time.time() - t_frame_start           # = pipe_time+draw_time (+ε)
-            self.pipe_fps_sum  += 1.0 / max(pipe_time,  1e-6)
-            self.total_fps_sum += 1.0 / max(total_time, 1e-6)
+            self.pipe_time_sum += pipeline_time_ms
+            self.total_time_sum += total_time_ms
             self.frame_counter += 1
 
             # ---------------- Statistics -------------------------------- #
-            now = time.time()
-            if now - self.stats_t0 >= 1.0:
-                avg_pipe_fps  = self.pipe_fps_sum  / max(self.frame_counter, 1)
-                avg_total_fps = self.total_fps_sum / max(self.frame_counter, 1)
-                print(f"[{time.strftime('%H:%M:%S')}] "
-                      f"FPS (total): {avg_total_fps:5.1f} | "
+            self.stats_end_event.record()
+            torch.cuda.synchronize()  # Ensure stats event is completed
+            stats_elapsed_ms = self.stats_start_event.elapsed_time(self.stats_end_event)
+            if stats_elapsed_ms >= 1000.0:
+                avg_pipe_time_ms = self.pipe_time_sum / max(self.frame_counter, 1)
+                avg_total_time_ms = self.total_time_sum / max(self.frame_counter, 1)
+                # Convert to FPS
+                avg_pipe_fps = 1000.0 / max(avg_pipe_time_ms, 0.001)
+                avg_total_fps = 1000.0 / max(avg_total_time_ms, 0.001)
+                # Calculate draw time
+                avg_draw_time_ms = avg_total_time_ms - avg_pipe_time_ms
+                print(f"[CUDA] FPS (total): {avg_total_fps:5.1f} | "
                       f"FPS (pipeline): {avg_pipe_fps:5.1f} | "
-                      f"Latency pipeline: {pipe_time*1000:6.1f} ms | "
-                      f"Latency draw: {draw_time*1000:6.1f} ms")
-
-                self.stats_t0      = now
-                self.pipe_fps_sum  = 0.0
-                self.total_fps_sum = 0.0
+                      f"GPU pipeline: {avg_pipe_time_ms:6.1f} ms | "
+                      f"Draw+sync: {avg_draw_time_ms:6.1f} ms | "
+                      f"Total: {avg_total_time_ms:6.1f} ms | "
+                      f"Queue size: {len(action_queue)}")
+                self.stats_start_event.record()
+                self.pipe_time_sum = 0.0
+                self.total_time_sum = 0.0
                 self.frame_counter = 0
 
         self.disp.close()

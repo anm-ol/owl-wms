@@ -145,7 +145,8 @@ class TekkenPipeline:
 
         if starting_frame_index >= len(sample_dataset):
             raise ValueError(f"starting_frame_index is out of bounds.")
-
+        print(f"Using starting frame index: {starting_frame_index}")
+        starting_frame_index += 200
         # Get initial context from the dataset
         data_dict = sample_dataset[starting_frame_index]
         
