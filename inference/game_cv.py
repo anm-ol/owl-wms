@@ -20,6 +20,7 @@ import time
 import torch.cuda
 
 from .causvid_pipeline import CausvidPipeline
+from .tekken_pipeline import TekkenPipeline
 #from .game import DummyPipeline as CausvidPipeline
 
 class GameCV:
@@ -37,7 +38,7 @@ class GameCV:
         # mouse buttons handled separately (1 & 3)
     }
 
-    def __init__(self, width: int = 640, height: int = 360,
+    def __init__(self, width: int = 736, height: int = 448,
                  mouse_scale: float = 0.01, fps: int = 60):
         self.width, self.height = width, height
         self.mouse_scale = mouse_scale
@@ -66,7 +67,7 @@ class GameCV:
                                  Xatom.ATOM, 32, [self.WM_DELETE])
 
         # Game state ---------------------------------------------------------
-        self.pipeline = CausvidPipeline()
+        self.pipeline = TekkenPipeline()
         self.button_state = [False] * 11
         self.last_mouse_pos: tuple[int, int] | None = None
         self.running = True
@@ -187,7 +188,9 @@ class GameCV:
             t_frame_start = time.time()
 
             # --- pipeline ------------------------------------------------ #
-            frame, pipe_time = self.pipeline(mouse_tensor, btn_tensor)    # [3,360,640]
+            # frame, pipe_time = self.pipeline(mouse_tensor, btn_tensor)    # [3,360,640]
+            action_id = torch.tensor([0], dtype=torch.int64, device='cuda')  # Dummy action ID
+            frame, pipe_time = self.pipeline()
 
             # --- draw ---------------------------------------------------- #
             t1 = time.time()

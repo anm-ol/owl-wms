@@ -33,7 +33,8 @@ SAMPLING_STEPS = 2
 WINDOW_SIZE = 60
 
 class CausvidPipeline:
-    def __init__(self, cfg_path="configs/tekken_dmd.yml", ckpt_path="vid_dit_v4_dmd_7k.pt", ground_truth = False):
+    def __init__(self, cfg_path="configs/tekken_dmd.yml", 
+                ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0/step_1000.pt", ground_truth = False):
         cfg = Config.from_yaml(cfg_path)
         model_cfg = cfg.model
         train_cfg = cfg.train

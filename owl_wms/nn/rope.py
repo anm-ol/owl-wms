@@ -42,13 +42,15 @@ class RoPE(nn.Module):
 
     @autocast(enabled=False)
     def forward(self, x, offset: int = 0):
+        original_dtype = x.dtype
         assert self.cos.dtype == torch.float32
         cos = self.cos[..., offset:offset + x.size(2), :]
         sin = self.sin[..., offset:offset + x.size(2), :]
         x0, x1 = x.float().unfold(-1, 2, 2).unbind(-1)
         y0 = x0 * cos - x1 * sin
         y1 = x1 * cos + x0 * sin
-        return torch.cat((y0, y1), dim=-1).type_as(x)
+        # return torch.cat((y0, y1), dim=-1).type_as(x)
+        return torch.cat((y0, y1), dim=-1).to(original_dtype)
 
     def get_freqs(self, config):
         raise NotImplementedError
@@ -99,7 +101,7 @@ class TekkenRoPE(RoPE):
         
         # Re-interleave the tokens
         x_out = torch.cat([x_actions, x_images_rotated], dim=3)
-        return x_out.flatten(2,3)
+        return x_out.flatten(2,3).type_as(x)
 
 
 class OrthoRoPE(RoPE):
