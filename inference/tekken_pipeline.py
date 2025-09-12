@@ -44,7 +44,7 @@ class TekkenPipeline:
     """
     def __init__(self, 
                  cfg_path="configs/tekken_dmd.yml", 
-                 ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0/step_1000.pt", 
+                 ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0/step_2500.pt", 
                  ground_truth=False,
                  sampling_steps=2):
         
