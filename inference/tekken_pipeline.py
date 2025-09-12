@@ -176,9 +176,9 @@ class TekkenPipeline:
             self.history_buffer = initial_latents
             self.action_buffer = initial_actions
 
-        print(f"Loaded context from validation data index {starting_frame_index}.")
-        print(f"  - History Buffer Shape: {self.history_buffer.shape}")
-        print(f"  - Action Buffer Shape: {self.action_buffer.shape}")
+        # print(f"Loaded context from validation data index {starting_frame_index}.")
+        # print(f"  - History Buffer Shape: {self.history_buffer.shape}")
+        # print(f"  - Action Buffer Shape: {self.action_buffer.shape}")
 
         # Store initial state for resets
         self._initial_history_buffer = self.history_buffer.clone()
@@ -187,10 +187,10 @@ class TekkenPipeline:
             self._initial_future_action_buffer = self.future_action_buffer.clone()
 
         # Build the KV cache
-        print("model params dtype:", self.model.type)
-        print("history_buffer dtype:", self.history_buffer.dtype)
-        print("action_buffer dtype:", self.action_buffer.dtype)
-        print("future_action_buffer dtype:", self.future_action_buffer.dtype if self.ground_truth else "N/A")
+        # print("model params dtype:", self.model.type)
+        # print("history_buffer dtype:", self.history_buffer.dtype)
+        # print("action_buffer dtype:", self.action_buffer.dtype)
+        # print("future_action_buffer dtype:", self.future_action_buffer.dtype if self.ground_truth else "N/A")
         self._build_cache()
 
     def restart_from_buffer(self):

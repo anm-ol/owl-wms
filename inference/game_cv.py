@@ -132,14 +132,17 @@ class GameCV:
     @staticmethod
     def _tensor_to_ximage_bytes(frame: torch.Tensor) -> bytes:
         """
-        Converts [3,H,W] RGB tensor in [-1,1] → little-endian 24-bit (packed 32) byte string.
+        Converts [3,h,w] RGBD tensor in [-1,1] → little-endian 24-bit (packed 32) byte string.
         """
-        np_frame = frame.numpy()
+        print(f"[DEBUG] _tensor_to_ximage_bytes: shape={frame.shape}, dtype={frame.dtype}, min={frame.min()}, max={frame.max()}")
+        np_frame = frame.cpu().numpy()
+        print(f"[DEBUG] np_frame: shape={np_frame.shape}, dtype={np_frame.dtype}, min={np_frame.min()}, max={np_frame.max()}")
         # Convert to 0x00RRGGBB (little-endian 32-bit)
         r = np_frame[:, :, 0]
         g = np_frame[:, :, 1]
         b = np_frame[:, :, 2]
         packed = (b << 16) | (g << 8) | r
+        print(f"[DEBUG] packed: shape={packed.shape}, dtype={packed.dtype}, min={packed.min()}, max={packed.max()}")
         return packed.flatten().tobytes()
 
     def _draw_frame(self, frame: torch.Tensor):
@@ -148,9 +151,13 @@ class GameCV:
         stride = self.width * BPP
 
         CHUNK_ROWS = 64                            # keep every XPutImage < 200 kB
+        print(f"[DEBUG] _draw_frame: data len={len(data)}, stride={stride}, width={self.width}, height={self.height}, BPP={BPP}, CHUNK_ROWS={CHUNK_ROWS}")
         for y in range(0, self.height, CHUNK_ROWS):
             h      = min(CHUNK_ROWS, self.height - y)
             offset = y * stride
+            chunk = data[offset: offset + h * stride]
+            print(f"[DEBUG] put_image: y={y}, h={h}, offset={offset}, chunk_bytes={len(chunk)}")
+            print(f"[DEBUG] put_image: chunk[:16]={chunk[:16]}")
             self.win.put_image(
                 self.gc,
                 0, y,                     # dest x,y
@@ -158,7 +165,7 @@ class GameCV:
                 X.ZPixmap,
                 24,                       # depth
                 0,                        # left pad
-                data[offset: offset + h * stride]
+                chunk
             )
 
         self.disp.flush()
@@ -191,6 +198,8 @@ class GameCV:
             # frame, pipe_time = self.pipeline(mouse_tensor, btn_tensor)    # [3,360,640]
             action_id = torch.tensor([0], dtype=torch.int64, device='cuda')  # Dummy action ID
             frame, pipe_time = self.pipeline()
+            frame = frame[:, :, :3]#.permute(2, 1, 0)       # convert to [3,H,W]
+            print(f"Frame shape: {frame.shape}, dtype: {frame.dtype}, max: {frame.max()}, min: {frame.min()}")
 
             # --- draw ---------------------------------------------------- #
             t1 = time.time()
@@ -198,7 +207,7 @@ class GameCV:
             draw_time = time.time() - t1                       # seconds
 
             # --- accumulate stats --------------------------------------- #
-            total_time = time.time() - t_frame_start           # = pipe_time+draw_time (+ε)
+            total_time = time.time() - t_frame_start           # = pipe_time+draw_time (+ε)r
             self.pipe_fps_sum  += 1.0 / max(pipe_time,  1e-6)
             self.total_fps_sum += 1.0 / max(total_time, 1e-6)
             self.frame_counter += 1
@@ -224,6 +233,6 @@ class GameCV:
 
 # ------------------------------------------------------------------------- #
 if __name__ == "__main__":
-    game = GameCV()      # default 640 × 360
+    game = GameCV()     
     game.run()
 

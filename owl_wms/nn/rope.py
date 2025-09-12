@@ -49,8 +49,7 @@ class RoPE(nn.Module):
         x0, x1 = x.float().unfold(-1, 2, 2).unbind(-1)
         y0 = x0 * cos - x1 * sin
         y1 = x1 * cos + x0 * sin
-        # return torch.cat((y0, y1), dim=-1).type_as(x)
-        return torch.cat((y0, y1), dim=-1).to(original_dtype)
+        return torch.cat((y0, y1), dim=-1).type_as(x)
 
     def get_freqs(self, config):
         raise NotImplementedError
