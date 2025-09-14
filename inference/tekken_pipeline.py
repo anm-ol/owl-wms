@@ -34,7 +34,7 @@ def to_bgr_uint8(frame, target_size=(1080, 1920)):
     frame = frame.clamp(0, 255).to(device='cpu', dtype=torch.uint8, memory_format=torch.contiguous_format, non_blocking=True)
     return frame
 
-SAMPLING_STEPS = 2
+SAMPLING_STEPS = 4
 WINDOW_SIZE = 60
 
 class TekkenPipeline:
@@ -45,8 +45,7 @@ class TekkenPipeline:
     def __init__(self, 
                  cfg_path="configs/tekken_dmd.yml", 
                  ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0/step_2500.pt", 
-                 ground_truth=False,
-                 sampling_steps=2):
+                 ground_truth=False,):
         
         print("🚀 Initializing Tekken Pipeline...")
         
@@ -55,8 +54,8 @@ class TekkenPipeline:
         self.model_cfg = cfg.model
         self.train_cfg = cfg.train
         self.ground_truth = ground_truth
-        self.sampling_steps = sampling_steps
-
+        self.sampling_steps = self.train_cfg.sampler_kwargs.sampling_steps if hasattr(self.train_cfg, 'sampler_kwargs') and 'sampling_steps' in self.train_cfg.sampler_kwargs else SAMPLING_STEPS
+        print(f"Using {self.sampling_steps} sampling steps.")
         # Load the core transformer model and the VAE frame decoder
         print("Loading models...")
         self.model, self.frame_decoder = from_pretrained(cfg_path, ckpt_path, True)
