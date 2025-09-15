@@ -642,15 +642,27 @@ class TekkenDMDTrainer(BaseTrainer):
 
             # Log both the RGB video and the pose visualization
             print(f"Full action sequence shape: {full_action_sequence.shape}")
-            rgb_videos, pose_videos = to_wandb_pose(
-                video_out_permuted.cpu(), 
-                full_action_sequence.cpu(), 
-                format='mp4', 
-                max_samples=self.train_cfg.n_samples, 
-                fps=20
-            )
-            eval_wandb_dict['rgb_samples'] = rgb_videos
-            eval_wandb_dict['pose_samples'] = pose_videos
+            if video_out_permuted.shape[2] > 4:
+                rgb_videos, pose_videos = to_wandb_pose(
+                    video_out_permuted.cpu(), 
+                    full_action_sequence.cpu(), 
+                    format='mp4', 
+                    max_samples=self.train_cfg.n_samples, 
+                    fps=20
+                )
+                eval_wandb_dict['rgb_samples'] = rgb_videos
+                eval_wandb_dict['pose_samples'] = pose_videos
+            elif video_out_permuted.shape[2] == 3:
+                rgb_videos = to_wandb(
+                    video_out_permuted.cpu(), 
+                    full_action_sequence.cpu(),
+                    format='mp4', 
+                    max_samples=self.train_cfg.n_samples, 
+                    fps=20
+                )
+                eval_wandb_dict['rgb_samples'] = rgb_videos
+            else:
+                raise ValueError(f"Unexpected number of channels in output video: {video_out_permuted.shape[2]}")
 
         self.barrier()
         return eval_wandb_dict
