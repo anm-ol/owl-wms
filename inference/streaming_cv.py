@@ -91,12 +91,19 @@ class GameCV:
         self.button_lock = threading.Lock()
 
         # --- Action Queue and Threading ---
-        self.action_queue = deque(maxlen=10)  # Reasonable queue size
+        # Reduced max queue size for better responsiveness
+        self.action_queue = deque(maxlen=5)  # Smaller queue for better responsiveness
         self.last_action_id = 0  # Default to a neutral action
         self.running = True
         
         # Use a separate lock for the action queue
         self.queue_lock = threading.Lock()
+        
+        # Queue management parameters
+        self.max_queue_size = 3  # Drop actions if queue exceeds this
+        self.queue_drop_threshold = 4  # Start aggressive dropping at this size
+        self.last_queue_warning_time = 0
+        self.queue_warning_interval = 2.0  # Print warnings every 2 seconds max
 
         # --- Performance and Profiling ---
         try:
@@ -117,12 +124,98 @@ class GameCV:
             self.frame_counter = 0
             self.stats_start_event = torch.cuda.Event(enable_timing=True)
             self.stats_end_event = torch.cuda.Event(enable_timing=True)
+            self.dropped_actions_count = 0  # Track dropped actions for stats
         except Exception as e:
             print(f"Failed to initialize CUDA components: {e}")
             self.disp.close()
             raise
         
         print("GameCV initialization complete. Starting main loop...")
+
+    def _add_action_to_queue(self, action_id: int):
+        """
+        Add action to queue with intelligent dropping of old actions.
+        Only drops neutral actions (action_id == 0) to preserve player inputs.
+        """
+        with self.queue_lock:
+            queue_size = len(self.action_queue)
+            
+            # If queue is getting too long, only drop neutral actions (action_id == 0)
+            if queue_size >= self.queue_drop_threshold:
+                # Remove only neutral actions from the queue
+                non_zero_actions = [action for action in self.action_queue if action != 0]
+                dropped_count = len(self.action_queue) - len(non_zero_actions)
+                
+                self.action_queue.clear()
+                self.action_queue.extend(non_zero_actions)
+                
+                if dropped_count > 0:
+                    self.dropped_actions_count += dropped_count
+                    
+                    # Print warning (but not too frequently)
+                    current_time = time.time()
+                    if current_time - self.last_queue_warning_time > self.queue_warning_interval:
+                        print(f"Warning: Dropped {dropped_count} neutral actions to prevent queue overflow")
+                        self.last_queue_warning_time = current_time
+            
+            elif queue_size >= self.max_queue_size:
+                # Moderate dropping - remove oldest neutral actions only
+                while len(self.action_queue) >= self.max_queue_size:
+                    # Try to find and remove the oldest neutral action
+                    removed_neutral = False
+                    for i, action in enumerate(self.action_queue):
+                        if action == 0:
+                            del self.action_queue[i]
+                            self.dropped_actions_count += 1
+                            removed_neutral = True
+                            break
+                    
+                    # If no neutral actions to remove, remove oldest action regardless
+                    # This prevents queue from growing indefinitely during intense gameplay
+                    if not removed_neutral:
+                        self.action_queue.popleft()
+                        self.dropped_actions_count += 1
+            
+            # Add the new action
+            self.action_queue.append(action_id)
+
+    def _get_next_action(self) -> int:
+        """
+        Get the next action from the queue with smart selection.
+        Prioritizes non-zero actions over neutral actions for responsiveness.
+        """
+        with self.queue_lock:
+            if not self.action_queue:
+                return self.last_action_id
+            
+            # For maximum responsiveness, prefer non-zero actions
+            # Look for the most recent non-zero action first
+            non_zero_actions = [(i, action) for i, action in enumerate(reversed(self.action_queue)) if action != 0]
+            
+            if non_zero_actions:
+                # Take the most recent non-zero action
+                reverse_index, current_action = non_zero_actions[0]
+                actual_index = len(self.action_queue) - 1 - reverse_index
+                
+                # Remove the selected action and any actions after it
+                removed_actions = list(self.action_queue)[actual_index + 1:]
+                self.action_queue = deque(list(self.action_queue)[:actual_index])
+                
+                # Count only dropped neutral actions
+                dropped_neutrals = sum(1 for action in removed_actions if action == 0)
+                self.dropped_actions_count += dropped_neutrals
+                
+            else:
+                # Only neutral actions in queue, take the most recent one
+                current_action = self.action_queue.pop()
+                
+                # Clear any remaining neutral actions
+                dropped_count = len(self.action_queue)
+                self.action_queue.clear()
+                self.dropped_actions_count += dropped_count
+            
+            self.last_action_id = current_action
+            return current_action
 
     def _handle_key(self, keysym: int, pressed: bool):
         """Handle key press/release events with thread safety."""
@@ -145,10 +238,9 @@ class GameCV:
             with self.button_lock:
                 self.button_state[self.KEYMAP[keysym]] = pressed
             
-            # Add the new action to the queue
+            # Add the new action to the queue using improved method
             action_id = self.buttons_to_actionid()
-            with self.queue_lock:
-                self.action_queue.append(action_id)
+            self._add_action_to_queue(action_id)
 
     def _handle_button(self, button: int, pressed: bool):
         """Handle mouse button events. Currently not mapped to any Tekken action."""
@@ -253,15 +345,7 @@ class GameCV:
                     break
 
                 # --- Consume Action from Queue ---
-                current_action = self.last_action_id  # Default fallback
-                
-                with self.queue_lock:
-                    if self.action_queue:
-                        # Get the most recent action (LIFO for responsiveness)
-                        current_action = self.action_queue.pop()
-                        # Clear older actions to prevent input lag
-                        self.action_queue.clear()
-                        self.last_action_id = current_action
+                current_action = self._get_next_action()
 
                 # --- Inference & Render ---
                 try:
@@ -316,10 +400,13 @@ class GameCV:
                             avg_pipe_time_ms = self.pipe_time_sum / (self.frame_counter // 60)
                             avg_total_time_ms = self.total_time_sum / (self.frame_counter // 60)
                             avg_total_fps = 1000.0 / avg_total_time_ms if avg_total_time_ms > 0 else 0
+                            
+                            # Include dropped actions in stats
+                            dropped_info = f" | Dropped Actions: {self.dropped_actions_count}" if self.dropped_actions_count > 0 else ""
                             print(
                                 f"[CUDA] FPS: {avg_total_fps:5.1f} | "
                                 f"GPU Pipeline: {avg_pipe_time_ms:6.1f} ms | "
-                                f"Total Frame Time: {avg_total_time_ms:6.1f} ms"
+                                f"Total Frame Time: {avg_total_time_ms:6.1f} ms{dropped_info}"
                             )
                             self.stats_start_event.record()
                             self.pipe_time_sum = 0.0
@@ -337,6 +424,8 @@ class GameCV:
         finally:
             # --- Cleanup ---
             print("Cleaning up...")
+            if self.dropped_actions_count > 0:
+                print(f"Total actions dropped during session: {self.dropped_actions_count}")
             self.running = False
             try:
                 self.disp.close()

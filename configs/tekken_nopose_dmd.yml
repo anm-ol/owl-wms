@@ -1,0 +1,101 @@
+model:
+  model_id: tekken_rft_v2
+  sample_size: [14, 23]
+  channels: 128
+  n_buttons: 8
+  n_layers: 16
+  n_heads: 16
+  d_model: 2048
+
+  tokens_per_frame: 322
+  n_frames: 1024
+  has_audio: false
+
+  cfg_prob: 0.0
+  causal: true
+  uncond: false
+  backbone: dit
+
+  local_window: 16
+  global_window: 128
+
+train:
+  trainer_id: tekken_dmd
+  data_id: tekken_multi
+  data_kwargs:
+    window_length: 64
+    temporal_compression: 1
+    root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/train
+
+  sample_data_id: tekken_multi
+  sample_data_kwargs:
+    window_length: 16  # smaller for DMD sampling
+    temporal_compression: 1
+    root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/val
+
+  target_batch_size: 8 # increased for DMD training
+  batch_size: 1
+
+  epochs: 10000 
+
+  opt: AdamW
+  opt_kwargs:
+    lr: 2.0e-6
+    betas: [0.9, 0.999]
+    weight_decay: 0.01
+    eps: 1.0e-8
+  d_opt_kwargs:  # discriminator/critic optimizer
+    lr: 4.0e-7
+    betas: [0.9, 0.999]
+    weight_decay: 0.01
+    eps: 1.0e-8
+
+  scheduler: null
+
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema
+  resume_ckpt: null
+
+  # Teacher model (your trained tekken_pose_large model)
+  teacher_cfg: configs/tekken_nopose_large.yml  # path to your original config
+  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_large/step_80000.pt  # your best checkpoint
+
+  # Student model (initialize from same checkpoint)
+  student_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_large/step_80000.pt
+
+  sample_interval: 100  # more frequent sampling for DMD
+  save_interval: 500
+
+  sampler_id: t3_action_caching_v2
+  sampler_kwargs:
+    n_steps: 4  # DMD target: few-step sampling
+    cfg_scale: 1.0
+    num_frames: 240 #192
+    noise_prev: 0.2
+    only_return_generated: true
+    max_window: 32  # match training window
+    custom_schedule: [1.0, 0.75, 0.5, 0.25]  # discrete timesteps for DMD
+
+  n_samples: 2
+  eval_sample_dir: null
+
+  # VAE settings (same as original)
+  vae_id: null
+  temporal_vae: false
+  vae_cfg_path: "/mnt/data/laplace/pranay_backup/configs/t3/simple.yml"
+  vae_ckpt_path: "/mnt/data/laplace/pranay_backup/checkpoints/t3_VAE_nopose_v1/step_49000.pt"
+  vae_scale: 1.0
+  vae_batch_size: 8
+
+  # DMD-specific settings
+  update_ratio: 5  # critic updates per generator update
+  ts_shift: 8
+  rollout_steps: 4  # rollout horizon
+  cfg_scale: 1.0  # teacher CFG scale
+  log_predictions: false
+  regression_weight: 0.0  # weight for regression to original frames
+
+wandb:
+  name: d-fusion
+  project: OWL
+  run_name: pose-nopose-dmd-L

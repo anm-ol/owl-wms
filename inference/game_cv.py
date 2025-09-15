@@ -292,10 +292,6 @@ class GameCV:
     # Main loop
     # --------------------------------------------------------------------- #
     def run(self):
-        # Pre-compute some values to avoid repeated calculations
-        action_queue = []  # Queue actions to reduce blocking
-        max_queue_size = 3  # Limit queue size to prevent lag buildup
-        
         while self.running:
             # ---------------- Event processing --------------------------- #
             while self.disp.pending_events():
@@ -317,25 +313,24 @@ class GameCV:
 
             # --- pipeline with precise GPU timing ----------------------- #
             action_id = self.buttons_to_actionid()
-            
-            # Add current action to queue, but don't let it grow too large
-            if len(action_queue) < max_queue_size:
-                action_queue.append(action_id)
-            
-            # Use the oldest action from queue (or current if queue is empty)
-            current_action = action_queue.pop(0) if action_queue else action_id
+            print(f"Action ID: {action_id}")
             
             # Record pipeline start
             self.pipeline_start_event.record()
             
-            # Run pipeline
-            frame, _ = self.pipeline(current_action)
+            # Run pipeline with current action
+            frame, _ = self.pipeline(action_id)
             
             # Record pipeline end
             self.pipeline_end_event.record()
             
             # Ensure the frame tensor is in the correct format
-            display_frame = frame[:, :, 1:4]  # Ensure it's [H,W,3]
+            if frame.shape[2] == 4:
+                display_frame = frame[:, :, 1:4]  # Ensure it's [H,W,3]
+            elif frame.shape[2] == 3:
+                display_frame = frame
+            else:
+                raise ValueError(f"Unexpected frame shape: {frame.shape}")
             
             # --- draw ---------------------------------------------------- #
             self._draw_frame(display_frame)
@@ -371,8 +366,7 @@ class GameCV:
                       f"FPS (pipeline): {avg_pipe_fps:5.1f} | "
                       f"GPU pipeline: {avg_pipe_time_ms:6.1f} ms | "
                       f"Draw+sync: {avg_draw_time_ms:6.1f} ms | "
-                      f"Total: {avg_total_time_ms:6.1f} ms | "
-                      f"Queue size: {len(action_queue)}")
+                      f"Total: {avg_total_time_ms:6.1f} ms")
                 self.stats_start_event.record()
                 self.pipe_time_sum = 0.0
                 self.total_time_sum = 0.0
