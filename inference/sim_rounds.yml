@@ -5,7 +5,7 @@
 
 # Path to the main model configuration file used during training.
 # Example: The tekken_nopose_large model config.
-model_config_path: "configs/tekken_nopose_large.yml"
+model_config_path: "configs/tekken_nopose_dmd.yml"
 
 # REQUIRED: Path to the trained model checkpoint (.pt file).
 # This must be a raw checkpoint containing only the core model weights.
@@ -19,7 +19,7 @@ data_dir: "/mnt/data/laplace/owl-wms/preproccessing/cached_dcae_nopose/val"
 output_dir: "simulation_output"
 
 # --- Simulation Parameters ---
-
+batch_size: 8
 # The index of the first frame from the latent data to use as the initial context.
 # This is typically 0.
 starting_frame_index: 0

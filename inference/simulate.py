@@ -103,6 +103,95 @@ def save_video_clip(frames_tensor, output_path, fps=30):
     clip.write_videofile(output_path, codec="libx264")
     print(f"Video saved successfully to {output_path}.")
 
+def pad_actions_batch(actions_list, pad_value=0):
+    """
+    Pad a list of action tensors to the same length.
+    
+    Args:
+        actions_list (list): List of action tensors with potentially different lengths
+        pad_value (int): Value to use for padding
+        
+    Returns:
+        torch.Tensor: Padded actions tensor with consistent length
+    """
+    if not actions_list:
+        return torch.empty(0)
+    
+    # Find the maximum length in the batch
+    max_length = max(actions.shape[-1] if actions.dim() > 1 else actions.shape[0] for actions in actions_list)
+    
+    padded_actions = []
+    for actions in actions_list:
+        if actions.dim() == 1:
+            actions = actions.unsqueeze(0)
+        
+        current_length = actions.shape[1]
+        if current_length < max_length:
+            pad_length = max_length - current_length
+            pad_tensor = torch.full((actions.shape[0], pad_length), pad_value, 
+                                   dtype=actions.dtype, device=actions.device)
+            actions = torch.cat([actions, pad_tensor], dim=1)
+        elif current_length > max_length:
+            actions = actions[:, :max_length]
+        
+        padded_actions.append(actions)
+    
+    return torch.cat(padded_actions, dim=0), max_length
+
+def simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir):
+    """
+    Simulates a batch of rounds simultaneously for better GPU utilization.
+    """
+    batch_initial_latents = []
+    batch_actions_list = []
+    batch_round_names = []
+    
+    for initial_latents, actions, round_name in batch_data:
+        if initial_latents.dim() == 4:
+            initial_latents = initial_latents.unsqueeze(0).permute(0, 2, 1, 3, 4)
+        if actions.dim() == 1:
+            actions = actions.unsqueeze(0)
+        
+        batch_initial_latents.append(initial_latents)
+        batch_actions_list.append(actions)
+        batch_round_names.append(round_name)
+    
+    # Concatenate latents along batch dimension
+    batch_initial_latents = torch.cat(batch_initial_latents, dim=0)
+    
+    # Pad actions to consistent length
+    pad_value = getattr(train_cfg, 'action_pad_value', 0)
+    batch_actions, max_action_len = pad_actions_batch(batch_actions_list, pad_value)
+    
+    total_frames = batch_actions.shape[1]
+    initial_context_len = batch_initial_latents.shape[2]
+    sampler.num_frames = total_frames - initial_context_len
+    
+    normalized_initial_latents = batch_initial_latents / train_cfg.vae_scale
+    
+    print(f"Processing batch of {len(batch_data)} rounds with padded action length: {max_action_len}")
+    
+    # Generate videos for the entire batch
+    generated_videos, _, _ = sampler(
+        model,
+        normalized_initial_latents,
+        batch_actions,
+        compile_on_decode=True,
+        decode_fn=decode_fn,
+    )
+    
+    # Generate ground truth videos for the batch
+    ground_truth_latents = batch_actions[:, :generated_videos.shape[1]]
+    ground_truth_videos = decode_fn(ground_truth_latents / train_cfg.vae_scale)
+    
+    # Save individual videos from the batch
+    for i, round_name in enumerate(batch_round_names):
+        gt_output_path = os.path.join(output_dir, f"{round_name}_ground_truth.mp4")
+        save_video_clip(ground_truth_videos[i:i+1], gt_output_path)
+        
+        gen_output_path = os.path.join(output_dir, f"{round_name}_generated.mp4")
+        save_video_clip(generated_videos[i:i+1], gen_output_path)
+
 def simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, actions, output_dir, round_name):
     """
     Simulates a full round of video generation and saves the ground truth and generated videos separately.
@@ -120,11 +209,11 @@ def simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, action
     normalized_initial_latents = initial_latents / train_cfg.vae_scale
 
     generated_videos, _, _ = sampler(
-        model=model,
-        initial_latents=normalized_initial_latents,
-        action_ids=actions,
+        model,
+        normalized_initial_latents,
+        actions,
+        compile_on_decode=True,
         decode_fn=decode_fn,
-        vae_scale=train_cfg.vae_scale
     )
 
     ground_truth_latents = actions[:,:generated_videos.shape[1]]
@@ -137,7 +226,7 @@ def simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, action
     save_video_clip(generated_videos, gen_output_path)
 
 def run_simulation(cfg):
-    """Main function to orchestrate the simulation pipeline, adapted for DDP."""
+    """Main function to orchestrate the simulation pipeline, adapted for DDP with batch processing."""
     global_rank, local_rank, world_size = setup()
     
     device = torch.device(f"cuda:{local_rank}")
@@ -155,8 +244,13 @@ def run_simulation(cfg):
     # Distribute work among processes
     data_dir = cfg.data_dir
     output_dir = cfg.output_dir
+    batch_size = getattr(cfg, 'batch_size', 1)  # Default to 1 if not specified
+    
     if global_rank == 0:
         os.makedirs(output_dir, exist_ok=True)
+    
+    # Synchronize after directory creation
+    dist.barrier()
     
     all_round_dirs = sorted([d for d in glob.glob(os.path.join(data_dir, 'round_*')) if os.path.isdir(d)])
     
@@ -170,18 +264,42 @@ def run_simulation(cfg):
 
     if global_rank == 0:
         print(f"Found {len(all_round_dirs)} total rounds. Each GPU will process approximately {len(my_round_dirs)} rounds.")
+        print(f"Using batch size: {batch_size}")
     
-    for round_dir in tqdm(my_round_dirs, desc=f"GPU {global_rank} Simulating Rounds", position=global_rank):
-        latents, actions, round_name = load_round_data(round_dir, device)
+    # Process rounds in batches
+    for i in tqdm(range(0, len(my_round_dirs), batch_size), desc=f"GPU {global_rank} Batch Progress", position=global_rank):
+        batch_round_dirs = my_round_dirs[i:i + batch_size]
+        batch_data = []
         
-        if latents is None or actions is None:
-            continue
+        # Load data for the current batch
+        for round_dir in batch_round_dirs:
+            latents, actions, round_name = load_round_data(round_dir, device)
             
-        initial_context_len = min(cfg.initial_context_length, latents.shape[1] if latents.dim() == 5 else latents.shape[0])
-        initial_latents = latents[:, :initial_context_len]
-
-        simulate_round(model=model, sampler=sampler, decode_fn=decode_fn, train_cfg=train_cfg, initial_latents=initial_latents, actions=actions, output_dir=output_dir, round_name=round_name)
+            if latents is None or actions is None:
+                continue
+                
+            initial_context_len = min(cfg.initial_context_length, latents.shape[1] if latents.dim() == 5 else latents.shape[0])
+            initial_latents = latents[:, :initial_context_len]
+            
+            batch_data.append((initial_latents, actions, round_name))
+        
+        if not batch_data:
+            continue
+        
+        # Process the batch
+        if len(batch_data) == 1:
+            # Single round - use original function for simplicity
+            initial_latents, actions, round_name = batch_data[0]
+            simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, actions, output_dir, round_name)
+        else:
+            # Multiple rounds - use batch processing
+            simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir)
+        
+        # Clear GPU cache between batches
+        torch.cuda.empty_cache()
     
+    # Final synchronization
+    dist.barrier()
     cleanup()
 
 if __name__ == "__main__":
