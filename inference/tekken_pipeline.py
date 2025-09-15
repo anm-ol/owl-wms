@@ -43,8 +43,8 @@ class TekkenPipeline:
     Based on CausvidPipeline but adapted for Tekken-specific data and inputs.
     """
     def __init__(self, 
-                 cfg_path="configs/tekken_dmd.yml", 
-                 ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0/step_2500.pt", 
+                 cfg_path="configs/tekken_nopose_dmd.yml", 
+                 ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_1500.pt", 
                  ground_truth=False,):
         
         print("🚀 Initializing Tekken Pipeline...")
