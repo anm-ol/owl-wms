@@ -163,7 +163,7 @@ def get_decoder_only(vae_id, cfg_path, ckpt_path):
             return model
 
 @torch.no_grad()
-def make_batched_decode_fn(decoder, batch_size = 8, temporal_vae=True):
+def make_batched_decode_fn(decoder, batch_size = 8, temporal_vae=False):
     def decode(x):
         # x is [b,n,c,h,w]
         b,n,c,h,w = x.shape
@@ -175,6 +175,7 @@ def make_batched_decode_fn(decoder, batch_size = 8, temporal_vae=True):
         batches = x.split(batch_size)
         batch_out = []
         for batch in batches:
+            print(f"Decoding batch of shape {batch.shape}")
             decoded = decoder(batch).bfloat16().clone()
             batch_out.append(decoded)
 
