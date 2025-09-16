@@ -28,7 +28,12 @@ starting_frame_index: 0
 # This is usually a small number, e.g., 4 or 16 frames.
 initial_context_length: 4
 
+# Maximum number of frames to generate (excluding initial context).
+# If not specified or null, will generate based on full action sequence length.
+# Example: 100 will generate at most 100 frames after the initial context.
+max_generation_length: 20
+
 # --- Performance Parameters ---
 
 # Enable torch.compile for the model and VAE to accelerate inference.
-compile: false
+compile: true

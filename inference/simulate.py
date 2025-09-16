@@ -10,6 +10,8 @@ import moviepy.editor as mp
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
+os.environ['TORCHDYNAMO_VERBOSE'] = '1'
+
 # Add project root to Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(project_root)
@@ -138,7 +140,7 @@ def pad_actions_batch(actions_list, pad_value=0):
     
     return torch.cat(padded_actions, dim=0), max_length
 
-def simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir):
+def simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir, max_generation_length=None):
     """
     Simulates a batch of rounds simultaneously for better GPU utilization.
     """
@@ -163,6 +165,14 @@ def simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir)
     pad_value = getattr(train_cfg, 'action_pad_value', 0)
     batch_actions, max_action_len = pad_actions_batch(batch_actions_list, pad_value)
     
+    # Apply max generation length if specified
+    if max_generation_length is not None:
+        initial_context_len = batch_initial_latents.shape[2]
+        max_total_frames = initial_context_len + max_generation_length
+        if batch_actions.shape[1] > max_total_frames:
+            batch_actions = batch_actions[:, :max_total_frames]
+            max_action_len = max_total_frames
+    
     total_frames = batch_actions.shape[1]
     initial_context_len = batch_initial_latents.shape[2]
     sampler.num_frames = total_frames - initial_context_len
@@ -170,15 +180,19 @@ def simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir)
     normalized_initial_latents = batch_initial_latents / train_cfg.vae_scale
     
     print(f"Processing batch of {len(batch_data)} rounds with padded action length: {max_action_len}")
+    if max_generation_length is not None:
+        print(f"Generation limited to {sampler.num_frames} frames (max_generation_length: {max_generation_length})")
     
+
     # Generate videos for the entire batch
-    generated_videos, _, _ = sampler(
-        model,
-        normalized_initial_latents,
-        batch_actions,
-        compile_on_decode=True,
-        decode_fn=decode_fn,
-    )
+    with torch.no_grad(), torch.amp.autocast('cuda', torch.bfloat16): 
+        generated_videos, _, _ = sampler(
+            model,
+            normalized_initial_latents,
+            batch_actions,
+            compile_on_decode=True,
+            decode_fn=decode_fn,
+        )
     
     # Generate ground truth videos for the batch
     ground_truth_latents = batch_actions[:, :generated_videos.shape[1]]
@@ -192,7 +206,7 @@ def simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir)
         gen_output_path = os.path.join(output_dir, f"{round_name}_generated.mp4")
         save_video_clip(generated_videos[i:i+1], gen_output_path)
 
-def simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, actions, output_dir, round_name):
+def simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, actions, output_dir, round_name, max_generation_length=None):
     """
     Simulates a full round of video generation and saves the ground truth and generated videos separately.
     """
@@ -200,6 +214,14 @@ def simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, action
 
     total_frames = actions.shape[0]
     initial_context_len = initial_latents.shape[1] if initial_latents.dim() == 5 else initial_latents.shape[0]
+    
+    # Apply max generation length if specified
+    if max_generation_length is not None:
+        max_total_frames = initial_context_len + max_generation_length
+        if total_frames > max_total_frames:
+            total_frames = max_total_frames
+            actions = actions[:max_total_frames]
+    
     sampler.num_frames = total_frames - initial_context_len
 
     if initial_latents.dim() == 4:
@@ -208,13 +230,17 @@ def simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, action
 
     normalized_initial_latents = initial_latents / train_cfg.vae_scale
 
-    generated_videos, _, _ = sampler(
-        model,
-        normalized_initial_latents,
-        actions,
-        compile_on_decode=True,
-        decode_fn=decode_fn,
-    )
+    if max_generation_length is not None:
+        print(f"Generation limited to {sampler.num_frames} frames (max_generation_length: {max_generation_length})")
+
+    with torch.no_grad(), torch.amp.autocast('cuda', torch.bfloat16): 
+        generated_videos, _, _ = sampler(
+            model,
+            normalized_initial_latents,
+            actions,
+            compile_on_decode=True,
+            decode_fn=decode_fn,
+        )
 
     ground_truth_latents = actions[:,:generated_videos.shape[1]]
     ground_truth_videos = decode_fn(ground_truth_latents / train_cfg.vae_scale)
@@ -245,9 +271,12 @@ def run_simulation(cfg):
     data_dir = cfg.data_dir
     output_dir = cfg.output_dir
     batch_size = getattr(cfg, 'batch_size', 1)  # Default to 1 if not specified
+    max_generation_length = getattr(cfg, 'max_generation_length', None)
     
     if global_rank == 0:
         os.makedirs(output_dir, exist_ok=True)
+        if max_generation_length is not None:
+            print(f"Maximum generation length set to: {max_generation_length} frames")
     
     # Synchronize after directory creation
     dist.barrier()
@@ -290,10 +319,10 @@ def run_simulation(cfg):
         if len(batch_data) == 1:
             # Single round - use original function for simplicity
             initial_latents, actions, round_name = batch_data[0]
-            simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, actions, output_dir, round_name)
+            simulate_round(model, sampler, decode_fn, train_cfg, initial_latents, actions, output_dir, round_name, max_generation_length)
         else:
             # Multiple rounds - use batch processing
-            simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir)
+            simulate_batch(model, sampler, decode_fn, train_cfg, batch_data, output_dir, max_generation_length)
         
         # Clear GPU cache between batches
         torch.cuda.empty_cache()
