@@ -8,7 +8,7 @@ model:
   d_model: 2048
 
   tokens_per_frame: 322
-  n_frames: 1000
+  n_frames: 1024
   has_audio: false
 
   cfg_prob: 0.0
@@ -23,7 +23,7 @@ train:
   trainer_id: tekken_dmd
   data_id: tekken_multi
   data_kwargs:
-    window_length: 64
+    window_length: 64 #128
     temporal_compression: 1
     root_dir: /mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/train
 
@@ -35,7 +35,6 @@ train:
 
   target_batch_size: 8 # increased for DMD training
   batch_size: 1
-
   epochs: 10000 
 
   opt: AdamW
@@ -52,16 +51,16 @@ train:
 
   scheduler: null
 
-  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L
-  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_v2
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_v2_ema
   resume_ckpt: null
 
   # Teacher model (your trained tekken_pose_large model)
-  teacher_cfg: configs/tekken_nopose_large.yml  # path to your original config
-  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_large/step_80000.pt  # your best checkpoint
+  teacher_cfg: configs/tekken_pose_v3_L.yml  # path to your original config
+  teacher_ckpt: /mnt/data/laplace/owl-wms/checkpoints/pose_v3_L2/step_50000.pt  # your best checkpoint
 
   # Student model (initialize from same checkpoint)
-  student_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_large/step_80000.pt
+  student_ckpt: /mnt/data/laplace/owl-wms/checkpoints/pose_v3_L2/step_50000.pt
 
   sample_interval: 100  # more frequent sampling for DMD
   save_interval: 500
@@ -82,8 +81,8 @@ train:
   # VAE settings (same as original)
   vae_id: null
   temporal_vae: false
-  vae_cfg_path: "/mnt/data/laplace/pranay_backup/configs/t3/simple.yml"
-  vae_ckpt_path: "/mnt/data/laplace/pranay_backup/checkpoints/t3_VAE_nopose_v1/step_49000.pt"
+  vae_cfg_path: "/mnt/data/laplace/pranay_backup/configs/t3/distil_t3_dec.yml"
+  vae_ckpt_path: "/mnt/data/laplace/pranay_backup/checkpoints/t3_distill_dec_v2/step_44000.pt"
   vae_scale: 1.0
   vae_batch_size: 8
 
@@ -98,4 +97,4 @@ train:
 wandb:
   name: d-fusion
   project: OWL
-  run_name: pose-nopose-dmd-L
+  run_name: pose-dmd-v2
