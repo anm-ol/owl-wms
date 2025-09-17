@@ -34,7 +34,7 @@ initial_context_length: 4
 # Maximum number of frames to generate (excluding initial context).
 # If not specified or null, will generate based on full action sequence length.
 # Example: 100 will generate at most 100 frames after the initial context.
-max_generation_length: 20
+max_generation_length: 800
 
 # --- Performance Parameters ---
 

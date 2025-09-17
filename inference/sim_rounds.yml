@@ -5,11 +5,12 @@
 
 # Path to the main model configuration file used during training.
 # Example: The tekken_nopose_large model config.
-model_config_path: "configs/tekken_nopose_dmd.yml"
+model_config_path: "configs/tekken_nopose_large.yml"
 
 # REQUIRED: Path to the trained model checkpoint (.pt file).
 # This must be a raw checkpoint containing only the core model weights.
-model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_4000.pt"
+# model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_4000.pt"
+model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_large_ema/step_75000.pt"
 
 # REQUIRED: Path to the directory containing the preprocessed data (latents, actions).
 # This directory should have subfolders for each round (e.g., 'round_001/').
@@ -31,7 +32,7 @@ initial_context_length: 4
 # Maximum number of frames to generate (excluding initial context).
 # If not specified or null, will generate based on full action sequence length.
 # Example: 100 will generate at most 100 frames after the initial context.
-max_generation_length: 20
+max_generation_length: 800
 
 # --- Performance Parameters ---
 

@@ -175,7 +175,6 @@ def make_batched_decode_fn(decoder, batch_size = 8, temporal_vae=False):
         batches = x.split(batch_size)
         batch_out = []
         for batch in batches:
-            print(f"Decoding batch of shape {batch.shape}")
             decoded = decoder(batch).bfloat16().clone()
             batch_out.append(decoded)
 

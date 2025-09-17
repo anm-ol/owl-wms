@@ -146,6 +146,7 @@ class TekkenActionCachingV2:
         else:
             final_latents = final_latents * vae_scale
             
+        
         video_out = decode_fn(final_latents) if decode_fn is not None else None
         
         return video_out, final_latents, final_actions

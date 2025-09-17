@@ -62,7 +62,7 @@ train:
 
   sampler_id: t3_action_caching
   sampler_kwargs:
-    n_steps: 32
+    n_steps: 8
     # window_length: 8
     cfg_scale: 1.0
     num_frames: 192 # 16
