@@ -79,7 +79,12 @@ class GameCV:
         # --- Game State and Pipeline ---
         print("Initializing pipeline...")
         try:
-            self.pipeline = TekkenPipeline()
+            # self.pipeline = TekkenPipeline()
+            # self.pipeline = TekkenPipeline(cfg_path="configs/tekken_dmd.yml",
+            #                            ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema/step_1500.pt")
+            self.pipeline = TekkenPipeline(cfg_path="configs/tekken_pose_v3_L.yml",
+                                       ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L/step_40000.pt")
+           
             print("Pipeline initialized successfully.")
         except Exception as e:
             print(f"Failed to initialize pipeline: {e}")

@@ -68,6 +68,10 @@ class GameCV:
         # Game state ---------------------------------------------------------
         print("Initializing pipeline...")
         self.pipeline = TekkenPipeline()
+        # self.pipeline = TekkenPipeline(cfg_path="configs/tekken_dmd.yml",
+        #                                ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema/step_1500.pt")
+        self.pipeline = TekkenPipeline(cfg_path="configs/tekken_pose_v3_L.yml",
+                                       ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema2/step_50000.pt")
         print("Pipeline initialized successfully")
         
         self.button_state = [False] * 11
