@@ -6,12 +6,16 @@
 # Path to the main model configuration file used during training.
 # Example: The tekken_nopose_large model config.
 # model_config_path: "configs/tekken_nopose_dmd.yml"
+# model_config_path: "configs/tekken_dmd.yml"
 model_config_path: "configs/tekken_dmd.yml"
+
 
 # REQUIRED: Path to the trained model checkpoint (.pt file).
 # This must be a raw checkpoint containing only the core model weights.
 # model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_4000.pt"
-model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema/step_2500.pt"
+# model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema2/step_50000.pt"
+
+model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema"
 
 # REQUIRED: Path to the directory containing the preprocessed data (latents, actions).
 # This directory should have subfolders for each round (e.g., 'round_001/').
@@ -19,7 +23,8 @@ model_ckpt_path: "/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema
 data_dir: "/mnt/data/laplace/owl-wms/preproccessing/cached_dcae_fix/val"
 
 # Path to save the generated output videos.
-output_dir: "simulation_output_pose"
+# output_dir: "/mnt/data/laplace/owl-wms/videos_pose_v3_L"
+output_dir: "/mnt/data/laplace/owl-wms/output/videos_pose_dmd"
 
 # --- Simulation Parameters ---
 batch_size: 16
@@ -29,7 +34,7 @@ starting_frame_index: 0
 
 # The length of the initial context given to the model before it starts generating.
 # This is usually a small number, e.g., 4 or 16 frames.
-initial_context_length: 4
+initial_context_length: 1
 
 # Maximum number of frames to generate (excluding initial context).
 # If not specified or null, will generate based on full action sequence length.

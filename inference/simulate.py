@@ -313,7 +313,7 @@ def simulate_round(full_model, sampler, decode_fn, train_cfg, initial_latents, a
     gen_output_path = os.path.join(output_dir, f"{round_name}_generated.mp4")
     save_video_clip(generated_videos, gen_output_path)
 
-def run_simulation(cfg):
+def run_simulation(cfg, model_ckpt_step=None):
     """Main function to orchestrate the simulation pipeline, adapted for DDP with batch processing."""
     global_rank, local_rank, world_size = setup()
     
@@ -326,13 +326,17 @@ def run_simulation(cfg):
         print("="*50)
 
     # Load full model wrapper (not just core)
-    full_model, model_cfg, train_cfg = load_model(cfg.model_config_path, cfg.model_ckpt_path, device, cfg.compile)
+    model_path = os.path.join(cfg.model_ckpt_path, f"step_{model_ckpt_step}.pt") if model_ckpt_step is not None else cfg.model_ckpt_path
+    
+    full_model, model_cfg, train_cfg = load_model(cfg.model_config_path, model_path, device, cfg.compile)
     decode_fn = load_vae_decoder(train_cfg, device, cfg.compile)
     sampler = get_sampler_cls(train_cfg.sampler_id)(**train_cfg.sampler_kwargs)
 
     # Distribute work among processes
     data_dir = cfg.data_dir
     output_dir = cfg.output_dir
+    output_dir = os.path.join(output_dir, f"step_{model_ckpt_step}") if model_ckpt_step is not None else output_dir 
+    
     batch_size = getattr(cfg, 'batch_size', 1)  # Default to 1 if not specified
     max_generation_length = getattr(cfg, 'max_generation_length', None)
     
@@ -395,8 +399,11 @@ def run_simulation(cfg):
     cleanup()
 
 if __name__ == "__main__":
+    
     parser = argparse.ArgumentParser(description="Simulate entire rounds of Tekken video generation from cached latents.")
     parser.add_argument("--config", type=str, default="configs/simulate_config.yml", help="Path to the simulation configuration YAML file.")
+    parser.add_argument("--step", type=int, default=None, help="Optional: Specify a particular checkpoint step to load.")
+    
     args = parser.parse_args()
 
     # The main process is launched by torchrun, which handles multiprocessing setup.
@@ -407,4 +414,4 @@ if __name__ == "__main__":
         pass
     
     base_inference_cfg = OmegaConf.load(args.config)
-    run_simulation(base_inference_cfg)
+    run_simulation(base_inference_cfg, model_ckpt_step=args.step)
