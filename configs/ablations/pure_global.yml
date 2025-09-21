@@ -40,7 +40,7 @@ train:
   batch_size: 1
   compile: true
 
-  epochs: 10000
+  epochs: 400
 
   opt: Muon
   opt_kwargs:
