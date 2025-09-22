@@ -52,9 +52,9 @@ train:
     adamw_betas: [0.9, 0.95]
     adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
 
-  checkpoint_dir: checkpoints/tekken_pose_v3_L
-  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema2
-  resume_ckpt: null
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/abltation_local8
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/ablation_local8_ema
+  resume_ckpt: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L/step_20000.pt  # null
 
   sample_interval: 2500
   save_interval: 5000
@@ -80,4 +80,4 @@ train:
 wandb:
   name: d-fusion  # lapp0-andrew-lapp
   project: OWL  # owl
-  run_name: tekken_pose_v3_L
+  run_name: local-window-8

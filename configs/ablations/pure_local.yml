@@ -52,8 +52,8 @@ train:
     adamw_betas: [0.9, 0.95]
     adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
 
-  checkpoint_dir: checkpoints/tekken_pose_v3_L
-  output_path: /mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L_ema2
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/pure_local
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/pure_local_ema
   resume_ckpt: null
 
   sample_interval: 2500
