@@ -52,9 +52,9 @@ class TekkenRFTCoreV2(nn.Module):
         action_tokens = self.action_embed(button_presses)  # [B, T, 8, D_model]
         action_emb = action_tokens.mean(dim=2)  # [B, T, D_model]
 
-        # if not self.uncond and has_controls is not None:
+        if not self.uncond and has_controls is not None:
             # Zero out embeddings where has_controls is False for CFG.
-            # action_emb = torch.where(has_controls[:, None, None], action_emb, torch.zeros_like(action_emb))
+            action_emb = torch.where(has_controls[:, None, None], action_emb, torch.zeros_like(action_emb))
 
         cond_emb = t_cond + action_emb  # [B, T, D_model]
 
