@@ -111,6 +111,10 @@ class TekkenLatentMulti(Dataset):
             # FIXED: Only create windows that fit completely within the sequence
             for start in range(0, seq_len - self.window_length + 1, self.window_length):
                 self._index.append((len(self.rounds) - 1, start))
+
+            # Handle any remaining frames at the end that don't fit a full window
+            if (seq_len - self.window_length) % self.window_length != 0:
+                self._index.append((len(self.rounds) - 1, seq_len - self.window_length))
             
             # print(f"Round {round_name}: seq_len={seq_len}, created {len(range(0, seq_len - self.window_length + 1, self.window_length))} windows")
     
