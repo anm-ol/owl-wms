@@ -51,11 +51,12 @@ class TekkenRFTCoreV2(nn.Module):
         # Generate action embeddings from button presses.
         action_tokens = self.action_embed(button_presses)  # [B, T, 8, D_model]
         action_emb = action_tokens.mean(dim=2)  # [B, T, D_model]
-        cond_emb = t_cond + action_emb  # [B, T, D_model]
 
         # if not self.uncond and has_controls is not None:
             # Zero out embeddings where has_controls is False for CFG.
-            # action_tokens = torch.where(has_controls[:, None, None], action_tokens, torch.zeros_like(action_tokens))
+            # action_emb = torch.where(has_controls[:, None, None], action_emb, torch.zeros_like(action_emb))
+
+        cond_emb = t_cond + action_emb  # [B, T, D_model]
 
         # Reshape latents into a sequence of patch tokens.
         x_tokens = eo.rearrange(x, 'b t c h w -> b t (h w) c')
@@ -69,7 +70,7 @@ class TekkenRFTCoreV2(nn.Module):
         transformer_input = x_tokens.view(b, t * s, d)
         # The AdaLN conditioning signal is just the time embedding, repeated for each token.
         # Expand t_cond to match the flattened sequence length
-        cond = t_cond.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
+        cond = cond_emb.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
 
         # Pass the combined sequence through the transformer.
         processed_tokens = self.transformer(transformer_input, cond, kv_cache)
@@ -84,7 +85,7 @@ class TekkenRFTCoreV2(nn.Module):
         processed_video_tokens = processed_tokens.reshape(b, t * s, d)
 
         # Adjust conditioning shape for the final projection layer.
-        video_cond = t_cond.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
+        video_cond = cond_emb.unsqueeze(2).expand(b, t, s, d).contiguous().view(b, t * s, d)
         # video_cond = t_cond.unsqueeze(2).expand(b, t, (s - self.n_buttons), d).contiguous().view(b, t * (s - self.n_buttons), d)
         output_latents = self.proj_out(processed_video_tokens, video_cond)
 
