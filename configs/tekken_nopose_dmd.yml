@@ -82,8 +82,8 @@ train:
   # VAE settings (same as original)
   vae_id: null
   temporal_vae: false
-  vae_cfg_path: "/mnt/data/laplace/pranay_backup/configs/t3/simple.yml"
-  vae_ckpt_path: "/mnt/data/laplace/pranay_backup/checkpoints/t3_VAE_nopose_v1/step_49000.pt"
+  vae_cfg_path: "/mnt/data/laplace/owl-vaes/configs/t3/simple.yml"
+  vae_ckpt_path: "/mnt/data/laplace/owl-vaes/checkpoints/t3_VAE_nopose_v1/step_49000.pt"
   vae_scale: 1.0
   vae_batch_size: 8
 

@@ -43,9 +43,10 @@ class TekkenPipeline:
     Based on CausvidPipeline but adapted for Tekken-specific data and inputs.
     """
     def __init__(self, 
-                 cfg_path="configs/tekken_nopose_dmd.yml", 
-                 ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_1500.pt", 
-                 ground_truth=False,):
+                 cfg_path="configs/tekken_dmd.yml", 
+                 ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_1000.pt", 
+                 ground_truth=False,
+                 compile_models: bool = True,):
         
         print("🚀 Initializing Tekken Pipeline...")
         
@@ -71,10 +72,14 @@ class TekkenPipeline:
         # Alpha parameter for noising during cache building
         self.alpha = 0.25
 
-        # Compile models for performance
-        print("Compiling models...")
-        self.model = torch.compile(self.model)  # Less aggressive compilation like CausvidPipeline
-        self.frame_decoder = torch.compile(self.frame_decoder, mode='max-autotune', dynamic=False, fullgraph=True)
+        # Compile models for performance (optional to reduce startup latency)
+        if compile_models:
+            print("Compiling models...")
+            try:
+                self.model = torch.compile(self.model)
+                self.frame_decoder = torch.compile(self.frame_decoder, mode='max-autotune', dynamic=False, fullgraph=True)
+            except Exception as e:
+                print(f"⚠️ torch.compile failed or unavailable: {e}. Continuing without compilation.")
         
         self.device = 'cuda'
         
