@@ -8,7 +8,7 @@ model:
   d_model: 2048
 
   tokens_per_frame: 322
-  n_frames: 1024
+  n_frames: 2024
   has_audio: false
 
   cfg_prob: 0.0

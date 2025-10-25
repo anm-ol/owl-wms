@@ -248,6 +248,7 @@ class TekkenPipeline:
         # Sampling loop (matching CausvidPipeline's 2-step approach)
         if self.sampling_steps == 2:
             # First sampling step
+
             pred_v = self.model(
                 curr_x,
                 curr_t,
@@ -277,6 +278,7 @@ class TekkenPipeline:
                     # Enable cache updates on the final step
                     self.cache.enable_cache_updates()
                 
+                # print(f"x shape: {curr_x.shape}, t: {curr_t}, step: {step+1}/{self.sampling_steps}")
                 pred_v = self.model(
                     curr_x,
                     curr_t,

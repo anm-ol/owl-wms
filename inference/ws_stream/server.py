@@ -42,6 +42,8 @@ torch = None  # type: ignore
 
 # Tekken pipeline (optional, lazy-loaded)
 TekkenPipeline = None  # type: ignore
+global frame_count
+frame_count = 0
 
 import websockets
 
@@ -221,7 +223,12 @@ class StreamHub:
         """Publish a raw frame; encoding is offloaded to a background task.
         Latest frame wins to keep latency low.
         """
-        frame = frame[:, :, 1:4]  # ensure pose doesnt get mixed up with rgb
+        global frame_count
+        # print(frame.shape)
+        if frame.ndim >= 3 and frame.shape[-1] > 3:
+            frame = frame[:, :, -3:]
+        frame_count += 1
+        # print(f"Published frame count: {frame_count}")
         self._latest_raw = frame
         self._encode_event.set()
 
@@ -264,7 +271,8 @@ async def tekken_producer_loop(
     if cfg_path or ckpt_path:
         pipe = TekkenPipeline(cfg_path=cfg_path or "configs/tekken_nopose_dmd.yml",
                               ckpt_path=ckpt_path or 
-                              "/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_1500.pt")
+                              "/mnt/data/laplace/owl-wms/checkpoints/tekken_nopose_dmd_L_ema/step_1500.pt")#,
+                            #   compile_model=False)
     else:
         pipe = TekkenPipeline()
     print("TekkenPipeline initialized.")
@@ -372,7 +380,14 @@ async def main_async(args: list[str]) -> int:
     hub = StreamHub(cfg, encoder)
     hub.log_actions = bool(ns.log_actions)
 
-    async def connection_handler(ws: "websockets.WebSocketServerProtocol"):
+    async def connection_handler(*args):
+        """Compatible handler for websockets 10.x-12.x (optional path arg)."""
+        if len(args) == 1:
+            ws = args[0]
+        elif len(args) == 2:
+            ws, _path = args
+        else:
+            raise RuntimeError(f"Unexpected connection handler signature: {len(args)} args")
         await ws_handler(hub, ws)
 
     print(f"Starting WebSocket server on {cfg.host}:{cfg.port} (codec={cfg.codec}, quality={cfg.quality}, frame_format={cfg.frame_format})")
