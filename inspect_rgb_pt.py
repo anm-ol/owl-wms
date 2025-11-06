@@ -1,7 +1,7 @@
 import torch
 
 # Path to your file
-path = "/home/sky/summer193/owl-wms/rgb_latents/round_001/000000_rgblatent.pt"
+path = "/home/sky/summer193/owl-wms/rgb_latents/round_007/000000_rgblatent.pt"
 
 # Load the file
 print(f"Loading {path}...")

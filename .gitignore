@@ -232,3 +232,4 @@ __marimo__/
 log*.txt
 
 /rgb_latents
+/tekken_dataset_npz
