@@ -8,21 +8,17 @@ def inspect_npy_file(file_path, num_rows=5):
     Loads and prints key information about a .npy file.
     """
     
-    # --- 1. Check if file exists ---
     if not os.path.exists(file_path):
         print(f"Error: File not found at {file_path}")
         sys.exit(1)
 
     try:
-        # --- 2. Load the data ---
         data = np.load(file_path)
         
-        # --- 3. Print Basic Info ---
         print(f"\n--- 🔍 Inspecting: {file_path} ---")
         print(f"  Shape: {data.shape}")
         print(f"  Dtype: {data.dtype}")
         
-        # --- 4. Print Statistics (if data is numeric) ---
         if np.issubdtype(data.dtype, np.number):
             print("\n  Statistics:")
             if data.size == 0:
@@ -45,7 +41,6 @@ def inspect_npy_file(file_path, num_rows=5):
         else:
             print("\n  Statistics: (Skipped, non-numeric data)")
 
-        # --- 5. Print Example Data ---
         print(f"\n  Example Data (first {num_rows} rows):")
         if data.size == 0:
             print("    (Array is empty)")
