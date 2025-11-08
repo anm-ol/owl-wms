@@ -17,6 +17,9 @@ def get_loader(data_id, batch_size, **data_kwargs):
     elif data_id == "tekken_multi":
         from . import tekken_latent_multi
         return tekken_latent_multi.get_loader(batch_size, **data_kwargs)
+    elif data_id == "tekken_multi_v2":
+        from . import tekken_latent_multiV2
+        return tekken_latent_multiV2.get_loader(batch_size, **data_kwargs)
     elif data_id == "t3":
         from . import tekken_latent
         return tekken_latent.get_loader(batch_size, **data_kwargs)
