@@ -80,10 +80,10 @@ class GameCV:
         print("Initializing pipeline...")
         try:
             # self.pipeline = TekkenPipeline()
-            # self.pipeline = TekkenPipeline(cfg_path="configs/tekken_dmd.yml",
-            #                            ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema/step_1500.pt")
-            self.pipeline = TekkenPipeline(cfg_path="configs/tekken_pose_v3_L.yml",
-                                       ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L/step_40000.pt")
+            self.pipeline = TekkenPipeline(cfg_path="configs/tekken_dmd.yml",
+                                       ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_dmd_L_r0_ema/step_1500.pt")
+            #self.pipeline = TekkenPipeline(cfg_path="configs/tekken_pose_v3_L.yml",
+                                       #ckpt_path="/mnt/data/laplace/owl-wms/checkpoints/tekken_pose_v3_L/step_40000.pt")
            
             print("Pipeline initialized successfully.")
         except Exception as e:
@@ -101,7 +101,7 @@ class GameCV:
         self.last_action_id = 0  # Default to a neutral action
         self.running = True
         
-        # Use a separate lock for the action queue
+        # Use a separate lock for the  queue
         self.queue_lock = threading.Lock()
         
         # Queue management parameters
@@ -321,9 +321,9 @@ class GameCV:
         try:
             data = self._tensor_to_ximage_bytes_optimized(frame)
             stride = self.width * 4
-
-            # Draw in chunks to avoid X11 request size limits
-            CHUNK_ROWS = 32
+             
+            # Draw in one large chunk to reduce X11 round-trips
+            CHUNK_ROWS = 32  #CHUNK_ROWS = 32
             for y in range(0, self.height, CHUNK_ROWS):
                 h = min(CHUNK_ROWS, self.height - y)
                 offset = y * stride

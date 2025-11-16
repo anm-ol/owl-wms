@@ -8,7 +8,7 @@ model:
   d_model: 2048
 
   tokens_per_frame: 322
-  n_frames: 1024
+  n_frames: 2024
   has_audio: false
 
   cfg_prob: 0.0
@@ -82,8 +82,8 @@ train:
   # VAE settings (same as original)
   vae_id: null
   temporal_vae: false
-  vae_cfg_path: "/mnt/data/laplace/pranay_backup/configs/t3/distil_t3_dec.yml"
-  vae_ckpt_path: "/mnt/data/laplace/pranay_backup/checkpoints/t3_distill_dec_v2/step_44000.pt"
+  vae_cfg_path: "/mnt/data/laplace/owl-vaes/configs/t3/distil_t3_dec.yml"
+  vae_ckpt_path: "/mnt/data/laplace/owl-vaes/checkpoints/t3_distill_dec_v2/step_44000.pt"
   vae_scale: 1.0
   vae_batch_size: 8
 
