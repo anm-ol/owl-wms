@@ -28,9 +28,13 @@ class TekkenLatentMulti(Dataset):
                 states.npy
     """
 
-    def __init__(self, root_dir, window_length, temporal_compression=1, min_sequence_length=None):
+    def __init__(self, root_dir, window_length, temporal_compression=1, min_sequence_length=None, window_stride=None):
         self.root_dir = root_dir
         self.window_length = window_length
+        if window_stride is None:
+            self.window_stride = self.window_length   
+        else:
+            self.window_stride = window_stride   
         self.temporal_compression = temporal_compression
         self.min_sequence_length = min_sequence_length or window_length
 
@@ -91,7 +95,7 @@ class TekkenLatentMulti(Dataset):
                 "cumulative_lens": np.cumsum([0] + segment_lens)
             })
 
-            for start_frame in range(total_latent_frames - self.window_length + 1):
+            for start_frame in range(0, total_latent_frames - self.window_length + 1, self.window_stride):
                 self.samples.append((len(self.rounds) - 1, start_frame))
 
         if not self.samples:

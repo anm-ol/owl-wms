@@ -1,80 +1,204 @@
-import time
-import torch
 import os
-import sys
+import glob
+import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader
+from functools import partial
+import torch.distributed as dist
+from tqdm import tqdm
 
-# Add project root and owl-vaes submodule to Python path
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-sys.path.append("./owl-vaes")
-
-# Use the multi-view latent dataloader
-from owl_wms.data.tekken_latent_multiV2 import get_loader
-
-# Configuration
-ROOT_DATA_DIR = "rgb_latents"
-BATCH_SIZE = 4
-WINDOW_LENGTH = 16
-TEMPORAL_COMPRESSION = 1
+try:
+    from .cod_latent import AutoEpochDistributedSampler
+except ImportError:
+    from torch.utils.data import DistributedSampler as AutoEpochDistributedSampler
 
 
-def test_loader():
-    print("Starting dataloader test.\n")
+class TekkenLatentMulti(Dataset):
+    """
+    Dataset for loading Tekken latent data stored across multiple .pt files,
+    with corresponding actions and states stored in .npy files.
+    
+    This version is updated to expect the "FLAT" data format (as confirmed)
+    e.g.:
+        root_dir/
+            round_xxx/
+                000000_rgblatent.pt
+                ...
+                actions.npy
+                states.npy
+    """
 
-    if not os.path.isdir(ROOT_DATA_DIR):
-        print(f"Error: Data directory not found: {ROOT_DATA_DIR}")
-        return
+    def __init__(self, root_dir, window_length, temporal_compression=1, min_sequence_length=None, window_stride=None):
+        self.root_dir = root_dir
+        self.window_length = window_length
+        
+        if window_stride is None:
+            self.window_stride = self.window_length  # Default to non-overlapping
+        else:
+            self.window_stride = window_stride
+        
+        self.temporal_compression = temporal_compression
+        self.min_sequence_length = min_sequence_length or window_length
 
-    print(f"Data Directory        : {ROOT_DATA_DIR}")
-    print(f"Batch Size           : {BATCH_SIZE}")
-    print(f"Window Length        : {WINDOW_LENGTH}")
-    print(f"Temporal Compression : {TEMPORAL_COMPRESSION}\n")
+        self.rounds = []
+        self.samples = []
 
-    try:
-        # Initialize dataloader
-        print("Initializing DataLoader...")
-        start_time = time.time()
+        if not os.path.isdir(root_dir):
+            raise FileNotFoundError(f"Root directory not found: {root_dir}")
 
-        dataloader = get_loader(
-            batch_size=BATCH_SIZE,
-            root_dir=ROOT_DATA_DIR,
-            window_length=WINDOW_LENGTH,
-            temporal_compression=TEMPORAL_COMPRESSION
+        print(f"Building index for {self.root_dir} with stride {self.window_stride}...")
+        self._build_index()
+
+    def _build_index(self):
+        round_dirs = sorted(
+            d for d in glob.glob(os.path.join(self.root_dir, "round_*"))
+            if os.path.isdir(d)
         )
+        if not round_dirs:
+            raise FileNotFoundError(f"No 'round_*' directories found in {self.root_dir}")
 
-        init_time = time.time() - start_time
-        print(f"DataLoader initialized in {init_time:.2f} seconds.")
+        for round_dir in tqdm(round_dirs, desc="Indexing rounds"):
+            
+            # --- MODIFICATION: Point to FLAT "V2" file paths ---
+            actions_path = os.path.join(round_dir, "actions.npy")
+            states_path = os.path.join(round_dir, "states.npy")
+            
+            # Latents are .pt files in the round_dir root
+            latent_files = sorted(glob.glob(os.path.join(round_dir, "*_rgblatent.pt")))
+            # --- END MODIFICATION ---
 
-        # Load first batch
-        print("\nLoading first batch...")
-        start_time = time.time()
+            if not (os.path.exists(actions_path) and os.path.exists(states_path) and latent_files):
+                # This is what was failing before
+                continue
 
-        latents, actions, states = next(iter(dataloader))
+            segment_lens = []
+            try:
+                for pt_file in latent_files:
+                    tensor_data = torch.load(pt_file, map_location="cpu")
+                    segment_lens.append(tensor_data.shape[0])
+                    del tensor_data
+            except Exception:
+                continue
 
-        batch_time = time.time() - start_time
-        print(f"First batch loaded in {batch_time:.2f} seconds.\n")
+            total_latent_frames = sum(segment_lens)
 
-        # Print shapes
-        print("Batch Details:")
-        print(f"Latents Shape: {latents.shape}, dtype={latents.dtype}")
-        print(f"Actions Shape: {actions.shape}, dtype={actions.dtype}")
-        print(f"States Shape : {states.shape}, dtype={states.dtype}")
+            try:
+                action_frames = np.load(actions_path, mmap_mode="r").shape[0]
+                expected_latent_frames = action_frames // self.temporal_compression
 
-        # Shape checks
-        print("\nVerifying shapes...")
-        assert latents.shape == (BATCH_SIZE, WINDOW_LENGTH, 64, 16, 16), f"Unexpected latent shape: {latents.shape}"
-        assert actions.shape == (BATCH_SIZE, WINDOW_LENGTH, TEMPORAL_COMPRESSION), f"Unexpected action shape: {actions.shape}"
-        assert states.shape[-1] == 3, "State vectors should have dimension 3."
+                if total_latent_frames != expected_latent_frames:
+                    total_latent_frames = min(total_latent_frames, expected_latent_frames)
+            except Exception:
+                continue
 
-        print("All shapes verified successfully.\n")
+            if total_latent_frames < self.min_sequence_length:
+                continue
 
-    except Exception:
-        print("\nError: An exception occurred.\n")
-        import traceback
-        traceback.print_exc()
+            self.rounds.append({
+                "path": round_dir,
+                "actions_path": actions_path,
+                "states_path": states_path,
+                "latent_files": latent_files, # These paths are now correct
+                "segment_lens": np.array(segment_lens),
+                "cumulative_lens": np.cumsum([0] + segment_lens)
+            })
+
+            # Use 'self.window_stride' in the loop
+            for start_frame in range(0, total_latent_frames - self.window_length + 1, self.window_stride):
+                self.samples.append((len(self.rounds) - 1, start_frame))
+
+            # Add the last "tail-end" sample
+            if (total_latent_frames - self.window_length) % self.window_stride != 0:
+                final_start_frame = total_latent_frames - self.window_length
+                if final_start_frame > 0:
+                    self.samples.append((len(self.rounds) - 1, final_start_frame))
+
+        if not self.samples:
+            # This is the error you saw. If you see it again, the paths are still wrong.
+            raise RuntimeError("No valid samples found after scanning all rounds.")
+
+        print(f"Indexed {len(self.samples)} samples from {len(self.rounds)} rounds.")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def _load_latent_window(self, round_meta, start_frame, end_frame):
+        chunks = []
+        start_seg = np.searchsorted(round_meta["cumulative_lens"], start_frame, side="right") - 1
+        end_seg = np.searchsorted(round_meta["cumulative_lens"], end_frame - 1, side="right") - 1
+
+        for seg_idx in range(start_seg, end_seg + 1):
+            seg_path = round_meta["latent_files"][seg_idx]
+            segment = torch.load(seg_path, map_location="cpu")
+
+            seg_start = round_meta["cumulative_lens"][seg_idx]
+            local_start = max(0, start_frame - seg_start)
+            local_end = min(segment.shape[0], end_frame - seg_start)
+
+            chunks.append(segment[local_start:local_end])
+            del segment
+
+        return torch.cat(chunks, dim=0)
+
+    def __getitem__(self, idx):
+        round_idx, start_latent_frame = self.samples[idx]
+        meta = self.rounds[round_idx]
+
+        end_latent_frame = start_latent_frame + self.window_length
+        latents = self._load_latent_window(meta, start_latent_frame, end_latent_frame)
+
+        if latents.shape[0] != self.window_length:
+            # If a window is corrupted or mis-sized, just grab another random one.
+            return self.__getitem__(np.random.randint(len(self)))
+
+        actions = np.load(meta["actions_path"], mmap_mode="r")
+        states = np.load(meta["states_path"], mmap_mode="r")
+
+        start_orig = start_latent_frame * self.temporal_compression
+        end_orig = end_latent_frame * self.temporal_compression
+
+        actions = actions[start_orig:end_orig].reshape(self.window_length, self.temporal_compression)
+        states = states[start_orig:end_orig].reshape(self.window_length, self.temporal_compression, states.shape[-1])
+
+        return {
+            "latents": latents,
+            "actions": torch.from_numpy(actions.copy()).long(),
+            "states": torch.from_numpy(states.copy()).float()
+        }
 
 
-if __name__ == "__main__":
-    if torch.multiprocessing.get_start_method(allow_none=True) != 'spawn':
-        torch.multiprocessing.set_start_method('spawn', force=True)
+def custom_collate_fn(batch, batch_columns=None):
+    if not batch:
+        return []
 
-    test_loader()
+    keys = batch[0].keys()
+    stacked = {k: torch.stack([item[k] for item in batch]) for k in keys}
+
+    return stacked["latents"], stacked["actions"], stacked["states"]
+
+
+def get_loader(batch_size, root_dir, window_length=16, temporal_compression=1, **kwargs):
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    rank = dist.get_rank() if dist.is_initialized() else 0
+
+    ds = TekkenLatentMulti(root_dir, window_length, temporal_compression, **kwargs)
+
+    if world_size > 1:
+        sampler = AutoEpochDistributedSampler(ds, num_replicas=world_size, rank=rank, shuffle=True)
+        loader_args = dict(sampler=sampler, shuffle=False)
+    else:
+        loader_args = dict(shuffle=True)
+
+    num_workers = min(os.cpu_count() // max(world_size, 1), 8)
+
+    return DataLoader(
+        ds,
+        batch_size=batch_size,
+        collate_fn=partial(custom_collate_fn, batch_columns=None),
+        num_workers=num_workers,
+        drop_last=True,
+        pin_memory=True,
+        prefetch_factor=2 if num_workers > 0 else None,
+        persistent_workers=num_workers > 0,
+        **loader_args
+    )
