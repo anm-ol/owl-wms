@@ -33,6 +33,7 @@ class TekkenRFTTrainerV2(BaseTrainer):
         self.ema = None
         self.opt = None
         self.total_step_counter = 0
+        self.scheduler = None
 
         # VAE decoder is only needed on the main process for logging samples.
         mean_values = self.train_cfg.get('per_channel_mean', None)

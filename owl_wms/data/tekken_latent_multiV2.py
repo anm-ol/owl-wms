@@ -181,3 +181,20 @@ def get_loader(batch_size, root_dir, window_length=16, temporal_compression=1, *
         persistent_workers=num_workers > 0,
         **loader_args
     )
+
+if __name__ == "__main__":
+    # Example usage
+    loader = get_loader(
+        batch_size=8,
+        root_dir="/mnt/data/laplace/datasets/rgb_latents",
+        window_length=128,
+        temporal_compression=1
+    )
+    print("Dataset and DataLoader created successfully.")
+    print("Number of batches in loader:", len(loader))
+    for batch in loader:
+        latents, actions, states = batch
+        print("Latents shape:", latents.shape)
+        print("Actions shape:", actions.shape)
+        print("States shape:", states.shape)
+        break

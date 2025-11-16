@@ -36,6 +36,7 @@ train:
     temporal_compression: 1
     root_dir: /mnt/data/laplace/datasets/rgb_latents
 
+  scheduler: null
 
   target_batch_size: 8
   batch_size: 1
