@@ -3,15 +3,15 @@ model:
   sample_size: [16, 16]
   channels: 64
   n_buttons: 8
-  n_layers: 16
-  n_heads: 16
-  d_model: 2048
+  n_layers: 8
+  n_heads: 8
+  d_model: 1024
 
   tokens_per_frame: 256
   n_frames: 1024
   has_audio: false
 
-  cfg_prob: 0.2
+  cfg_prob: 0.0
   causal: true
   uncond: false
   backbone: dit
@@ -19,27 +19,27 @@ model:
   # rope_impl: motion
   # rope_ats_delta: 2.0
 
-  local_window: 16
+  local_window: 32
   global_window: 128
 
 train:
   trainer_id: tekken_rft_v2
   data_id: tekken_multi_v2
   data_kwargs:
-    window_length: 128 # 256
+    window_length: 256 # 256
     temporal_compression: 1
-    root_dir: /mnt/data/laplace/datasets/rgb_latents_alt
+    root_dir: /mnt/data/laplace/datasets/rgb_latents_alt2
 
   sample_data_id: tekken_multi_v2
   sample_data_kwargs:
-    window_length: 128  # size of single ground truth start tokens
+    window_length: 32  # size of single ground truth start tokens
     temporal_compression: 1
-    root_dir: /mnt/data/laplace/datasets/rgb_latents_alt
+    root_dir: /mnt/data/laplace/datasets/rgb_latents_alt2
 
   scheduler: null
 
-  target_batch_size: 8
-  batch_size: 1
+  target_batch_size: 32
+  batch_size: 4
   compile: true
 
   epochs: 10000
@@ -58,8 +58,8 @@ train:
   output_path: /mnt/data/laplace/owl-wms/checkpoints/combat_v0_ema
   resume_ckpt: null
 
-  sample_interval: 500
-  save_interval: 2500
+  sample_interval: 5000
+  save_interval: 10000          
 
   sampler_id: t3_action_caching
   sampler_kwargs:
@@ -82,4 +82,4 @@ train:
 wandb:
   name: d-fusion  # lapp0-andrew-lapp
   project: COMBAT-WM  # owl
-  run_name: combat_v0
+  run_name: combat_v0.2_s

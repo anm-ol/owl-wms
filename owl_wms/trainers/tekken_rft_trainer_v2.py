@@ -321,7 +321,7 @@ if __name__ == '__main__':
         print(f"N frames: {cfg.model.n_frames}")
         
         # Create trainer instance (rank 0 only for testing)
-        trainer = TekkenRFTTrainer(cfg.train, cfg.wandb, cfg.model, global_rank=0, local_rank=0, world_size=1)
+        trainer = TekkenRFTTrainerV2(cfg.train, cfg.wandb, cfg.model, global_rank=0, local_rank=0, world_size=1)
         print("✓ Trainer created successfully")
         
         # Test model initialization
