@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#debugs : ssh tunnel skipped ( use export SSH_TARGET=$(hostname))
+
 # Minimal helper: starts the streamer locally, optionally opens an SSH tunnel, and loads index.html.
 # If SSH_TARGET is empty the tunnel step is skipped (handy when running on the remote host).
 
@@ -24,6 +26,19 @@ HTML_FILE="${REPO_ROOT}/inference/ws_stream/index.html"
 SERVER_PID=""
 SSH_PID=""
 HTTP_PID=""
+
+### AUTO-TUNNEL PATCH ###
+if [[ -n "${SSH_CONNECTION:-}" && -z "${SSH_TARGET:-}" ]]; then
+	if [[ -n "${SKYPILOT_CLUSTER_NAME:-}" ]]; then
+		echo "[launch] Detected remote execution on SkyPilot — auto-enabling SSH tunnel"
+		SSH_TARGET="${SKYPILOT_CLUSTER_NAME}"
+	else
+		echo "[launch] Remote execution detected but SSH_TARGET not set"
+		echo "[launch] Set SSH_TARGET to your cluster hostname (e.g., SSH_TARGET=sky-91d3-anm)"
+		echo "[launch] Skipping tunnel - browser may need manual WebSocket URL"
+	fi
+fi
+### END PATCH ###
 
 cleanup() {
 	if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
