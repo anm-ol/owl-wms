@@ -190,7 +190,7 @@ if __name__ == "__main__":
     # Example usage
     loader = get_loader(
         batch_size=8,
-        root_dir="/mnt/data/laplace/datasets/rgb_latents",
+        root_dir="/mnt/data/laplace/datasets/rgb_latents_wp1_c16",
         window_length=128,
         temporal_compression=1
     )

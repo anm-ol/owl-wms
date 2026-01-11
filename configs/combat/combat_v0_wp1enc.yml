@@ -5,13 +5,13 @@ model:
   n_buttons: 8
   n_layers: 16
   n_heads: 16
-  d_model: 3072
+  d_model: 2048
 
   tokens_per_frame: 256
   n_frames: 1024
   has_audio: false
 
-  cfg_prob: 0.0
+  cfg_prob: 0.2
   causal: true
   uncond: false
   backbone: dit
@@ -32,7 +32,7 @@ train:
 
   sample_data_id: tekken_multi_v2
   sample_data_kwargs:
-    window_length: 16  # size of single ground truth start tokens
+    window_length: 128  # size of single ground truth start tokens
     temporal_compression: 1
     root_dir: /mnt/data/laplace/datasets/rgb_latents_wp1_c16
 
@@ -82,4 +82,4 @@ train:
 wandb:
   name: d-fusion  # lapp0-andrew-lapp
   project: COMBAT-WM  # owl
-  run_name: combat_v0_L_wp1enc
+  run_name: combat_v0_wp1enc
