@@ -7,7 +7,6 @@ from diffusers import AutoencoderDC, AutoencoderKLLTXVideo, AutoencoderKLWan
 
 sys.path.append("./owl-vaes")
 from owl_vaes.utils import versatile_load
-from owl_vaes.utils.proxy_init import load_proxy_model
 from owl_vaes.models import get_model_cls
 from owl_vaes.configs import Config
 
