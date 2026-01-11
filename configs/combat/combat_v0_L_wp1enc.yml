@@ -1,7 +1,7 @@
 model:
   model_id: tekken_rft_v2
-  sample_size: [16, 16]
-  channels: 64
+  sample_size: [32, 32]
+  channels: 16
   n_buttons: 8
   n_layers: 16
   n_heads: 16
