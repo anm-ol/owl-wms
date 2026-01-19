@@ -1,13 +1,13 @@
 model:
   model_id: tekken_rft_v2
-  sample_size: [32, 32]
-  channels: 16
+  sample_size: [14, 23]
+  channels: 128
   n_buttons: 8
-  n_layers: 12
+  n_layers: 16
   n_heads: 16
-  d_model: 1024
+  d_model: 1536
 
-  tokens_per_frame: 256
+  tokens_per_frame: 322
   n_frames: 1024
   has_audio: false
 
@@ -19,22 +19,22 @@ model:
   # rope_impl: motion
   # rope_ats_delta: 2.0
 
-  local_window: 16
+  local_window: 32
   global_window: 128
 
 train:
   trainer_id: tekken_rft_v2
   data_id: tekken_multi_v2
   data_kwargs:
-    window_length: 128 # 256
+    window_length: 256 # 256
     temporal_compression: 1
-    root_dir: /mnt/data/laplace/datasets/rgb_latents_wp1_c16
+    root_dir: /mnt/data/laplace/datasets/rgb_latents_t3vae
 
   sample_data_id: tekken_multi_v2
   sample_data_kwargs:
-    window_length: 128  # size of single ground truth start tokens
+    window_length: 32  # size of single ground truth start tokens
     temporal_compression: 1
-    root_dir: /mnt/data/laplace/datasets/rgb_latents_wp1_c16
+    root_dir: /mnt/data/laplace/datasets/rgb_latents_t3vae
 
   scheduler: null
 
@@ -54,12 +54,12 @@ train:
     adamw_betas: [0.9, 0.95]
     adamw_keys: [core.proj_in, core.proj_out.proj, core.t_embed, core.action_embed, gate, adaln]
 
-  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/combat_v0
-  output_path: /mnt/data/laplace/owl-wms/checkpoints/combat_v0_ema
+  checkpoint_dir: /mnt/data/laplace/owl-wms/checkpoints/combat_v0_t3vae_L
+  output_path: /mnt/data/laplace/owl-wms/checkpoints/combat_v0_t3vae_L_ema
   resume_ckpt: null
 
-  sample_interval: 500
-  save_interval: 2500
+  sample_interval: 5000
+  save_interval: 10000          
 
   sampler_id: t3_action_caching
   sampler_kwargs:
@@ -71,15 +71,15 @@ train:
   # num_seed_frames: 60
 
   vae_id: null
-  vae_cfg_path: "/mnt/data/shahbuland/owl-vaes/configs/waypoint_1/owl_vae_f16_c16.yml" 
-  vae_ckpt_path: "/mnt/data/shahbuland/owl-vaes/checkpoints/waypoint_1_vae_owlc_f16_c16/step_300000.pt" # Path to your VAE checkpoint
-  vae_scale: 1.0
-  vae_batch_size: 1
-  n_samples: 1
+  vae_cfg_path: "preproccessing/checkpoints/t3_VAE_nopose_v1/config.yaml" #null # Path to your VAE config
+  vae_ckpt_path: "/mnt/data/laplace/owl-wms/preproccessing/checkpoints/t3_VAE_nopose_v1/step_49000.pt" # Path to your VAE checkpoint
+  vae_scale: 1.0 
+  vae_batch_size: 8
+  n_samples: 2
   eval_sample_dir: null
 
 
 wandb:
   name: d-fusion  # lapp0-andrew-lapp
   project: COMBAT-WM  # owl
-  run_name: combat_v0_wp1enc
+  run_name: combat_v0_t3vae_L
