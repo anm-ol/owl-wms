@@ -104,9 +104,17 @@ class Attn(nn.Module):
             v = v[:,:,-self.local_offset:]
 
         if block_mask is None:
-            attn_out = flex_attention(q, k, v)
+            attn_out = flex_attention(q, k, v,
+                                     flex_kernel_options={
+                                     "BLOCK_M": 64, "BLOCK_N": 64,  # forward
+                                     "BLOCK_M1": 32, "BLOCK_N1": 64, "BLOCK_M2": 64, "BLOCK_N2": 32  # backwards
+                                      })
         else:
-            attn_out = flex_attention(q, k, v, block_mask=block_mask)
+            attn_out = flex_attention(q, k, v, block_mask=block_mask,
+                                     flex_kernel_options={
+                                     "BLOCK_M": 64, "BLOCK_N": 64,  # forward
+                                     "BLOCK_M1": 32, "BLOCK_N1": 64, "BLOCK_M2": 64, "BLOCK_N2": 32  # backwards
+                                      })
 
         attn_out = attn_out.permute(0, 2, 1, 3).contiguous().view(x.shape[0], L, -1)
 
